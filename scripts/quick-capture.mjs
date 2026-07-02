@@ -104,9 +104,10 @@ async function mirrorMarkdownImages({ vault, notePath, noteSlug, markdown }) {
   let index = 0;
   const rewritten = await replaceAsync(markdown, /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)(?:\s+"[^"]*")?\)/gi, async (full, alt, url) => {
     index += 1;
+    const imageIndex = index;
     try {
       const { buffer, contentType } = await fetchBuffer(url);
-      const basename = `${String(index).padStart(2, "0")}-${slugify(alt || "image")}${guessImageExtension(url, contentType)}`;
+      const basename = `${String(imageIndex).padStart(2, "0")}-${slugify(alt || "image")}${guessImageExtension(url, contentType)}`;
       const target = path.join(assetDir, basename);
       await fs.writeFile(target, buffer);
       const relative = path.relative(path.dirname(notePath), target).replace(/\\/g, "/");
