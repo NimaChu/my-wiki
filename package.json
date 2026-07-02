@@ -1,0 +1,20 @@
+{
+  "name": "agent-wiki",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "wiki": "node scripts/karpathy-wiki.mjs",
+    "wiki:status": "node scripts/karpathy-wiki.mjs status",
+    "wiki:lint": "node scripts/karpathy-wiki.mjs lint",
+    "wiki:garden": "node scripts/karpathy-wiki.mjs garden",
+    "wiki:repair-links": "node scripts/karpathy-wiki.mjs repair-links",
+    "wiki:search": "node scripts/karpathy-wiki.mjs search",
+    "wiki:capture": "node scripts/karpathy-wiki.mjs capture",
+    "wiki:distill-query": "node scripts/karpathy-wiki.mjs distill-query",
+    "wiki:refresh": "node scripts/karpathy-wiki.mjs refresh",
+    "dashboard": "node scripts/karpathy-wiki.mjs dashboard",
+    "dashboard:build": "node scripts/karpathy-wiki.mjs build-dashboard",
+    "graph": "npm --prefix tools/wiki-dashboard run graph"
+  }
+}

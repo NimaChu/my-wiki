@@ -1,0 +1,11 @@
+.DS_Store
+node_modules/
+dist/
+.playwright-cli/
+output/
+*.log
+tools/wiki-dashboard/vite.log
+tools/wiki-dashboard/public/wiki-graph.json
+tools/wiki-dashboard/dist/
+raw/assets/
+raw/snapshots/
