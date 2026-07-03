@@ -25,6 +25,20 @@ FlexSim Webserver is Autodesk FlexSim's browser-facing server for running and in
 
 The official documentation frames it as an advanced-user/developer feature rather than a general dashboard. Treat it as both a deployment surface and an integration API: configuration controls where models live and how many FlexSim instances may run, while the query interface controls model discovery, instance lifecycle, jobs, and model-specific request handlers. [[raw/2026-07-03--autodesk-flexsim-webserver]]
 
+## Visual Evidence
+
+![FlexSim Webserver model launcher](../raw/assets/2026-07-03--autodesk-flexsim-webserver/01-overview.png)
+
+The Webserver starts from a browser UI for selecting available models, starting instances, connecting to running instances, and optionally uploading models. [[raw/2026-07-03--autodesk-flexsim-webserver]]
+
+![FlexSim Webserver generated model interface](../raw/assets/2026-07-03--autodesk-flexsim-webserver/02-key-concepts.png)
+
+A running model can expose generated browser controls, a 3D model view, dashboards, and Experimenter/Optimizer tabs. [[raw/2026-07-03--autodesk-flexsim-webserver]]
+
+![FlexSim Webserver query flow](../raw/assets/2026-07-03--autodesk-flexsim-webserver/05-instance-queries.png)
+
+The query flow shows the browser sending a query to `flexsimserver.exe`, which forwards it to FlexSim and returns FlexSim's reply to the client. [[raw/2026-07-03--autodesk-flexsim-webserver]]
+
 ## Key Ideas
 
 - Installation and launch: FlexSim Webserver has its own installer. Starting the FlexSim Server hosts a local website, with the default local access address documented as `http://127.0.0.1/`. [[raw/2026-07-03--autodesk-flexsim-webserver]]

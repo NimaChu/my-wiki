@@ -8,6 +8,9 @@ published:
 captured: {{date}}
 source_url:
 snapshot_path:
+image_index_path:
+image_count:
+mirrored_image_count:
 content_hash:
 capture_method:
 source_quality:
@@ -34,8 +37,10 @@ Paste or capture the source material here without rewriting it into a wiki artic
 
 ## Images
 
-- Preserve remote images as Markdown image links.
-- Store local copied images under `raw/assets/`.
+- Preserve remote images as Markdown image links during initial capture.
+- For image-rich sources, run `npm run wiki:images -- --source raw/source-note.md`.
+- Store local copied images under `raw/assets/<source-note>/`.
+- Keep a concise table of visual evidence here and the complete machine-readable inventory in `image-index.json`.
 - Prefer image placement that matches the original reading flow.
 
 ## Extracted Claims

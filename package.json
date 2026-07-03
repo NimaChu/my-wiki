@@ -11,6 +11,7 @@
     "wiki:repair-links": "node scripts/karpathy-wiki.mjs repair-links",
     "wiki:search": "node scripts/karpathy-wiki.mjs search",
     "wiki:capture": "node scripts/karpathy-wiki.mjs capture",
+    "wiki:images": "node scripts/karpathy-wiki.mjs images",
     "wiki:distill-query": "node scripts/karpathy-wiki.mjs distill-query",
     "wiki:refresh": "node scripts/karpathy-wiki.mjs refresh",
     "dashboard": "node scripts/karpathy-wiki.mjs dashboard",

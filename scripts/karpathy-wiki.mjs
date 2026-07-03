@@ -11,6 +11,7 @@ const commands = {
   status: ["vault-status.mjs"],
   lint: ["wiki-lint.mjs"],
   capture: ["quick-capture.mjs", ...rest],
+  images: ["image-assets.mjs", ...rest],
   refresh: ["refresh-dashboard.mjs", ...rest],
   dashboard: ["refresh-dashboard.mjs", "--serve", ...rest],
   build: ["refresh-dashboard.mjs", "--build", ...rest],
@@ -32,6 +33,7 @@ Usage:
   node scripts/karpathy-wiki.mjs refresh [--serve] [--build]
   node scripts/karpathy-wiki.mjs build-dashboard
   node scripts/karpathy-wiki.mjs capture --title "Title" --url "https://..." --type webpage
+  node scripts/karpathy-wiki.mjs images --source raw/source-note.md
   node scripts/karpathy-wiki.mjs capture --title "Title" --url "https://..." --refresh-dashboard
   node scripts/karpathy-wiki.mjs capture --title "Title" --url "https://..." --serve-dashboard
   node scripts/karpathy-wiki.mjs search "query terms"

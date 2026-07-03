@@ -16,3 +16,5 @@ Record meaningful changes to the knowledge base here: source ingestion, wiki pag
 - [2026-07-03T01:38:11.351Z] CAPTURE_RAW source="raw/2026-07-03--firecrawl-mcp-一文搞懂大模型rag应用-附实践案例.md" type="webpage" provider="firecrawl-mcp" note="Hosted keyless MCP reached via corporate proxy; scrape hit Zhihu safety gate; search found article metadata"
 - [2026-07-03T01:48:58.000Z] CAPTURE_RAW source="raw/2026-07-03--autodesk-flexsim-webserver.md" type="webpage" provider="firecrawl-mcp" note="Official Autodesk FlexSim Webserver documentation captured successfully; snapshots saved under raw/snapshots"
 - [2026-07-03T01:50:00.000Z] CREATE_WIKI page="wiki/FlexSim Webserver.md" sources="raw/2026-07-03--autodesk-flexsim-webserver.md"
+
+- [2026-07-03T02:24:04.447Z] IMAGE_ASSETS source="raw/2026-07-03--autodesk-flexsim-webserver.md" images="12" mirrored="12"

@@ -7,5 +7,4 @@ output/
 tools/wiki-dashboard/vite.log
 tools/wiki-dashboard/public/wiki-graph.json
 tools/wiki-dashboard/dist/
-raw/assets/
 raw/snapshots/

@@ -36,6 +36,7 @@ npm run wiki:garden
 npm run wiki:repair-links
 npm run wiki:search -- "query terms"
 npm run wiki:capture -- --title "Source title" --url "https://example.com"
+npm run wiki:images -- --source raw/source-note.md
 npm run dashboard
 ```
 
@@ -60,10 +61,12 @@ Use this when adding a webpage, article, PDF, transcript, or long-form note.
 1. Create a raw source note in `raw/` using `templates/raw-source.md` or `npm run wiki:capture`.
 2. Preserve bibliographic details and evidence metadata: title, author, date, URL, captured date, type, status, `snapshot_path`, `content_hash`, `capture_method`, and `source_quality`.
 3. Preserve inline image order and mirror remote images when practical.
-4. Extract durable claims and entities into existing or new pages under `wiki/`.
-5. Link wiki pages back to raw notes with `[[raw/path-or-title]]` links.
-6. Add a short entry to `wiki/log.md`.
-7. Do not refresh or start the dashboard by default. Run `npm run dashboard` or `npm run wiki:refresh` only when the user asks to view the knowledge graph, inspect the dashboard, or perform visualization work.
+4. For image-rich webpages, run `npm run wiki:images -- --source raw/source-note.md` after capture or after adding snapshot paths. This downloads images into `raw/assets/<source-note>/`, writes `image-index.json`, and updates the raw note's `## Images` section.
+5. Promote only the most useful visual evidence into wiki pages. Keep exhaustive image inventories in raw notes.
+6. Extract durable claims and entities into existing or new pages under `wiki/`.
+7. Link wiki pages back to raw notes with `[[raw/path-or-title]]` links.
+8. Add a short entry to `wiki/log.md`.
+9. Do not refresh or start the dashboard by default. Run `npm run dashboard` or `npm run wiki:refresh` only when the user asks to view the knowledge graph, inspect the dashboard, or perform visualization work.
 
 ## Query
 
@@ -73,8 +76,10 @@ Use this when answering from the vault.
 2. Search `wiki/` first, then inspect linked raw notes when claims need grounding.
 3. Prefer linked synthesis over one-off summaries.
 4. Use `npm run wiki:search -- "query terms"` for cross-layer aggregation when direct file search is not enough.
-5. If the answer reveals a missing durable concept and the user wants the vault updated, create or update the relevant wiki page.
-6. Record material updates in `wiki/log.md`.
+5. Inspect `## Visual Evidence`, `## Images`, and any `image_index_path` in source notes. If screenshots, diagrams, UI states, workflows, architecture, charts, or configuration images clarify the answer, include 1-3 relevant images with short captions. Avoid decorative or loosely related images.
+6. When answering inside Codex Desktop, use absolute local image paths so images render, for example `![caption](E:/agent-wiki/raw/assets/source/image.png)`. In repository notes, keep relative Markdown paths.
+7. If the answer reveals a missing durable concept and the user wants the vault updated, create or update the relevant wiki page.
+8. Record material updates in `wiki/log.md`.
 
 ## Maintain
 

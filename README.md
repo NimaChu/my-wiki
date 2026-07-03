@@ -19,10 +19,13 @@ Optional:
 ```bash
 npm run wiki:status
 npm run wiki:lint
-npm run dashboard
 ```
 
-Open the dashboard:
+Open the dashboard only when you want graph visualization:
+
+```bash
+npm run dashboard
+```
 
 ```text
 http://127.0.0.1:5173/
@@ -46,6 +49,7 @@ npm run wiki:garden
 npm run wiki:repair-links
 npm run wiki:search -- "query terms"
 npm run wiki:capture -- --title "Source title" --url "https://example.com"
+npm run wiki:images -- --source raw/source-note.md
 npm run dashboard
 npm run dashboard:build
 ```
@@ -79,6 +83,25 @@ npm run wiki:capture -- --title "Source title" --url "https://example.com"
 ```
 
 If the current Codex thread does not show Firecrawl tools immediately, reload/open a new thread after the workspace MCP config is detected.
+
+## Image Evidence
+
+For image-rich articles and official docs, treat screenshots and diagrams as evidence, not decoration.
+
+After capturing a raw note with useful images or snapshot paths, run:
+
+```bash
+npm run wiki:images -- --source raw/source-note.md
+```
+
+This command:
+
+- extracts Markdown and HTML images from the raw note and its snapshots,
+- mirrors remote images into `raw/assets/<source-note>/`,
+- writes `raw/assets/<source-note>/image-index.json`,
+- updates the raw note with `image_index_path`, image counts, and a `## Images` table.
+
+When synthesizing a wiki page, promote only the most useful images into a `## Visual Evidence` section. Keep full inventories in `raw/`. When an agent answers a user question, it should inspect `## Visual Evidence`, `## Images`, and `image-index.json`; if images clarify the answer, include 1-3 relevant images with captions.
 
 Direct CLI:
 
