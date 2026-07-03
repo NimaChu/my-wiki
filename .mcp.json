@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "firecrawl": {
+      "title": "Firecrawl",
+      "description": "Keyless hosted Firecrawl MCP for quick web scrape, search, and interact workflows. Full crawl/map/agent/extract tools require Firecrawl auth.",
+      "type": "http",
+      "url": "https://mcp.firecrawl.dev/v2/mcp"
+    }
+  }
+}

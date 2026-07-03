@@ -6,11 +6,13 @@ aliases:
   - RAG
   - Retrieval-Augmented Generation
   - 检索增强生成
-source_count: 1
+source_count: 2
 sources:
   - "[[raw/2026-07-03--一文搞懂大模型rag应用-附实践案例]]"
+  - "[[raw/2026-07-03--firecrawl-mcp-一文搞懂大模型rag应用-附实践案例]]"
 relation_hints:
   - "supports [[raw/2026-07-03--一文搞懂大模型rag应用-附实践案例]]"
+  - "supports [[raw/2026-07-03--firecrawl-mcp-一文搞懂大模型rag应用-附实践案例]]"
 tags:
   - llm
   - rag
@@ -42,3 +44,4 @@ RAG has two broad phases. The preparation phase loads source data, cleans or nor
 ## Source
 
 - [[raw/2026-07-03--一文搞懂大模型rag应用-附实践案例]]
+- [[raw/2026-07-03--firecrawl-mcp-一文搞懂大模型rag应用-附实践案例]]

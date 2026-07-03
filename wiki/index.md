@@ -23,6 +23,7 @@ This is the main entry point for the vault.
 Add durable wiki pages here as the vault grows.
 
 - [[检索增强生成 RAG]] - RAG workflow, use cases, and implementation tradeoffs.
+- [[FlexSim Webserver]] - Autodesk FlexSim Webserver deployment, query API, streaming, and reverse proxy notes.
 
 ## Maintenance
 

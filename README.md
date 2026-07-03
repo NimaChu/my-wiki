@@ -52,6 +52,34 @@ npm run dashboard:build
 
 Dashboard refresh and serving are intentionally on-demand. Routine captures and wiki edits should not start the dashboard; use dashboard commands only when you want to inspect the graph or work on visualization.
 
+## Firecrawl MCP
+
+This workspace includes a minimal `.mcp.json` for the hosted Firecrawl MCP server:
+
+```text
+https://mcp.firecrawl.dev/v2/mcp
+```
+
+The hosted keyless tier lets MCP-capable agents use `scrape`, `search`, and `interact` without a Firecrawl API key, subject to rate limits. Full tools such as `crawl`, `map`, `agent`, and `extract` require Firecrawl auth. If you later want the full tool set, replace the URL with:
+
+```text
+https://mcp.firecrawl.dev/{FIRECRAWL_API_KEY}/v2/mcp
+```
+
+Use Firecrawl MCP as an agent capture tool, not as the vault source of truth:
+
+1. Ask the agent to scrape/search/interact with Firecrawl MCP.
+2. Review or summarize the useful result.
+3. Ingest the selected evidence through `npm run wiki:capture` using stdin or `--content-file`.
+
+Example:
+
+```bash
+npm run wiki:capture -- --title "Source title" --url "https://example.com"
+```
+
+If the current Codex thread does not show Firecrawl tools immediately, reload/open a new thread after the workspace MCP config is detected.
+
 Direct CLI:
 
 ```bash

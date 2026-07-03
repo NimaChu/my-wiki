@@ -41,6 +41,18 @@ npm run dashboard
 
 Dashboard commands are on-demand visualization tools. Do not refresh or start the dashboard during routine ingest or wiki edits unless the user explicitly asks to view the graph, inspect the dashboard, or work on visualization.
 
+## Firecrawl MCP
+
+This workspace provides `.mcp.json` for hosted Firecrawl MCP at `https://mcp.firecrawl.dev/v2/mcp`.
+
+- Treat Firecrawl MCP as an optional agent capture tool, not as a required project dependency.
+- The hosted keyless tier supports quick `scrape`, `search`, and `interact` workflows without a Firecrawl API key, with rate limits.
+- Full Firecrawl tools such as `crawl`, `map`, `agent`, and `extract` require Firecrawl auth; only use them when the user has configured access.
+- Prefer Firecrawl MCP when direct capture fails, when pages need rendering/interactions, or when web search is needed before selecting sources.
+- After using MCP, ingest selected evidence into `raw/` with `npm run wiki:capture` via stdin or `--content-file`; do not treat MCP output alone as durable vault state.
+- Respect site terms, robots policy, privacy constraints, and user authorization before crawling or mirroring content.
+- If Firecrawl MCP tools are not visible in the current thread, the agent may need a thread/app reload after `.mcp.json` is added.
+
 ## Ingest
 
 Use this when adding a webpage, article, PDF, transcript, or long-form note.
