@@ -2,6 +2,8 @@
 
 Zero-cost, beginner-friendly local knowledge base for AI agents.
 
+[简体中文](README.zh-CN.md)
+
 Agent Wiki gives you a practical way to own a private Markdown knowledge base without paying for a SaaS app, running a database, learning Obsidian, or building a RAG stack from scratch. Drop it into a workspace, ask your coding agent to capture sources, and let the agent maintain `raw/` evidence, `wiki/` pages, image references, search, lint, and an optional graph dashboard.
 
 If you can open a terminal and talk to an agent, you can have a local knowledge base.
