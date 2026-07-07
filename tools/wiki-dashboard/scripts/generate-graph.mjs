@@ -300,15 +300,20 @@ async function main() {
     }, new Map())
   ).map(([target, sources]) => ({ target, count: sources.length, sources }));
 
+  const inbox = nodes.filter((node) => node.id.startsWith("raw/") && node.status === "inbox").length;
+  const imaPointers = nodes.filter((node) => node.id.startsWith("raw/") && node.status === "ima-pointer").length;
+  const needsFollowup = nodes.filter((node) => node.id.startsWith("raw/") && node.status === "needs-followup").length;
   const stats = {
     nodes: nodes.length,
     edges: edges.length,
     typedRelations: typedRelations.length,
     rawSources: nodes.filter((node) => node.id.startsWith("raw/")).length,
     wikiPages: nodes.filter((node) => node.id.startsWith("wiki/")).length,
-    inbox: nodes.filter((node) => node.id.startsWith("raw/") && node.status === "inbox").length,
+    pendingRaw: inbox + imaPointers + needsFollowup,
+    inbox,
+    imaPointers,
     processed: nodes.filter((node) => node.id.startsWith("raw/") && node.status === "processed").length,
-    needsFollowup: nodes.filter((node) => node.id.startsWith("raw/") && node.status === "needs-followup").length,
+    needsFollowup,
     stale: nodes.filter((node) => node.id.startsWith("raw/") && node.status === "stale").length,
     orphaned: nodes.filter((node) => node.id.startsWith("wiki/") && node.backlinks.length === 0 && node.out.length === 0).length,
     unresolved: unresolved.length,
@@ -328,6 +333,7 @@ async function main() {
     processedIssues,
     queues: {
       inbox: nodes.filter((node) => node.id.startsWith("raw/") && node.status === "inbox").map((node) => node.id),
+      imaPointers: nodes.filter((node) => node.id.startsWith("raw/") && node.status === "ima-pointer").map((node) => node.id),
       needsFollowup: nodes.filter((node) => node.id.startsWith("raw/") && node.status === "needs-followup").map((node) => node.id),
       stale: nodes
         .filter((node) => node.id.startsWith("raw/") && node.status === "stale" && !node.supersededBy)
