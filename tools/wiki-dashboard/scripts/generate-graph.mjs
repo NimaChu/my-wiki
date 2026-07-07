@@ -231,6 +231,7 @@ async function main() {
         status: String(frontmatter.status || "unknown"),
         tags: asArray(frontmatter.tags),
         content: wikiContentForGraph(id, content),
+        supersededBy: String(frontmatter.superseded_by || ""),
         aliases: asArray(frontmatter.aliases),
         relations: parseRelationHints(frontmatter),
         links: Array.from(new Set([...extractWikiLinks(stripFrontmatter(content)), ...frontmatterLinks(frontmatter)]))
@@ -328,7 +329,9 @@ async function main() {
     queues: {
       inbox: nodes.filter((node) => node.id.startsWith("raw/") && node.status === "inbox").map((node) => node.id),
       needsFollowup: nodes.filter((node) => node.id.startsWith("raw/") && node.status === "needs-followup").map((node) => node.id),
-      stale: nodes.filter((node) => node.id.startsWith("raw/") && node.status === "stale").map((node) => node.id)
+      stale: nodes
+        .filter((node) => node.id.startsWith("raw/") && node.status === "stale" && !node.supersededBy)
+        .map((node) => node.id)
     },
     stats
   };

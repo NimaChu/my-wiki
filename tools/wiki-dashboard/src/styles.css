@@ -51,6 +51,7 @@ select {
 
 .top-nav {
   grid-area: top;
+  z-index: 10;
   display: grid;
   grid-template-columns: 260px minmax(560px, 1fr);
   align-items: center;
@@ -239,7 +240,7 @@ h3 {
 
 .search-toolbar {
   display: grid;
-  grid-template-columns: minmax(320px, 1fr) 180px 150px;
+  grid-template-columns: minmax(320px, 1fr) 220px;
   align-items: end;
   gap: 10px;
 }
@@ -260,7 +261,7 @@ h3 {
 }
 
 .top-search input,
-.top-filter select {
+.group-picker summary {
   width: 100%;
   min-height: 38px;
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -302,13 +303,98 @@ h3 {
 }
 
 .top-search input:focus,
-.top-filter select:focus {
+.group-picker summary:focus {
   border-color: #8da2ff;
   box-shadow: 0 0 0 3px rgba(141, 162, 255, 0.16);
 }
 
-.top-filter select {
+.group-picker {
+  position: relative;
+}
+
+.group-picker summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   cursor: pointer;
+  list-style: none;
+}
+
+.group-picker summary::-webkit-details-marker {
+  display: none;
+}
+
+.group-picker summary::after {
+  color: #9da6a8;
+  content: "⌄";
+  font-size: 13px;
+}
+
+.group-picker[open] summary {
+  border-color: #8da2ff;
+  box-shadow: 0 0 0 3px rgba(141, 162, 255, 0.16);
+}
+
+.group-picker-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  width: min(280px, 78vw);
+  max-height: min(360px, calc(100vh - 120px));
+  gap: 4px;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(24, 27, 29, 0.98);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.36);
+  padding: 8px;
+}
+
+.group-picker-clear,
+.group-picker-option {
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #ece8dd;
+  padding: 7px 8px;
+  text-align: left;
+}
+
+.group-picker-clear {
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.group-picker-option {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.group-picker-option input {
+  width: 14px;
+  height: 14px;
+  accent-color: #8da2ff;
+}
+
+.group-picker-option span {
+  overflow: hidden;
+  color: #ece8dd;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-picker-clear:hover,
+.group-picker-clear:focus-visible,
+.group-picker-option:hover,
+.group-picker-option:focus-within {
+  background: rgba(255, 255, 255, 0.08);
+  outline: none;
 }
 
 .hierarchy-button,

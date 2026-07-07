@@ -40,8 +40,7 @@ type WikiGraph = {
 
 type Filters = {
   query: string;
-  group: string;
-  status: string;
+  groups: string[];
 };
 
 type GraphScope = "global" | "local";
@@ -93,8 +92,7 @@ const groupPalette = [
 
 const initialFilters: Filters = {
   query: "",
-  group: "all",
-  status: "all"
+  groups: []
 };
 
 function App() {
@@ -115,42 +113,65 @@ function App() {
   const [rotation, setRotation] = useState(initialRotation);
   const [rightPanelWidth, setRightPanelWidth] = useState(560);
   const [isResizingPanel, setIsResizingPanel] = useState(false);
+  const hasLoadedGraph = useRef(false);
 
   useEffect(() => {
-    fetch("/wiki-graph.json", { cache: "no-store" })
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json();
-      })
-      .then((data: WikiGraph) => {
-        setGraph(data);
-        setSelectedId(null);
-      })
-      .catch((error: Error) => setLoadError(error.message));
+    let cancelled = false;
+    const loadGraph = (resetSelection = false) => {
+      fetch(`/wiki-graph.json?t=${Date.now()}`, { cache: "no-store" })
+        .then((response) => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return response.json();
+        })
+        .then((data: WikiGraph) => {
+          if (cancelled) return;
+          setGraph((current) => current?.generatedAt === data.generatedAt && current.nodes.length === data.nodes.length ? current : data);
+          hasLoadedGraph.current = true;
+          setSelectedId((current) => {
+            if (resetSelection) return null;
+            if (!current) return null;
+            return data.nodes.some((node) => node.id === current) ? current : null;
+          });
+          setLoadError(null);
+        })
+        .catch((error: Error) => {
+          if (!cancelled && !hasLoadedGraph.current) setLoadError(error.message);
+        });
+    };
+
+    loadGraph(true);
+    const refreshId = window.setInterval(() => loadGraph(false), 10000);
+    const refreshOnFocus = () => loadGraph(false);
+    window.addEventListener("focus", refreshOnFocus);
+    return () => {
+      cancelled = true;
+      window.clearInterval(refreshId);
+      window.removeEventListener("focus", refreshOnFocus);
+    };
   }, []);
 
   const nodeById = useMemo(() => new Map((graph?.nodes ?? []).map((node) => [node.id, node])), [graph]);
   const filterOptions = useMemo(() => {
     const nodes = (graph?.nodes ?? []).filter((node) => node.id.startsWith("wiki/"));
     return {
-      groups: unique(nodes.map((node) => node.group ?? inferFallbackGroup(node))),
-      statuses: unique(nodes.map((node) => node.status))
+      groups: unique(nodes.map((node) => node.group ?? inferFallbackGroup(node)))
     };
   }, [graph]);
+  const selectedGroupSet = useMemo(() => new Set(filters.groups), [filters.groups]);
+  const groupPickerLabel = useMemo(() => {
+    if (filters.groups.length === 0) return "All groups";
+    if (filters.groups.length === 1) return groupLabelText(filters.groups[0]);
+    return `${filters.groups.length} groups`;
+  }, [filters.groups]);
   const wikiFilteredNodes = useMemo(() => {
     if (!graph) return [];
     const needle = filters.query.trim().toLowerCase();
     const hasSearch = needle !== "";
     return graph.nodes.filter((node) => {
       if (!node.id.startsWith("wiki/")) return false;
-      if (!hasSearch) return true;
       const group = node.group ?? inferFallbackGroup(node);
       const searchable = [node.title, node.path, node.type, node.status, group, ...node.tags].join(" ").toLowerCase();
-      return (
-        searchable.includes(needle) &&
-        (filters.group === "all" || filters.group === group) &&
-        (filters.status === "all" || filters.status === node.status)
-      );
+      return (!hasSearch || searchable.includes(needle)) && (filters.groups.length === 0 || filters.groups.includes(group));
     });
   }, [graph, filters]);
 
@@ -266,6 +287,15 @@ function App() {
     setZoom(1);
     setPan({ x: 0, y: 0 });
     setRotation(initialRotation);
+  };
+
+  const toggleGroupFilter = (group: string) => {
+    setFilters((current) => {
+      const groups = current.groups.includes(group)
+        ? current.groups.filter((item) => item !== group)
+        : [...current.groups, group];
+      return { ...current, groups };
+    });
   };
 
   const zoomByWheel = (deltaY: number) => {
@@ -384,20 +414,27 @@ function App() {
               ) : null}
             </span>
           </label>
-          <label className="top-filter">
+          <div className="top-filter">
             <span>Group</span>
-            <select value={filters.group} onChange={(event) => setFilters({ ...filters, group: event.target.value })}>
-              <option value="all">All groups</option>
-              {filterOptions.groups.map((group) => <option key={group} value={group}>{groupLabelText(group)}</option>)}
-            </select>
-          </label>
-          <label className="top-filter">
-            <span>Status</span>
-            <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}>
-              <option value="all">All status</option>
-              {filterOptions.statuses.map((status) => <option key={status} value={status}>{status}</option>)}
-            </select>
-          </label>
+            <details className="group-picker">
+              <summary>{groupPickerLabel}</summary>
+              <div className="group-picker-menu">
+                <button type="button" className="group-picker-clear" onClick={() => setFilters({ ...filters, groups: [] })}>
+                  All groups
+                </button>
+                {filterOptions.groups.map((group) => (
+                  <label key={group} className="group-picker-option">
+                    <input
+                      type="checkbox"
+                      checked={selectedGroupSet.has(group)}
+                      onChange={() => toggleGroupFilter(group)}
+                    />
+                    <span>{groupLabelText(group)}</span>
+                  </label>
+                ))}
+              </div>
+            </details>
+          </div>
         </section>
 
       </header>

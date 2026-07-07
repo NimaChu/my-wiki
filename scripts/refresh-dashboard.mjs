@@ -3,6 +3,7 @@ import { closeSync, openSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { DASHBOARD_PORT, DASHBOARD_URL, dashboardPath, exists, vaultPath } from "./wiki-lib.mjs";
 
@@ -63,6 +64,19 @@ if (shouldServe && !(await isServerAlive())) {
     await new Promise((resolve) => setTimeout(resolve, 250));
     if (await isServerAlive()) break;
   }
+}
+
+if (shouldServe) {
+  const watchLogPath = path.join(dash, "graph-watch.log");
+  const watchLogFd = openSync(watchLogPath, "a");
+  const watcher = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "watch-graph.mjs")], {
+    cwd: vault,
+    detached: true,
+    stdio: ["ignore", watchLogFd, watchLogFd],
+    shell: false
+  });
+  watcher.unref();
+  closeSync(watchLogFd);
 }
 
 const graphPath = path.join(dash, "public", "wiki-graph.json");
