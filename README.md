@@ -139,6 +139,19 @@ Use Firecrawl as a capture helper, not as the source of truth:
 2. Review the useful result.
 3. Save selected evidence into Agent Wiki with `npm run wiki:capture`.
 
+## IMA Bridge, Optional
+
+Agent Wiki can also keep lightweight pointers to external IMA knowledge base items.
+
+This is optional and requires user-confirmed IMA OpenAPI credentials. The local vault stores only pointer metadata and extracted wiki concepts by default. Full IMA originals stay in IMA.
+
+```bash
+npm run wiki:sync-ima
+npm run wiki:fetch-ima -- raw/ima/source-note.md --metadata
+```
+
+Maintenance treats `ima-pointer` as pending raw work. The agent fetches the original temporarily, extracts durable concepts into `wiki/`, adds a `## IMA Sources` backlink, and then marks the pointer `processed`.
+
 ## Commands
 
 ```bash
@@ -149,6 +162,8 @@ npm run wiki:repair-links
 npm run wiki:search -- "query terms"
 npm run wiki:capture -- --title "Source title" --url "https://example.com"
 npm run wiki:images -- --source raw/source-note.md
+npm run wiki:sync-ima
+npm run wiki:fetch-ima -- raw/ima/source-note.md --metadata
 npm run dashboard
 npm run dashboard:open
 npm run dashboard:build

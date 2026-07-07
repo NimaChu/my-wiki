@@ -8,10 +8,14 @@ tools/wiki-dashboard/vite.log
 tools/wiki-dashboard/public/wiki-graph.json
 tools/wiki-dashboard/dist/
 raw/*.md
+raw/**/*.md
 !raw/README.md
+!raw/**/README.md
 raw/assets/
 raw/snapshots/
 wiki/*.md
+wiki/**/*.md
 !wiki/README.md
 !wiki/index.md
 !wiki/log.md
+!wiki/**/README.md

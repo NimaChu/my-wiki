@@ -18,6 +18,7 @@ Image-rich sources should keep visual evidence too. Use `npm run wiki:images -- 
 Typical statuses:
 
 - `inbox`: captured but not yet compiled.
+- `ima-pointer`: external IMA source pointer waiting to be fetched, distilled, and linked.
 - `processed`: compiled into wiki pages with backlinks closed.
 - `needs-followup`: requires more work before it can be processed.
 - `stale`: superseded or no longer current.

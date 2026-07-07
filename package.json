@@ -12,9 +12,12 @@
     "wiki:search": "node scripts/karpathy-wiki.mjs search",
     "wiki:capture": "node scripts/karpathy-wiki.mjs capture",
     "wiki:images": "node scripts/karpathy-wiki.mjs images",
+    "wiki:sync-ima": "node scripts/karpathy-wiki.mjs sync-ima",
+    "wiki:fetch-ima": "node scripts/karpathy-wiki.mjs fetch-ima",
     "wiki:distill-query": "node scripts/karpathy-wiki.mjs distill-query",
     "wiki:refresh": "node scripts/karpathy-wiki.mjs refresh",
     "dashboard": "node scripts/karpathy-wiki.mjs dashboard",
+    "dashboard:open": "node scripts/open-dashboard.mjs",
     "dashboard:build": "node scripts/karpathy-wiki.mjs build-dashboard",
     "graph": "npm --prefix tools/wiki-dashboard run graph"
   }

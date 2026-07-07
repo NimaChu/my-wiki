@@ -22,15 +22,14 @@ related:
 
 # {{title}}
 
-> **IMA 指针条目**：原文档存放在 IMA 知识库，本地仅保留元数据和引用。查询原文请通过 `ima-mcp` 的 `fetch_media_content` 工具获取。
+> **IMA 指针条目**：原文档存放在 IMA 知识库，本地仅保留元数据和引用。查询原文请通过 IMA connector / OpenAPI，或 `npm run wiki:fetch-ima -- raw/ima/source-note.md` 获取。
 
 ## IMA Source
 
-- **知识库**: {{knowledge_base_name}}（ID: `{{knowledge_base_id}}`）
-- **文件夹**: {{folder_name}}（ID: `{{folder_id}}`）
-- **Media ID**: `{{media_id}}`
+- **知识库**: {{knowledge_base_name}}
+- **文件夹**: {{folder_name}}
 - **Media 类型**: {{media_type}}
-- **可获取原文**: 通过 `mcp__ima-mcp__fetch_media_content` 获取
+- **可获取原文**: 通过 IMA connector / OpenAPI 获取
 
 ## 摘要
 
@@ -48,4 +47,5 @@ related:
 
 - Status: ima-pointer
 - 本条目不存储原文，原文在 IMA 知识库中
-- 如需深度阅读原文，使用 `fetch_media_content` 获取后决定是否创建本地 wiki 页面
+- 后续维护时获取原文，提取关键概念，再更新对应 wiki 页面
+- 完成 wiki 反链闭环后，将本条目改为 `processed`

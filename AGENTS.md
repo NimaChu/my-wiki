@@ -48,6 +48,8 @@ npm run wiki:repair-links
 npm run wiki:search -- "query terms"
 npm run wiki:capture -- --title "Source title" --url "https://example.com"
 npm run wiki:images -- --source raw/source-note.md
+npm run wiki:sync-ima
+npm run wiki:fetch-ima -- raw/ima/source-note.md --metadata
 npm run dashboard
 npm run dashboard:open
 ```
@@ -98,7 +100,7 @@ Use this when answering from the vault.
 ## Maintain
 
 - Treat short user requests such as `维护知识库`, `维护本地知识库`, `maintain the knowledge base`, or `maintain this vault` as a complete local maintenance request. Do not require the user to restate the full workflow.
-- A maintenance request means: run `npm run wiki:status`, review the queue with `npm run wiki:garden` when useful, process a coherent batch of inbox or weak raw notes, update or create atomic wiki pages, repair wiki-to-wiki and wiki-to-raw evidence links, update `wiki/index.md` and `wiki/log.md` when material knowledge changes, then run `npm run wiki:lint`.
+- A maintenance request means: run `npm run wiki:status`, review the queue with `npm run wiki:garden` when useful, process a coherent batch of `inbox`, `ima-pointer`, or weak raw notes, update or create atomic wiki pages, repair wiki-to-wiki and wiki-to-raw evidence links, update `wiki/index.md` and `wiki/log.md` when material knowledge changes, then run `npm run wiki:lint`.
 - For large backlogs, work in reasonable batches. Prefer one corpus section, topic family, source folder, or high-value cluster at a time; report what was completed and what remains instead of trying to finish the whole vault in one oversized pass.
 - Keep knowledge maintenance local. Do not `git add`, commit, push, or otherwise sync local raw/wiki knowledge just because the user asked to maintain the knowledge base.
 - Do not refresh, build, start, or open the dashboard during maintenance unless the user explicitly asks to view or work on the graph/frontend/dashboard.
@@ -108,7 +110,7 @@ Use this when answering from the vault.
 - Split pages that mix unrelated ideas.
 - Mark stale pages with `status: stale` and explain why.
 - Keep `wiki/index.md` useful as the main entry point.
-- Keep `processed` strict: a raw note is only processed when its primary wiki targets resolve, the wiki side links back, and follow-up flags are cleared.
+- Keep `processed` strict: a raw note is only processed when its primary wiki targets resolve, the wiki side links back, and follow-up flags are cleared. `ima-pointer` is not a final state; it is an unprocessed raw pointer whose original must be fetched from IMA before being promoted to `processed`.
 
 ## External Knowledge Connectors
 
@@ -122,6 +124,18 @@ Before using an external knowledge base, ask the user to confirm:
 - whether external source identifiers may be written into raw or wiki pages.
 
 If configured, keep local records lightweight: pointer notes plus extracted concepts are usually enough. Do not store full external content locally unless the user explicitly requests it and has the right to do so.
+
+### IMA Pointer Maintenance
+
+When the user has confirmed IMA use and credentials are configured:
+
+1. Use `npm run wiki:sync-ima` to create lightweight pointer stubs in `raw/ima/`.
+2. Treat `status: ima-pointer` as pending raw work, equivalent to `inbox` except the original lives in IMA.
+3. Use `npm run wiki:fetch-ima -- raw/ima/source-note.md` or an available IMA connector/OpenAPI tool to fetch the original during maintenance.
+4. Extract durable concepts into existing or new wiki pages.
+5. Add `## IMA Sources` to touched wiki pages and link the pointer stub.
+6. Change the pointer stub from `status: ima-pointer` to `status: processed` only after the wiki page links back.
+7. Keep the full IMA original out of the repository unless the user explicitly asks and has the right to store it.
 
 ## Style
 

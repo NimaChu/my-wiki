@@ -191,6 +191,19 @@ https://mcp.firecrawl.dev/v2/mcp
 
 这可以帮助 agent 抓取一些普通方式不好抓的网页。没有 Firecrawl 也可以使用 Agent Wiki；它只是一个可选增强。
 
+## 可选：IMA 桥接
+
+Agent Wiki 也可以和 IMA 知识库做轻量桥接。
+
+这个功能是可选的，需要用户明确确认并配置 IMA OpenAPI 凭证。默认机制不是把 IMA 原文复制到本地，而是在 `raw/ima/` 里保存轻量指针，维护时临时获取原文、提取概念、更新 `wiki/`，然后把指针状态改成 `processed`。
+
+```bash
+npm run wiki:sync-ima
+npm run wiki:fetch-ima -- raw/ima/source-note.md --metadata
+```
+
+`ima-pointer` 和普通 `inbox` 一样都表示“还没处理完”。区别只是：普通 raw 的原文在本地，IMA raw 的原文在 IMA。
+
 ## 常用命令
 
 ```bash
@@ -201,6 +214,8 @@ npm run wiki:repair-links
 npm run wiki:search -- "query terms"
 npm run wiki:capture -- --title "Source title" --url "https://example.com"
 npm run wiki:images -- --source raw/source-note.md
+npm run wiki:sync-ima
+npm run wiki:fetch-ima -- raw/ima/source-note.md --metadata
 npm run dashboard
 ```
 
@@ -216,6 +231,7 @@ npm run dashboard
 
 - Obsidian：如果你想用图谱、反链、Markdown 编辑体验
 - Firecrawl MCP：如果你想增强网页抓取能力
+- IMA OpenAPI：如果你想桥接已有 IMA 知识库
 - GitHub：如果你想同步和改进这个工具项目
 
 ## 给第一次使用的人

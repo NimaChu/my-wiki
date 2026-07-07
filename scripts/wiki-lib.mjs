@@ -294,15 +294,20 @@ export function processedRawIssues(scan) {
 }
 
 export function statsFromScan(scan) {
+  const inbox = scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "inbox").length;
+  const imaPointers = scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "ima-pointer").length;
+  const needsFollowup = scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "needs-followup").length;
   return {
     nodes: scan.nodes.length,
     edges: scan.edges.length,
     typedRelations: scan.typedRelations.length,
     rawSources: scan.nodes.filter((node) => node.id.startsWith("raw/")).length,
     wikiPages: scan.nodes.filter((node) => node.id.startsWith("wiki/")).length,
-    inbox: scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "inbox").length,
+    pendingRaw: inbox + imaPointers + needsFollowup,
+    inbox,
+    imaPointers,
     processed: scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "processed").length,
-    needsFollowup: scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "needs-followup").length,
+    needsFollowup,
     stale: scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "stale").length,
     unresolved: scan.unresolved.length,
     invalidRelations: scan.invalidRelations.length,
