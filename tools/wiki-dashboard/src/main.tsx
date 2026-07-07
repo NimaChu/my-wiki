@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -51,6 +51,10 @@ type GraphMode = "knowledge" | "evidence";
 type LayoutNode = WikiNode & {
   x: number;
   y: number;
+  z?: number;
+  depthScale?: number;
+  depthOpacity?: number;
+  universeRadius?: number;
   degree: number;
 };
 
@@ -61,9 +65,11 @@ type GroupLabel = {
   y: number;
   count: number;
   color: string;
+  radius: number;
 };
 
 const viewBox = { width: 1280, height: 760 };
+const initialRotation = { x: -0.28, y: 0.36 };
 
 const typeColors: Record<string, string> = {
   "raw-source": "#68a6a1",
@@ -113,9 +119,12 @@ function App() {
   const [evidenceWikiId, setEvidenceWikiId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [graphScope, setGraphScope] = useState<GraphScope>("global");
+  const [focusedGroup, setFocusedGroup] = useState<string | null>(null);
   const [localDepth, setLocalDepth] = useState(1);
   const [showLabels, setShowLabels] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [rotation, setRotation] = useState(initialRotation);
 
   useEffect(() => {
     fetch("/wiki-graph.json", { cache: "no-store" })
@@ -174,14 +183,16 @@ function App() {
   const baseFilteredNodes = useMemo(() => {
     if (!graph) return [];
     if (graphMode === "evidence") return graph.nodes.filter((node) => evidenceNodeIds.has(node.id));
+    if (focusedGroup && graphScope === "global") return wikiFilteredNodes.filter((node) => (node.group ?? inferFallbackGroup(node)) === focusedGroup);
     return wikiFilteredNodes;
-  }, [evidenceNodeIds, graph, graphMode, wikiFilteredNodes]);
+  }, [evidenceNodeIds, focusedGroup, graph, graphMode, graphScope, wikiFilteredNodes]);
 
   const activeSelectedId = useMemo(() => {
     if (graphMode === "evidence") {
       if (selectedId && baseFilteredNodes.some((node) => node.id === selectedId)) return selectedId;
       return evidenceCenterId;
     }
+    if (selectedId && !baseFilteredNodes.some((node) => node.id === selectedId)) return null;
     if (graphScope !== "local") return selectedId;
     if (selectedId && baseFilteredNodes.some((node) => node.id === selectedId)) return selectedId;
     return pickLocalCenter(baseFilteredNodes)?.id ?? null;
@@ -198,8 +209,14 @@ function App() {
     if (!graph) return [];
     return graph.edges.filter((edge) => filteredNodeIds.has(edge.source) && filteredNodeIds.has(edge.target));
   }, [graph, filteredNodeIds]);
+  const displayEdges = useMemo(() => {
+    if (graphMode === "knowledge" && graphScope === "global" && !focusedGroup) return [];
+    return filteredEdges;
+  }, [filteredEdges, focusedGroup, graphMode, graphScope]);
 
-  const layout = useMemo(() => buildLayout(filteredNodes, filteredEdges, layoutScope, layoutCenterId), [filteredNodes, filteredEdges, layoutScope, layoutCenterId]);
+  const canRotateLayout = graphMode === "knowledge" && graphScope === "global" && Boolean(focusedGroup);
+  const layoutRotation = canRotateLayout ? rotation : initialRotation;
+  const layout = useMemo(() => buildLayout(filteredNodes, displayEdges, layoutScope, layoutCenterId, layoutRotation), [filteredNodes, displayEdges, layoutScope, layoutCenterId, layoutRotation]);
   const layoutById = useMemo(() => new Map(layout.map((node) => [node.id, node])), [layout]);
   const selected = activeSelectedId ? nodeById.get(activeSelectedId) ?? null : null;
   const evidenceCenter = evidenceCenterId ? nodeById.get(evidenceCenterId) ?? null : null;
@@ -211,12 +228,12 @@ function App() {
   const highlighted = useMemo(() => {
     if (!activeSelectedId || !graph) return new Set<string>();
     const ids = new Set([activeSelectedId]);
-    for (const edge of filteredEdges) {
+    for (const edge of displayEdges) {
       if (edge.source === activeSelectedId) ids.add(edge.target);
       if (edge.target === activeSelectedId) ids.add(edge.source);
     }
     return ids;
-  }, [graph, filteredEdges, activeSelectedId]);
+  }, [graph, displayEdges, activeSelectedId]);
 
   const openEvidence = (id: string) => {
     const node = nodeById.get(id);
@@ -224,7 +241,10 @@ function App() {
     setGraphMode("evidence");
     setEvidenceWikiId(node.id);
     setSelectedId(node.id);
+    setFocusedGroup(null);
     setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setRotation(initialRotation);
   };
 
   const backToKnowledge = () => {
@@ -233,7 +253,10 @@ function App() {
     setEvidenceWikiId(null);
     setSelectedId(centerId);
     setGraphScope("global");
+    setFocusedGroup(null);
     setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setRotation(initialRotation);
   };
 
   const resetGraph = () => {
@@ -242,13 +265,45 @@ function App() {
     setEvidenceWikiId(null);
     setSelectedId(null);
     setGraphScope("global");
+    setFocusedGroup(null);
     setLocalDepth(1);
     setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setRotation(initialRotation);
   };
 
   const zoomByWheel = (deltaY: number) => {
     const direction = deltaY > 0 ? 0.92 : 1.08;
     setZoom((value) => clamp(value * direction, 0.55, 2.4));
+  };
+
+  const panByDrag = (dx: number, dy: number) => {
+    setPan((value) => ({ x: value.x + dx, y: value.y + dy }));
+  };
+
+  const rotateByDrag = (dx: number, dy: number) => {
+    setRotation((value) => ({
+      x: clamp(value.x + dy * 0.008, -1.35, 1.35),
+      y: value.y + dx * 0.008
+    }));
+  };
+
+  const openGroup = (group: string) => {
+    setGraphMode("knowledge");
+    setGraphScope("global");
+    setFocusedGroup(group);
+    setSelectedId(null);
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setRotation(initialRotation);
+  };
+
+  const closeGroup = () => {
+    setFocusedGroup(null);
+    setSelectedId(null);
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setRotation(initialRotation);
   };
 
   if (loadError) {
@@ -301,8 +356,8 @@ function App() {
         </div>
         {graphMode === "knowledge" && (
           <div className="segmented">
-            <button className={graphScope === "global" ? "is-active" : ""} onClick={() => setGraphScope("global")}>All Wiki</button>
-            <button className={graphScope === "local" ? "is-active" : ""} onClick={() => setGraphScope("local")}>Neighbors</button>
+            <button className={graphScope === "global" && !focusedGroup ? "is-active" : ""} onClick={() => { setGraphScope("global"); closeGroup(); }}>All Groups</button>
+            <button className={graphScope === "local" ? "is-active" : ""} onClick={() => { setGraphScope("local"); setFocusedGroup(null); }}>Neighbors</button>
           </div>
         )}
 
@@ -311,6 +366,13 @@ function App() {
           <button onClick={resetGraph}>Reset</button>
         </div>
 
+        {graphMode === "knowledge" && focusedGroup && (
+          <section className="focus-panel">
+            <span>{groupLabelText(focusedGroup)}</span>
+            <button onClick={closeGroup}>All Groups</button>
+          </section>
+        )}
+
         {graphMode === "knowledge" && graphScope === "local" && (
           <div className="zoom-row">
             <span>Depth</span>
@@ -318,7 +380,7 @@ function App() {
           </div>
         )}
 
-        <Stats graph={graph} visibleNodes={filteredNodes.length} visibleEdges={filteredEdges.length} />
+        <Stats graph={graph} visibleNodes={filteredNodes.length} visibleEdges={displayEdges.length} />
         <QueueSummary graph={graph} nodeById={nodeById} onSelect={setSelectedId} />
       </aside>
 
@@ -326,18 +388,23 @@ function App() {
         <GraphView
           layout={layout}
           layoutById={layoutById}
-          edges={filteredEdges}
+          edges={displayEdges}
           selectedId={activeSelectedId}
           graphScope={layoutScope}
           graphMode={graphMode}
+          focusedGroup={focusedGroup}
           hoveredId={hoveredId}
           highlighted={highlighted}
           showLabels={showLabels}
           zoom={zoom}
+          pan={pan}
           onSelect={setSelectedId}
           onOpenEvidence={openEvidence}
+          onOpenGroup={openGroup}
           onHover={setHoveredId}
           onWheelZoom={zoomByWheel}
+          onPan={panByDrag}
+          onRotate={rotateByDrag}
         />
       </section>
 
@@ -364,14 +431,19 @@ function GraphView({
   selectedId,
   graphScope,
   graphMode,
+  focusedGroup,
   hoveredId,
   highlighted,
   showLabels,
   zoom,
+  pan,
   onSelect,
   onOpenEvidence,
+  onOpenGroup,
   onHover,
-  onWheelZoom
+  onWheelZoom,
+  onPan,
+  onRotate
 }: {
   layout: LayoutNode[];
   layoutById: Map<string, LayoutNode>;
@@ -379,29 +451,118 @@ function GraphView({
   selectedId: string | null;
   graphScope: GraphScope;
   graphMode: GraphMode;
+  focusedGroup: string | null;
   hoveredId: string | null;
   highlighted: Set<string>;
   showLabels: boolean;
   zoom: number;
+  pan: { x: number; y: number };
   onSelect: (id: string) => void;
   onOpenEvidence: (id: string) => void;
+  onOpenGroup: (group: string) => void;
   onHover: (id: string | null) => void;
   onWheelZoom: (deltaY: number) => void;
+  onPan: (dx: number, dy: number) => void;
+  onRotate: (dx: number, dy: number) => void;
 }) {
+  const [dragMode, setDragMode] = useState<"pan" | "rotate" | null>(null);
+  const lastPointer = useRef<{ x: number; y: number } | null>(null);
+  const draggedRef = useRef(false);
   const scale = 1 / zoom;
-  const centerX = viewBox.width / 2;
-  const centerY = viewBox.height / 2;
+  const centerX = viewBox.width / 2 + pan.x;
+  const centerY = viewBox.height / 2 + pan.y;
   const boxWidth = viewBox.width * scale;
   const boxHeight = viewBox.height * scale;
   const computedViewBox = `${centerX - boxWidth / 2} ${centerY - boxHeight / 2} ${boxWidth} ${boxHeight}`;
   const groupLabels = graphScope === "global" ? buildGroupLabels(layout) : [];
+  const canEnterGroup = graphMode === "knowledge" && graphScope === "global" && !focusedGroup;
+  const canRotate = graphMode === "knowledge" && graphScope === "global" && Boolean(focusedGroup);
+  const displayNodes = useMemo(() => [...layout].sort((a, b) => (a.z ?? 0) - (b.z ?? 0)), [layout]);
+
+  const startDrag = (event: React.PointerEvent<SVGSVGElement>) => {
+    if (event.button !== 0 && event.button !== 1) return;
+    const target = event.target as Element;
+    const startedOnNode = Boolean(target.closest(".graph-node"));
+    const nextDragMode = event.button === 1 ? "pan" : canRotate && !startedOnNode ? "rotate" : null;
+    if (!nextDragMode) return;
+    event.preventDefault();
+    setDragMode(nextDragMode);
+    lastPointer.current = { x: event.clientX, y: event.clientY };
+    draggedRef.current = false;
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const moveDrag = (event: React.PointerEvent<SVGSVGElement>) => {
+    if (!dragMode || !lastPointer.current) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const screenDx = event.clientX - lastPointer.current.x;
+    const screenDy = event.clientY - lastPointer.current.y;
+    if (Math.hypot(screenDx, screenDy) > 2) draggedRef.current = true;
+    if (dragMode === "pan") {
+      const dx = (-screenDx * boxWidth) / Math.max(rect.width, 1);
+      const dy = (-screenDy * boxHeight) / Math.max(rect.height, 1);
+      onPan(dx, dy);
+    } else {
+      onRotate(screenDx, screenDy);
+    }
+    lastPointer.current = { x: event.clientX, y: event.clientY };
+  };
+
+  const endDrag = (event: React.PointerEvent<SVGSVGElement>) => {
+    if (!dragMode) return;
+    const didDrag = draggedRef.current;
+    setDragMode(null);
+    lastPointer.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    if (didDrag) window.setTimeout(() => {
+      draggedRef.current = false;
+    }, 0);
+  };
+
+  const groupLayer = (
+    <g className={`group-label-layer ${canEnterGroup ? "is-enterable-layer" : ""}`}>
+      {groupLabels.map((label) => {
+        const width = Math.min(250, Math.max(92, label.label.length * 6.2 + 28));
+        return (
+          <g
+            key={label.group}
+            data-group={label.group}
+            className={`group-universe ${canEnterGroup ? "is-enterable" : ""}`}
+            transform={`translate(${label.x}, ${label.y})`}
+            onClick={(event) => {
+              if (!canEnterGroup) return;
+              if (draggedRef.current) {
+                draggedRef.current = false;
+                return;
+              }
+              event.stopPropagation();
+              onOpenGroup(label.group);
+            }}
+          >
+            <circle className="universe-glow" r={label.radius * 1.1} fill={label.color} />
+            <ellipse className="group-shell" rx={label.radius} ry={label.radius * 0.72} stroke={label.color} />
+            <ellipse className="group-shell is-meridian" rx={label.radius * 0.32} ry={label.radius * 0.72} stroke={label.color} />
+            <ellipse className="group-shell is-equator" rx={label.radius} ry={label.radius * 0.18} stroke={label.color} />
+            <rect x={-width / 2} y={-label.radius * 0.72 - 38} width={width} height={26} rx={13} stroke={label.color} />
+            <text y={-label.radius * 0.72 - 25}>{label.label}</text>
+          </g>
+        );
+      })}
+    </g>
+  );
 
   return (
     <svg
-      className="graph-svg"
+      className={`graph-svg ${canRotate ? "can-rotate" : ""} ${focusedGroup ? "is-focused-group" : ""} ${dragMode === "pan" ? "is-panning" : ""} ${dragMode === "rotate" ? "is-rotating" : ""}`}
       viewBox={computedViewBox}
       role="img"
       aria-label="Knowledge graph"
+      onPointerDown={startDrag}
+      onPointerMove={moveDrag}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onPointerLeave={endDrag}
+      onAuxClick={(event) => event.preventDefault()}
       onWheel={(event) => {
         event.preventDefault();
         onWheelZoom(event.deltaY);
@@ -413,23 +574,18 @@ function GraphView({
           <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
         </radialGradient>
       </defs>
-      <g className="group-label-layer">
-        {groupLabels.map((label) => {
-          const width = Math.min(250, Math.max(92, label.label.length * 6.2 + 28));
-          return (
-            <g key={label.group} transform={`translate(${label.x}, ${label.y})`}>
-              <rect x={-width / 2} y={-13} width={width} height={26} rx={13} stroke={label.color} />
-              <text>{label.label}</text>
-            </g>
-          );
-        })}
-      </g>
       <g className="edge-layer">
         {edges.map((edge) => {
           const source = layoutById.get(edge.source);
           const target = layoutById.get(edge.target);
           if (!source || !target) return null;
           const isHot = selectedId ? edge.source === selectedId || edge.target === selectedId : false;
+          const baseOpacity = edgeDepthOpacity(source, target);
+          const strokeOpacity =
+            isHot ? 1 :
+            focusedGroup && selectedId ? clamp(baseOpacity * 1.18, 0.28, 0.58) :
+            focusedGroup ? clamp(baseOpacity * 0.72, 0.12, 0.26) :
+            baseOpacity;
           return (
             <line
               key={`${edge.source}-${edge.target}`}
@@ -438,31 +594,47 @@ function GraphView({
               y1={source.y}
               x2={target.x}
               y2={target.y}
+              strokeOpacity={strokeOpacity}
             />
           );
         })}
       </g>
       <g className="node-layer">
-        {layout.map((node) => {
+        {displayNodes.map((node) => {
           const isSelected = node.id === selectedId;
           const isDim = Boolean(selectedId && highlighted.size > 0 && !highlighted.has(node.id));
           const isHovered = node.id === hoveredId;
           const shouldShowLabel = showLabels || isSelected || isHovered || (highlighted.has(node.id) && highlighted.size <= 18) || (graphMode === "evidence" && layout.length <= 24);
           const section = node.id.split("/")[0];
-          const radius = nodeRadius(node);
+          const radius = nodeRadius(node) * nodeDepthScale(node);
           return (
             <g
               key={node.id}
               className={`graph-node is-${section} ${isSelected ? "is-selected" : ""} ${isDim ? "is-dim" : ""}`}
               transform={`translate(${node.x}, ${node.y})`}
-              onClick={() => onSelect(node.id)}
-              onDoubleClick={() => onOpenEvidence(node.id)}
+              onClick={() => {
+                if (draggedRef.current) {
+                  draggedRef.current = false;
+                  return;
+                }
+                onSelect(node.id);
+              }}
+              onDoubleClick={() => {
+                if (draggedRef.current) return;
+                onOpenEvidence(node.id);
+              }}
               onMouseEnter={() => onHover(node.id)}
               onMouseLeave={() => onHover(null)}
             >
               <title>{node.title}</title>
+              <circle className="node-hit-target" r={Math.max(radius + 9, 17)} pointerEvents="all" />
               <circle className="node-halo" r={radius + 12} />
-              <circle className="node-dot" r={radius} fill={graphScope === "global" ? nodeFill(node) : typeColors[node.type] ?? typeColors.note} />
+              <circle
+                className="node-dot"
+                r={radius}
+                fill={graphScope === "global" ? nodeFill(node) : typeColors[node.type] ?? typeColors.note}
+                fillOpacity={nodeDepthOpacity(node)}
+              />
           {shouldShowLabel && (
             <text y={radius + 18}>
               {node.title.length > 26 ? `${node.title.slice(0, 24)}...` : node.title}
@@ -472,6 +644,7 @@ function GraphView({
           );
         })}
       </g>
+      {canEnterGroup && groupLayer}
     </svg>
   );
 }
@@ -629,11 +802,18 @@ type SimNode = LayoutNode & {
   vy: number;
 };
 
-function buildLayout(nodes: WikiNode[], edges: WikiEdge[], scope: GraphScope, selectedId: string | null): LayoutNode[] {
+function buildLayout(
+  nodes: WikiNode[],
+  edges: WikiEdge[],
+  scope: GraphScope,
+  selectedId: string | null,
+  rotation: { x: number; y: number }
+): LayoutNode[] {
   const width = viewBox.width;
   const height = viewBox.height;
   const isLocal = scope === "local";
   const degree = new Map(nodes.map((node) => [node.id, node.out.length + node.backlinks.length]));
+  if (!isLocal && nodes.every((node) => node.id.startsWith("wiki/"))) return buildWikiSphereLayout(nodes, degree, rotation);
   if (!isLocal && nodes.length > 450) return buildLargeGraphLayout(nodes, degree);
   const groups = unique(nodes.map((node) => node.group ?? inferFallbackGroup(node)));
   const groupIndex = new Map(groups.map((group, index) => [group, index]));
@@ -730,6 +910,115 @@ function buildLayout(nodes: WikiNode[], edges: WikiEdge[], scope: GraphScope, se
   }));
 }
 
+function buildWikiSphereLayout(nodes: WikiNode[], degree: Map<string, number>, rotation: { x: number; y: number }): LayoutNode[] {
+  const groupBuckets = new Map<string, WikiNode[]>();
+  for (const node of nodes) {
+    const group = node.group ?? inferFallbackGroup(node);
+    groupBuckets.set(group, [...(groupBuckets.get(group) ?? []), node]);
+  }
+
+  const groups = Array.from(groupBuckets.keys())
+    .sort((a, b) => (groupBuckets.get(b)?.length ?? 0) - (groupBuckets.get(a)?.length ?? 0) || a.localeCompare(b));
+  const centers = wikiSphereCenters(groups, groupBuckets);
+  const isOverview = groups.length > 1;
+  const sharedUniverseRadius = overviewUniverseRadius(groups.length);
+
+  return groups.flatMap((group) => {
+    const bucket = [...(groupBuckets.get(group) ?? [])]
+      .sort((a, b) => nodeDegree(b) - nodeDegree(a) || a.title.localeCompare(b.title));
+    const center = centers.get(group) ?? { x: viewBox.width / 2, y: viewBox.height / 2 };
+    const sphereRadius = isOverview ? sharedUniverseRadius : groupSphereRadius(bucket.length);
+    const count = bucket.length;
+
+    return bucket.map((node, index) => {
+      const point = rotateSpherePoint(fibonacciSpherePoint(index, count), rotation);
+      const depthShear = isOverview ? 0.09 : 0.06;
+      const x = center.x + (point.x + point.z * depthShear) * sphereRadius;
+      const y = center.y + (point.y - point.z * depthShear) * sphereRadius;
+      const depth = (point.z + 1) / 2;
+      return {
+        ...node,
+        degree: degree.get(node.id) ?? 0,
+        x: clamp(x, 42, viewBox.width - 42),
+        y: clamp(y, 42, viewBox.height - 42),
+        z: point.z,
+        depthScale: 0.66 + depth * 0.34,
+        depthOpacity: 0.52 + depth * 0.48,
+        universeRadius: isOverview ? sharedUniverseRadius : undefined
+      };
+    });
+  });
+}
+
+function rotateSpherePoint(point: { x: number; y: number; z: number }, rotation: { x: number; y: number }) {
+  const cosX = Math.cos(rotation.x);
+  const sinX = Math.sin(rotation.x);
+  const cosY = Math.cos(rotation.y);
+  const sinY = Math.sin(rotation.y);
+  const y1 = point.y * cosX - point.z * sinX;
+  const z1 = point.y * sinX + point.z * cosX;
+  return {
+    x: point.x * cosY + z1 * sinY,
+    y: y1,
+    z: -point.x * sinY + z1 * cosY
+  };
+}
+
+function wikiSphereCenters(groups: string[], groupBuckets: Map<string, WikiNode[]>) {
+  const centers = new Map<string, { x: number; y: number }>();
+  if (groups.length === 0) return centers;
+  if (groups.length === 1) {
+    centers.set(groups[0], { x: viewBox.width / 2, y: viewBox.height / 2 });
+    return centers;
+  }
+
+  const radius = overviewUniverseRadius(groups.length);
+  const shellRadius = overviewUniverseShellRadius(radius);
+  const gap = Math.max(86, radius * 0.58);
+  const cols = Math.min(groups.length, Math.max(2, Math.ceil(Math.sqrt(groups.length * 1.45))));
+  const rows = Math.ceil(groups.length / cols);
+  const stepX = shellRadius * 2 + gap;
+  const stepY = shellRadius * 2 + gap * 0.76;
+  const startX = viewBox.width / 2 - ((cols - 1) * stepX) / 2;
+  const startY = viewBox.height / 2 - ((rows - 1) * stepY) / 2;
+  groups.forEach((group, index) => {
+    const row = Math.floor(index / cols);
+    const col = index % cols;
+    const rowCount = Math.min(cols, groups.length - row * cols);
+    const rowOffset = ((cols - rowCount) * stepX) / 2;
+    centers.set(group, {
+      x: clamp(startX + col * stepX + rowOffset, radius + 72, viewBox.width - radius - 72),
+      y: clamp(startY + row * stepY, radius + 68, viewBox.height - radius - 68)
+    });
+  });
+  return centers;
+}
+
+function overviewUniverseRadius(groupCount: number) {
+  return clamp(172 - Math.max(groupCount - 2, 0) * 12, 126, 172);
+}
+
+function overviewUniverseShellRadius(universeRadius: number) {
+  return universeRadius * 1.08 + 22;
+}
+
+function groupSphereRadius(count: number) {
+  return clamp(112 + Math.sqrt(Math.max(count, 1)) * 23, 148, 310);
+}
+
+function fibonacciSpherePoint(index: number, count: number) {
+  if (count <= 1) return { x: 0, y: 0, z: 0.86 };
+  const offset = 2 / count;
+  const y = index * offset - 1 + offset / 2;
+  const radial = Math.sqrt(Math.max(0, 1 - y * y));
+  const theta = index * 2.399963229728653 + stableHash(String(index + count)) * 0.0000002;
+  return {
+    x: Math.cos(theta) * radial,
+    y,
+    z: Math.sin(theta) * radial
+  };
+}
+
 function buildLargeGraphLayout(nodes: WikiNode[], degree: Map<string, number>): LayoutNode[] {
   const groupBuckets = new Map<string, WikiNode[]>();
   for (const node of nodes) {
@@ -769,7 +1058,7 @@ function buildLargeGraphLayout(nodes: WikiNode[], degree: Map<string, number>): 
   }
 
   groupCenters.set("Wiki / FlexSim", { x: viewBox.width / 2 - 35, y: viewBox.height / 2 });
-  groupCenters.set("Wiki / General", { x: viewBox.width / 2 + 45, y: viewBox.height / 2 + 18 });
+  groupCenters.set("Wiki / AI", { x: viewBox.width / 2 + 115, y: viewBox.height / 2 });
 
   return nodes.map((node) => {
     const group = node.group ?? inferFallbackGroup(node);
@@ -859,8 +1148,21 @@ function clusterTarget(node: WikiNode, groupIndex = new Map<string, number>(), t
 }
 
 function nodeRadius(node: LayoutNode) {
-  if (node.id.startsWith("raw/")) return Math.min(6.8, 2.8 + Math.sqrt(Math.max(node.degree, 1)) * 0.8);
-  return Math.min(19, 6 + Math.sqrt(Math.max(node.degree, 1)) * 2.1);
+  if (node.id.startsWith("raw/")) return Math.min(5.4, 2.2 + Math.sqrt(Math.max(node.degree, 1)) * 0.62);
+  return Math.min(12.5, 3.6 + Math.sqrt(Math.max(node.degree, 1)) * 1.38);
+}
+
+function nodeDepthScale(node: LayoutNode) {
+  return node.depthScale ?? 1;
+}
+
+function nodeDepthOpacity(node: LayoutNode) {
+  return node.depthOpacity ?? 1;
+}
+
+function edgeDepthOpacity(source: LayoutNode, target: LayoutNode) {
+  const depth = ((source.depthOpacity ?? 0.75) + (target.depthOpacity ?? 0.75)) / 2;
+  return clamp(depth * 0.42, 0.16, 0.55);
 }
 
 function nodeDegree(node: WikiNode) {
@@ -882,15 +1184,27 @@ function buildGroupLabels(layout: LayoutNode[]): GroupLabel[] {
   }
 
   return Array.from(buckets.entries())
-    .map(([group, nodes]) => ({
-      group,
-      label: groupLabelText(group),
-      x: nodes.reduce((sum, node) => sum + node.x, 0) / nodes.length,
-      y: nodes.reduce((sum, node) => sum + node.y, 0) / nodes.length,
-      count: nodes.length,
-      color: colorForGroup(group)
-    }))
-    .filter((label) => label.count >= 8)
+    .map(([group, nodes]) => {
+      const x = nodes.reduce((sum, node) => sum + node.x, 0) / nodes.length;
+      const y = nodes.reduce((sum, node) => sum + node.y, 0) / nodes.length;
+      const fixedUniverseRadius = nodes[0]?.universeRadius;
+      const radius = fixedUniverseRadius
+        ? overviewUniverseShellRadius(fixedUniverseRadius)
+        : Math.max(
+          group.startsWith("Wiki /") ? 66 : 44,
+          ...nodes.map((node) => Math.hypot(node.x - x, node.y - y) + nodeRadius(node) + 16)
+        );
+      return {
+        group,
+        label: groupLabelText(group),
+        x,
+        y,
+        count: nodes.length,
+        color: colorForGroup(group),
+        radius
+      };
+    })
+    .filter((label) => label.count >= 8 || label.group.startsWith("Wiki /"))
     .sort((a, b) => b.count - a.count || a.group.localeCompare(b.group))
     .slice(0, 16);
 }
@@ -900,7 +1214,12 @@ function colorForGroup(group: string) {
 }
 
 function groupLabelText(group: string) {
-  const label = group.replace(/^FlexSim \/ /, "");
+  const wikiLabels: Record<string, string> = {
+    "Wiki / FlexSim": "Flexsim",
+    "Wiki / AI": "AI",
+    "Wiki / Other Knowledge": "Other Knowledge"
+  };
+  const label = wikiLabels[group] ?? group.replace(/^Wiki \/ /, "").replace(/^FlexSim \/ /, "");
   return label.length > 34 ? `${label.slice(0, 32)}...` : label;
 }
 
@@ -940,9 +1259,14 @@ function stableHash(value: string) {
 function inferFallbackGroup(node: WikiNode) {
   if (node.id.startsWith("raw/autodesk-flexsim-2026/")) return "FlexSim / Corpus";
   if (node.id.startsWith("raw/")) return "Raw / Other";
-  if (node.id.startsWith("wiki/") && /flexsim/i.test(`${node.title} ${node.tags.join(" ")}`)) return "Wiki / FlexSim";
-  if (node.id.startsWith("wiki/")) return "Wiki / General";
+  if (node.id.startsWith("wiki/")) return inferWikiGroup(node.title, node.tags);
   return node.id.split("/")[0] || "Other";
+}
+
+function inferWikiGroup(title: string, tags: string[] = []) {
+  const label = `${title} ${tags.join(" ")}`.toLowerCase();
+  if (/flexsim/i.test(label)) return "Wiki / FlexSim";
+  return "Wiki / AI";
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -953,4 +1277,7 @@ function unique(values: string[]) {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b));
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+const rootElement = document.getElementById("root")!;
+const rootHost = window as Window & { __agentWikiDashboardRoot?: ReturnType<typeof createRoot> };
+rootHost.__agentWikiDashboardRoot ??= createRoot(rootElement);
+rootHost.__agentWikiDashboardRoot.render(<App />);

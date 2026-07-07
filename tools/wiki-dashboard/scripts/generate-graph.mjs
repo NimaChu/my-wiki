@@ -136,10 +136,15 @@ function inferGroup(id, frontmatter) {
   if (id.startsWith("raw/")) return "Raw / Other";
   if (id.startsWith("wiki/")) {
     const title = titleFromFrontmatter(frontmatter, id);
-    if (/flexsim/i.test(`${title} ${asArray(frontmatter.tags).join(" ")}`)) return "Wiki / FlexSim";
-    return "Wiki / General";
+    return inferWikiGroup(title, asArray(frontmatter.tags));
   }
   return id.split("/")[0] || "Other";
+}
+
+function inferWikiGroup(title, tags = []) {
+  const label = `${title} ${tags.join(" ")}`.toLowerCase();
+  if (/flexsim/i.test(label)) return "Wiki / FlexSim";
+  return "Wiki / AI";
 }
 
 function titleFromId(id) {

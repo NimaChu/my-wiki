@@ -55,7 +55,7 @@ select {
   position: relative;
   min-width: 0;
   background:
-    radial-gradient(circle at 50% 50%, rgba(141, 162, 255, 0.12), transparent 38%),
+    radial-gradient(circle at 50% 50%, rgba(141, 162, 255, 0.1), transparent 38%),
     linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
     #151718;
@@ -67,6 +67,18 @@ select {
   width: 100%;
   height: 100vh;
   min-height: 680px;
+  cursor: default;
+  user-select: none;
+  touch-action: none;
+}
+
+.graph-svg.can-rotate {
+  cursor: grab;
+}
+
+.graph-svg.is-panning,
+.graph-svg.is-rotating {
+  cursor: grabbing;
 }
 
 .brand {
@@ -317,6 +329,33 @@ h3 {
   padding: 10px;
 }
 
+.focus-panel {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(141, 162, 255, 0.22);
+  border-radius: 8px;
+  background: rgba(141, 162, 255, 0.08);
+  padding: 9px;
+}
+
+.focus-panel span {
+  color: #dfe5e4;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.focus-panel button {
+  min-height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.055);
+  color: #ece8dd;
+  cursor: pointer;
+}
+
 .inspector-actions {
   display: grid;
   gap: 8px;
@@ -337,9 +376,38 @@ h3 {
   pointer-events: none;
 }
 
+.group-label-layer.is-enterable-layer {
+  pointer-events: all;
+}
+
+.group-universe {
+  pointer-events: none;
+}
+
+.group-universe.is-enterable {
+  cursor: pointer;
+  pointer-events: visiblePainted;
+}
+
 .group-label-layer rect {
   fill: rgba(21, 23, 24, 0.76);
   stroke-width: 1.1;
+}
+
+.universe-glow {
+  opacity: 0.055;
+}
+
+.group-shell {
+  fill: rgba(141, 162, 255, 0.025);
+  stroke-opacity: 0.22;
+  stroke-width: 1.1;
+}
+
+.group-shell.is-meridian,
+.group-shell.is-equator {
+  fill: none;
+  stroke-opacity: 0.14;
 }
 
 .group-label-layer text {
@@ -353,6 +421,11 @@ h3 {
 .graph-edge {
   stroke: rgba(198, 206, 209, 0.22);
   stroke-width: 1.15;
+}
+
+.graph-svg.is-focused-group .graph-edge {
+  stroke: rgba(215, 222, 224, 0.42);
+  stroke-width: 1.35;
 }
 
 .graph-edge.is-hot {
@@ -369,6 +442,11 @@ h3 {
   opacity: 0;
 }
 
+.node-hit-target {
+  fill: transparent;
+  stroke: transparent;
+}
+
 .node-dot {
   stroke: rgba(255, 255, 255, 0.76);
   stroke-width: 1.6;
@@ -380,7 +458,6 @@ h3 {
   stroke-width: 0.9;
 }
 
-.graph-node:hover .node-dot,
 .graph-node.is-selected .node-dot {
   filter: drop-shadow(0 0 13px rgba(236, 232, 221, 0.5));
   stroke-width: 3;
