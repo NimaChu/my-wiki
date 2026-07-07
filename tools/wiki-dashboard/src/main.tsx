@@ -10,6 +10,7 @@ type WikiNode = {
   group?: string;
   status: string;
   tags: string[];
+  content?: string;
   out: string[];
   backlinks: string[];
 };
@@ -39,14 +40,18 @@ type WikiGraph = {
 
 type Filters = {
   query: string;
-  section: string;
   group: string;
-  type: string;
   status: string;
 };
 
 type GraphScope = "global" | "local";
 type GraphMode = "knowledge" | "evidence";
+
+type KnowledgeViewState = {
+  graphScope: GraphScope;
+  focusedGroup: string | null;
+  selectedId: string | null;
+};
 
 type LayoutNode = WikiNode & {
   x: number;
@@ -71,22 +76,6 @@ type GroupLabel = {
 const viewBox = { width: 1280, height: 760 };
 const initialRotation = { x: -0.28, y: 0.36 };
 
-const typeColors: Record<string, string> = {
-  "raw-source": "#68a6a1",
-  topic: "#d29a54",
-  concept: "#8da2ff",
-  product: "#77b56b",
-  company: "#d87c70",
-  person: "#c486d7",
-  method: "#d5c266",
-  comparison: "#82b8df",
-  index: "#aeb7bd",
-  log: "#8d979f",
-  archive: "#697179",
-  wiki: "#8da2ff",
-  note: "#aeb7bd"
-};
-
 const groupPalette = [
   "#68a6a1",
   "#d29a54",
@@ -104,9 +93,7 @@ const groupPalette = [
 
 const initialFilters: Filters = {
   query: "",
-  section: "all",
   group: "all",
-  type: "all",
   status: "all"
 };
 
@@ -117,6 +104,7 @@ function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [graphMode, setGraphMode] = useState<GraphMode>("knowledge");
   const [evidenceWikiId, setEvidenceWikiId] = useState<string | null>(null);
+  const [evidenceReturnView, setEvidenceReturnView] = useState<KnowledgeViewState | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [graphScope, setGraphScope] = useState<GraphScope>("global");
   const [focusedGroup, setFocusedGroup] = useState<string | null>(null);
@@ -125,6 +113,8 @@ function App() {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [rotation, setRotation] = useState(initialRotation);
+  const [rightPanelWidth, setRightPanelWidth] = useState(560);
+  const [isResizingPanel, setIsResizingPanel] = useState(false);
 
   useEffect(() => {
     fetch("/wiki-graph.json", { cache: "no-store" })
@@ -143,27 +133,23 @@ function App() {
   const filterOptions = useMemo(() => {
     const nodes = (graph?.nodes ?? []).filter((node) => node.id.startsWith("wiki/"));
     return {
-      sections: unique(nodes.map((node) => node.id.split("/")[0])),
       groups: unique(nodes.map((node) => node.group ?? inferFallbackGroup(node))),
-      types: unique(nodes.map((node) => node.type)),
       statuses: unique(nodes.map((node) => node.status))
     };
   }, [graph]);
-
   const wikiFilteredNodes = useMemo(() => {
     if (!graph) return [];
     const needle = filters.query.trim().toLowerCase();
+    const hasSearch = needle !== "";
     return graph.nodes.filter((node) => {
-      const section = node.id.split("/")[0];
+      if (!node.id.startsWith("wiki/")) return false;
+      if (!hasSearch) return true;
       const group = node.group ?? inferFallbackGroup(node);
       const searchable = [node.title, node.path, node.type, node.status, group, ...node.tags].join(" ").toLowerCase();
       return (
-        node.id.startsWith("wiki/") &&
-        (filters.section === "all" || filters.section === section) &&
+        searchable.includes(needle) &&
         (filters.group === "all" || filters.group === group) &&
-        (filters.type === "all" || filters.type === node.type) &&
-        (filters.status === "all" || filters.status === node.status) &&
-        (needle === "" || searchable.includes(needle))
+        (filters.status === "all" || filters.status === node.status)
       );
     });
   }, [graph, filters]);
@@ -220,6 +206,7 @@ function App() {
   const layoutById = useMemo(() => new Map(layout.map((node) => [node.id, node])), [layout]);
   const selected = activeSelectedId ? nodeById.get(activeSelectedId) ?? null : null;
   const evidenceCenter = evidenceCenterId ? nodeById.get(evidenceCenterId) ?? null : null;
+  const panelNode = graphMode === "evidence" ? evidenceCenter : selected;
   const evidenceButtonId = useMemo(() => {
     if (activeSelectedId && nodeById.get(activeSelectedId)?.id.startsWith("wiki/")) return activeSelectedId;
     if (selectedId && nodeById.get(selectedId)?.id.startsWith("wiki/")) return selectedId;
@@ -238,22 +225,27 @@ function App() {
   const openEvidence = (id: string) => {
     const node = nodeById.get(id);
     if (!node?.id.startsWith("wiki/")) return;
+    setEvidenceReturnView({
+      graphScope,
+      focusedGroup,
+      selectedId: focusedGroup || graphScope === "global" ? null : selectedId
+    });
     setGraphMode("evidence");
     setEvidenceWikiId(node.id);
     setSelectedId(node.id);
-    setFocusedGroup(null);
     setZoom(1);
     setPan({ x: 0, y: 0 });
     setRotation(initialRotation);
   };
 
   const backToKnowledge = () => {
-    const centerId = evidenceCenterId;
+    const returnView = evidenceReturnView;
     setGraphMode("knowledge");
     setEvidenceWikiId(null);
-    setSelectedId(centerId);
-    setGraphScope("global");
-    setFocusedGroup(null);
+    setEvidenceReturnView(null);
+    setGraphScope(returnView?.graphScope ?? "global");
+    setFocusedGroup(returnView?.focusedGroup ?? null);
+    setSelectedId(returnView?.selectedId ?? null);
     setZoom(1);
     setPan({ x: 0, y: 0 });
     setRotation(initialRotation);
@@ -263,6 +255,7 @@ function App() {
     setFilters(initialFilters);
     setGraphMode("knowledge");
     setEvidenceWikiId(null);
+    setEvidenceReturnView(null);
     setSelectedId(null);
     setGraphScope("global");
     setFocusedGroup(null);
@@ -290,6 +283,7 @@ function App() {
 
   const openGroup = (group: string) => {
     setGraphMode("knowledge");
+    setEvidenceReturnView(null);
     setGraphScope("global");
     setFocusedGroup(group);
     setSelectedId(null);
@@ -299,11 +293,49 @@ function App() {
   };
 
   const closeGroup = () => {
+    setEvidenceReturnView(null);
     setFocusedGroup(null);
     setSelectedId(null);
     setZoom(1);
     setPan({ x: 0, y: 0 });
     setRotation(initialRotation);
+  };
+
+  const isUniverseOverview = graphMode === "knowledge" && graphScope === "global" && !focusedGroup;
+  const canNavigateBack = graphMode === "evidence" || Boolean(focusedGroup) || graphScope === "local";
+  const layerTitle = graphMode === "evidence" && evidenceCenter ? `Evidence: ${evidenceCenter.title}` : focusedGroup ? groupLabelText(focusedGroup) : graphScope === "local" ? "Neighbors" : "All Groups";
+
+  const navigateBack = () => {
+    if (graphMode === "evidence") {
+      backToKnowledge();
+      return;
+    }
+    if (focusedGroup || graphScope === "local") {
+      setGraphScope("global");
+      closeGroup();
+    }
+  };
+
+  const resizeRightPanel = (clientX: number) => {
+    setRightPanelWidth(clamp(window.innerWidth - clientX, 420, 860));
+  };
+
+  const startPanelResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsResizingPanel(true);
+    resizeRightPanel(event.clientX);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const movePanelResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isResizingPanel) return;
+    resizeRightPanel(event.clientX);
+  };
+
+  const endPanelResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isResizingPanel) return;
+    setIsResizingPanel(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
   if (loadError) {
@@ -324,67 +356,57 @@ function App() {
   }
 
   return (
-    <main className="app-shell">
-      <aside className="left-panel">
-        <header className="brand">
+    <main
+      className={`app-shell ${isResizingPanel ? "is-resizing-panel" : ""}`}
+      style={{ "--right-panel-width": `${rightPanelWidth}px` } as React.CSSProperties}
+    >
+      <header className="top-nav">
+        <div className="brand">
           <div className="brand-mark">K</div>
           <div>
             <h1>Knowledge Graph</h1>
-            <p>Markdown vault, Obsidian-compatible</p>
+            <p>Markdown wiki graph</p>
           </div>
-        </header>
-
-        <label className="control">
-          <span>Search</span>
-          <input value={filters.query} onChange={(event) => setFilters({ ...filters, query: event.target.value })} placeholder="page, tag, path" />
-        </label>
-
-        <FilterSelect label="Section" value={filters.section} options={filterOptions.sections} onChange={(section) => setFilters({ ...filters, section })} />
-        <FilterSelect label="Group" value={filters.group} options={filterOptions.groups} onChange={(group) => setFilters({ ...filters, group })} />
-        <FilterSelect label="Type" value={filters.type} options={filterOptions.types} onChange={(type) => setFilters({ ...filters, type })} />
-        <FilterSelect label="Status" value={filters.status} options={filterOptions.statuses} onChange={(status) => setFilters({ ...filters, status })} />
-
-        <div className="segmented">
-          <button className={graphMode === "knowledge" ? "is-active" : ""} onClick={backToKnowledge}>Knowledge</button>
-          <button
-            className={graphMode === "evidence" ? "is-active" : ""}
-            disabled={!evidenceButtonId}
-            onClick={() => evidenceButtonId && openEvidence(evidenceButtonId)}
-          >
-            Evidence
-          </button>
-        </div>
-        {graphMode === "knowledge" && (
-          <div className="segmented">
-            <button className={graphScope === "global" && !focusedGroup ? "is-active" : ""} onClick={() => { setGraphScope("global"); closeGroup(); }}>All Groups</button>
-            <button className={graphScope === "local" ? "is-active" : ""} onClick={() => { setGraphScope("local"); setFocusedGroup(null); }}>Neighbors</button>
-          </div>
-        )}
-
-        <div className="toolbar-row">
-          <button onClick={() => setShowLabels((value) => !value)}>{showLabels ? "Hide labels" : "Show labels"}</button>
-          <button onClick={resetGraph}>Reset</button>
         </div>
 
-        {graphMode === "knowledge" && focusedGroup && (
-          <section className="focus-panel">
-            <span>{groupLabelText(focusedGroup)}</span>
-            <button onClick={closeGroup}>All Groups</button>
-          </section>
-        )}
+        <section className="search-toolbar" aria-label="Search and filter wiki pages">
+          <label className="top-search">
+            <span>Search</span>
+            <span className="search-input-wrap">
+              <input value={filters.query} onChange={(event) => setFilters({ ...filters, query: event.target.value })} placeholder="Search wiki pages, tags, paths" />
+              {filters.query ? (
+                <button className="clear-search-button" type="button" aria-label="Clear search" onClick={() => setFilters({ ...filters, query: "" })}>
+                  x
+                </button>
+              ) : null}
+            </span>
+          </label>
+          <label className="top-filter">
+            <span>Group</span>
+            <select value={filters.group} onChange={(event) => setFilters({ ...filters, group: event.target.value })}>
+              <option value="all">All groups</option>
+              {filterOptions.groups.map((group) => <option key={group} value={group}>{groupLabelText(group)}</option>)}
+            </select>
+          </label>
+          <label className="top-filter">
+            <span>Status</span>
+            <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}>
+              <option value="all">All status</option>
+              {filterOptions.statuses.map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+          </label>
+        </section>
 
-        {graphMode === "knowledge" && graphScope === "local" && (
-          <div className="zoom-row">
-            <span>Depth</span>
-            <input type="range" min="1" max="3" step="1" value={localDepth} onChange={(event) => setLocalDepth(Number(event.target.value))} />
-          </div>
-        )}
-
-        <Stats graph={graph} visibleNodes={filteredNodes.length} visibleEdges={displayEdges.length} />
-        <QueueSummary graph={graph} nodeById={nodeById} onSelect={setSelectedId} />
-      </aside>
+      </header>
 
       <section className="graph-stage">
+        <div className="graph-layer-bar">
+          <button className="hierarchy-button" disabled={!canNavigateBack} onClick={navigateBack}>
+            Back
+          </button>
+          <strong>{layerTitle}</strong>
+          <DegreeLegend />
+        </div>
         <GraphView
           layout={layout}
           layoutById={layoutById}
@@ -409,12 +431,27 @@ function App() {
       </section>
 
       <aside className="right-panel">
+        <div
+          className="panel-resize-handle"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize information panel"
+          tabIndex={0}
+          onPointerDown={startPanelResize}
+          onPointerMove={movePanelResize}
+          onPointerUp={endPanelResize}
+          onPointerCancel={endPanelResize}
+        />
         <NodeInspector
-          node={selected}
+          node={panelNode}
           graph={graph}
           nodeById={nodeById}
           graphMode={graphMode}
           evidenceCenter={evidenceCenter}
+          focusedGroup={focusedGroup}
+          isUniverseOverview={isUniverseOverview}
+          visibleNodes={filteredNodes.length}
+          visibleEdges={displayEdges.length}
           onSelect={setSelectedId}
           onOpenEvidence={openEvidence}
           onBackToKnowledge={backToKnowledge}
@@ -632,7 +669,7 @@ function GraphView({
               <circle
                 className="node-dot"
                 r={radius}
-                fill={graphScope === "global" ? nodeFill(node) : typeColors[node.type] ?? typeColors.note}
+                fill={nodeFill(node)}
                 fillOpacity={nodeDepthOpacity(node)}
               />
           {shouldShowLabel && (
@@ -655,6 +692,10 @@ function NodeInspector({
   nodeById,
   graphMode,
   evidenceCenter,
+  focusedGroup,
+  isUniverseOverview,
+  visibleNodes,
+  visibleEdges,
   onSelect,
   onOpenEvidence,
   onBackToKnowledge
@@ -664,11 +705,39 @@ function NodeInspector({
   nodeById: Map<string, WikiNode>;
   graphMode: GraphMode;
   evidenceCenter: WikiNode | null;
+  focusedGroup: string | null;
+  isUniverseOverview: boolean;
+  visibleNodes: number;
+  visibleEdges: number;
   onSelect: (id: string) => void;
   onOpenEvidence: (id: string) => void;
   onBackToKnowledge: () => void;
 }) {
   if (!node) {
+    if (isUniverseOverview) {
+      return (
+        <GlobalOverview
+          graph={graph}
+          nodeById={nodeById}
+          visibleNodes={visibleNodes}
+          visibleEdges={visibleEdges}
+          onSelect={onSelect}
+        />
+      );
+    }
+
+    if (focusedGroup) {
+      return (
+        <GroupOverview
+          graph={graph}
+          group={focusedGroup}
+          visibleNodes={visibleNodes}
+          visibleEdges={visibleEdges}
+          onSelect={onSelect}
+        />
+      );
+    }
+
     return (
       <section className="inspector">
         <p className="muted">Select a node</p>
@@ -684,6 +753,59 @@ function NodeInspector({
   const isWikiNode = node.id.startsWith("wiki/");
   const evidenceCount = isWikiNode ? evidenceIdsForWiki(graph, node.id).size - 1 : 0;
 
+  if (isWikiNode) {
+    const articleContent = stripLeadingMarkdownTitle(node.content ?? "", node.title);
+    return (
+      <article className="wiki-page">
+        <header className="wiki-page-header">
+          <h1>{node.title}</h1>
+          <p>{node.path}</p>
+          <div className="wiki-actions">
+            {graphMode === "knowledge" && <button onClick={() => onOpenEvidence(node.id)}>Evidence ({evidenceCount})</button>}
+            {graphMode === "evidence" && <button onClick={onBackToKnowledge}>Back to Knowledge</button>}
+          </div>
+        </header>
+
+        <dl className="wiki-meta-grid">
+          <div><dt>Status</dt><dd>{node.status}</dd></div>
+          <div><dt>Group</dt><dd>{node.group ?? inferFallbackGroup(node)}</dd></div>
+          <div><dt>Type</dt><dd>{node.type}</dd></div>
+          <div><dt>Links</dt><dd>{node.out.length}</dd></div>
+          <div><dt>Backlinks</dt><dd>{node.backlinks.length}</dd></div>
+          <div><dt>Degree</dt><dd>{node.out.length + node.backlinks.length}</dd></div>
+        </dl>
+
+        <section className="tag-list">
+          {node.tags.map((tag) => <span key={tag}>#{tag}</span>)}
+        </section>
+
+        {articleContent ? <MarkdownContent content={articleContent} /> : <p className="muted">No wiki text available</p>}
+
+        {(broken.length > 0 || issues.length > 0) && (
+          <section className="warning-box">
+            <h3>Attention</h3>
+            {broken.map((item) => <p key={item.target}>Broken: {item.target}</p>)}
+            {issues.map((item) => <p key={item.reason}>Gate: {item.reason}</p>)}
+          </section>
+        )}
+
+        <section className="neighbor-list">
+          <h3>{graphMode === "evidence" ? "Evidence Links" : "Connected Pages"}</h3>
+          {neighbors.length === 0 ? (
+            <p className="muted">No connected pages</p>
+          ) : (
+            neighbors.slice(0, 18).map((neighbor) => (
+              <button key={neighbor.id} onClick={() => onSelect(neighbor.id)}>
+                <strong>{neighbor.title}</strong>
+                <span>{neighbor.group ?? inferFallbackGroup(neighbor)} / {neighbor.status}</span>
+              </button>
+            ))
+          )}
+        </section>
+      </article>
+    );
+  }
+
   return (
     <section className="inspector">
       {graphMode === "evidence" && (
@@ -693,20 +815,14 @@ function NodeInspector({
         </div>
       )}
       <div className="node-title">
-        <span className="type-chip" style={{ backgroundColor: typeColors[node.type] ?? typeColors.note }}>{node.type}</span>
         <h2>{node.title}</h2>
         <p>{node.path}</p>
       </div>
 
-      {graphMode === "knowledge" && isWikiNode && (
-        <div className="inspector-actions">
-          <button onClick={() => onOpenEvidence(node.id)}>Evidence ({evidenceCount})</button>
-        </div>
-      )}
-
       <dl className="node-metrics">
         <div><dt>Status</dt><dd>{node.status}</dd></div>
         <div><dt>Group</dt><dd>{node.group ?? inferFallbackGroup(node)}</dd></div>
+        <div><dt>Type</dt><dd>{node.type}</dd></div>
         <div><dt>Links</dt><dd>{node.out.length}</dd></div>
         <div><dt>Backlinks</dt><dd>{node.backlinks.length}</dd></div>
         <div><dt>Degree</dt><dd>{node.out.length + node.backlinks.length}</dd></div>
@@ -729,20 +845,226 @@ function NodeInspector({
         {neighbors.length === 0 ? (
           <p className="muted">No connected pages</p>
         ) : (
-          neighbors.slice(0, 18).map((neighbor) => (
-            <button key={neighbor.id} onClick={() => onSelect(neighbor.id)}>
-              <strong>{neighbor.title}</strong>
-              <span>{neighbor.type} / {neighbor.status}</span>
-            </button>
-          ))
+            neighbors.slice(0, 18).map((neighbor) => (
+              <button key={neighbor.id} onClick={() => onSelect(neighbor.id)}>
+                <strong>{neighbor.title}</strong>
+                <span>{neighbor.group ?? inferFallbackGroup(neighbor)} / {neighbor.status}</span>
+              </button>
+            ))
         )}
       </section>
     </section>
   );
 }
 
-function Stats({ graph, visibleNodes, visibleEdges }: { graph: WikiGraph; visibleNodes: number; visibleEdges: number }) {
-  const items = [
+function GroupOverview({
+  graph,
+  group,
+  visibleNodes,
+  visibleEdges,
+  onSelect
+}: {
+  graph: WikiGraph;
+  group: string;
+  visibleNodes: number;
+  visibleEdges: number;
+  onSelect: (id: string) => void;
+}) {
+  const summary = useMemo(() => buildGroupSummary(graph, group), [graph, group]);
+  return (
+    <section className="group-overview">
+      <header>
+        <span className="panel-kicker">Group</span>
+        <h2>{groupLabelText(group)}</h2>
+        <p>{summary.wikiNodes.length} wiki pages, {summary.evidenceCount} raw evidence notes</p>
+      </header>
+
+      <Stats
+        graph={graph}
+        visibleNodes={visibleNodes}
+        visibleEdges={visibleEdges}
+        items={[
+          ["Visible", visibleNodes],
+          ["Links", visibleEdges],
+          ["Wiki", summary.wikiNodes.length],
+          ["Raw", summary.evidenceCount],
+          ["Tags", summary.topTags.length],
+          ["Status", summary.statuses.length]
+        ]}
+      />
+
+      {summary.topTags.length > 0 && (
+        <section className="tag-list">
+          {summary.topTags.map(([tag, count]) => <span key={tag}>#{tag} {count}</span>)}
+        </section>
+      )}
+
+      <section className="neighbor-list">
+        <h3>Central Wiki Pages</h3>
+        {summary.topPages.map((node) => (
+          <button key={node.id} onClick={() => onSelect(node.id)}>
+            <strong>{node.title}</strong>
+            <span>{node.out.length + node.backlinks.length} links / {node.status}</span>
+          </button>
+        ))}
+      </section>
+    </section>
+  );
+}
+
+function GlobalOverview({
+  graph,
+  nodeById,
+  visibleNodes,
+  visibleEdges,
+  onSelect
+}: {
+  graph: WikiGraph;
+  nodeById: Map<string, WikiNode>;
+  visibleNodes: number;
+  visibleEdges: number;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <section className="global-overview">
+      <header>
+        <h2>Vault Overview</h2>
+        <p>Global graph health and maintenance state</p>
+      </header>
+      <Stats graph={graph} visibleNodes={visibleNodes} visibleEdges={visibleEdges} />
+      <QueueSummary graph={graph} nodeById={nodeById} onSelect={onSelect} />
+    </section>
+  );
+}
+
+function MarkdownContent({ content }: { content: string }) {
+  const blocks = useMemo(() => markdownBlocks(content), [content]);
+  return <section className="wiki-markdown">{blocks}</section>;
+}
+
+function markdownBlocks(content: string) {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const blocks: React.ReactNode[] = [];
+  let paragraph: string[] = [];
+  let list: string[] = [];
+  let code: string[] | null = null;
+
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return;
+    const text = paragraph.join(" ");
+    blocks.push(<p key={`p-${blocks.length}`}>{renderInlineMarkdown(text, `p-${blocks.length}`)}</p>);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (list.length === 0) return;
+    blocks.push(
+      <ul key={`ul-${blocks.length}`}>
+        {list.map((item, index) => <li key={`${item}-${index}`}>{renderInlineMarkdown(item, `li-${blocks.length}-${index}`)}</li>)}
+      </ul>
+    );
+    list = [];
+  };
+  const flushCode = () => {
+    if (!code) return;
+    blocks.push(<pre key={`code-${blocks.length}`}><code>{code.join("\n")}</code></pre>);
+    code = null;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    if (line.startsWith("```")) {
+      if (code) flushCode();
+      else {
+        flushParagraph();
+        flushList();
+        code = [];
+      }
+      continue;
+    }
+    if (code) {
+      code.push(line);
+      continue;
+    }
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = heading[1].length;
+      const text = heading[2];
+      if (level === 1) blocks.push(<h2 key={`h-${blocks.length}`}>{renderInlineMarkdown(text, `h-${blocks.length}`)}</h2>);
+      else if (level === 2) blocks.push(<h3 key={`h-${blocks.length}`}>{renderInlineMarkdown(text, `h-${blocks.length}`)}</h3>);
+      else blocks.push(<h4 key={`h-${blocks.length}`}>{renderInlineMarkdown(text, `h-${blocks.length}`)}</h4>);
+      continue;
+    }
+
+    const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+    if (bullet) {
+      flushParagraph();
+      list.push(bullet[1]);
+      continue;
+    }
+
+    paragraph.push(line.trim());
+  }
+
+  flushParagraph();
+  flushList();
+  flushCode();
+  return blocks;
+}
+
+function renderInlineMarkdown(text: string, keyPrefix: string) {
+  const nodes: React.ReactNode[] = [];
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\[\[[^\]]+\]\]|\[[^\]]+\]\([^)]+\))/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text))) {
+    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
+
+    const token = match[0];
+    const key = `${keyPrefix}-${match.index}`;
+    if (token.startsWith("`")) {
+      nodes.push(<code key={key}>{token.slice(1, -1)}</code>);
+    } else if (token.startsWith("**")) {
+      nodes.push(<strong key={key}>{renderInlineMarkdown(token.slice(2, -2), `${key}-strong`)}</strong>);
+    } else if (token.startsWith("[[")) {
+      const body = token.slice(2, -2);
+      const [target, label] = body.split("|");
+      nodes.push(<span className="wiki-link-chip" key={key}>{(label ?? target).trim()}</span>);
+    } else {
+      const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      if (link) {
+        nodes.push(<a key={key} href={link[2]} target="_blank" rel="noreferrer">{link[1]}</a>);
+      } else {
+        nodes.push(token);
+      }
+    }
+
+    lastIndex = pattern.lastIndex;
+  }
+
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
+}
+
+function stripLeadingMarkdownTitle(content: string, title: string) {
+  const normalizedTitle = title.trim().toLowerCase();
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  if (lines[0]?.replace(/^#\s+/, "").trim().toLowerCase() === normalizedTitle) {
+    return lines.slice(1).join("\n").trim();
+  }
+  return content.trim();
+}
+
+function Stats({ graph, visibleNodes, visibleEdges, items }: { graph: WikiGraph; visibleNodes: number; visibleEdges: number; items?: Array<[string, number]> }) {
+  const defaultItems: Array<[string, number]> = [
     ["Visible", visibleNodes],
     ["Links", visibleEdges],
     ["Wiki", graph.stats.wikiPages ?? 0],
@@ -750,10 +1072,11 @@ function Stats({ graph, visibleNodes, visibleEdges }: { graph: WikiGraph; visibl
     ["Inbox", graph.stats.inbox ?? 0],
     ["Broken", graph.stats.unresolved ?? 0]
   ];
+  const displayItems = items ?? defaultItems;
 
   return (
     <section className="stats-grid">
-      {items.map(([label, value]) => (
+      {displayItems.map(([label, value]) => (
         <div key={label} className="stat-card">
           <span>{label}</span>
           <strong>{value}</strong>
@@ -783,18 +1106,36 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
   );
 }
 
-function FilterSelect({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
-  return (
-    <label className="control">
-      <span>{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
-        <option value="all">All</option>
-        {options.map((option) => (
-          <option value={option} key={option}>{option}</option>
-        ))}
-      </select>
-    </label>
-  );
+function buildGroupSummary(graph: WikiGraph, group: string) {
+  const wikiNodes = graph.nodes.filter((node) => node.id.startsWith("wiki/") && (node.group ?? inferFallbackGroup(node)) === group);
+  const wikiIds = new Set(wikiNodes.map((node) => node.id));
+  const evidenceIds = new Set<string>();
+  const statusCounts = new Map<string, number>();
+  const tagCounts = new Map<string, number>();
+
+  for (const node of wikiNodes) {
+    statusCounts.set(node.status, (statusCounts.get(node.status) ?? 0) + 1);
+    for (const tag of node.tags) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+  }
+
+  for (const edge of graph.edges) {
+    if (wikiIds.has(edge.source) && edge.target.startsWith("raw/")) evidenceIds.add(edge.target);
+    if (wikiIds.has(edge.target) && edge.source.startsWith("raw/")) evidenceIds.add(edge.source);
+  }
+
+  const topPages = [...wikiNodes]
+    .sort((a, b) => (b.out.length + b.backlinks.length) - (a.out.length + a.backlinks.length))
+    .slice(0, 10);
+  const topTags = [...tagCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 12);
+  const statuses = [...statusCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+
+  return {
+    wikiNodes,
+    evidenceCount: evidenceIds.size,
+    topPages,
+    topTags,
+    statuses
+  };
 }
 
 type SimNode = LayoutNode & {
@@ -1171,8 +1512,36 @@ function nodeDegree(node: WikiNode) {
 
 function nodeFill(node: WikiNode) {
   const group = node.group ?? inferFallbackGroup(node);
-  if (node.id.startsWith("raw/") || group.startsWith("FlexSim /")) return colorForGroup(group);
-  return typeColors[node.type] ?? typeColors.note;
+  if (node.id.startsWith("raw/")) return colorForGroup(group);
+  if (node.id.startsWith("wiki/")) return colorForDegree(nodeDegree(node));
+  return "#aeb7bd";
+}
+
+function colorForDegree(degree: number) {
+  const scale = clamp(Math.log1p(Math.max(0, degree)) / Math.log1p(60), 0, 1);
+  const stops = [
+    { at: 0, color: [103, 166, 161] },
+    { at: 0.32, color: [119, 181, 107] },
+    { at: 0.62, color: [213, 194, 102] },
+    { at: 0.82, color: [210, 154, 84] },
+    { at: 1, color: [216, 124, 112] }
+  ];
+  const upperIndex = stops.findIndex((stop) => stop.at >= scale);
+  const upper = stops[Math.max(upperIndex, 0)];
+  const lower = stops[Math.max(0, upperIndex - 1)] ?? upper;
+  const local = upper.at === lower.at ? 0 : (scale - lower.at) / (upper.at - lower.at);
+  const channel = (index: number) => Math.round(lower.color[index] + (upper.color[index] - lower.color[index]) * local);
+  return `rgb(${channel(0)}, ${channel(1)}, ${channel(2)})`;
+}
+
+function DegreeLegend() {
+  return (
+    <div className="degree-legend" aria-label="Wiki node degree color scale">
+      <span>Degree</span>
+      <i />
+      <span>High</span>
+    </div>
+  );
 }
 
 function buildGroupLabels(layout: LayoutNode[]): GroupLabel[] {

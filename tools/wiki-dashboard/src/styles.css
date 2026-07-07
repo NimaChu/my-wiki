@@ -27,33 +27,77 @@ select {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr) 330px;
+  grid-template-columns: minmax(0, 1fr) var(--right-panel-width, 560px);
+  grid-template-rows: 86px minmax(0, 1fr);
+  grid-template-areas:
+    "top top"
+    "graph right";
   height: 100vh;
   min-height: 680px;
 }
 
-.left-panel,
+.app-shell.is-resizing-panel {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.top-nav,
 .right-panel {
   z-index: 2;
-  overflow: auto;
   border-color: rgba(255, 255, 255, 0.09);
   background: rgba(24, 27, 29, 0.92);
   backdrop-filter: blur(18px);
 }
 
-.left-panel {
-  border-right: 1px solid rgba(255, 255, 255, 0.09);
-  padding: 18px;
+.top-nav {
+  grid-area: top;
+  display: grid;
+  grid-template-columns: 260px minmax(560px, 1fr);
+  align-items: center;
+  gap: 22px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  padding: 12px 18px;
 }
 
 .right-panel {
+  grid-area: right;
+  position: relative;
+  overflow: auto;
   border-left: 1px solid rgba(255, 255, 255, 0.09);
-  padding: 18px;
+  padding: 20px 20px 20px 24px;
+}
+
+.panel-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  z-index: 5;
+  width: 10px;
+  cursor: col-resize;
+}
+
+.panel-resize-handle::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.12);
+  content: "";
+}
+
+.panel-resize-handle:hover::after,
+.panel-resize-handle:focus-visible::after {
+  width: 2px;
+  background: rgba(141, 162, 255, 0.72);
 }
 
 .graph-stage {
+  grid-area: graph;
   position: relative;
   min-width: 0;
+  min-height: 0;
   background:
     radial-gradient(circle at 50% 50%, rgba(141, 162, 255, 0.1), transparent 38%),
     linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
@@ -62,11 +106,54 @@ select {
   background-size: auto, 28px 28px, 28px 28px, auto;
 }
 
+.graph-layer-bar {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  max-width: min(520px, calc(100% - 32px));
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(24, 27, 29, 0.76);
+  padding: 8px;
+  backdrop-filter: blur(16px);
+}
+
+.graph-layer-bar strong {
+  overflow: hidden;
+  color: #f3efe7;
+  font-size: 13px;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.degree-legend {
+  display: grid;
+  grid-template-columns: auto 72px auto;
+  align-items: center;
+  gap: 7px;
+  margin-left: 4px;
+  color: #9da6a8;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.degree-legend i {
+  display: block;
+  height: 7px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #67a6a1, #77b56b, #d5c266, #d29a54, #d87c70);
+}
+
 .graph-svg {
   display: block;
   width: 100%;
-  height: 100vh;
-  min-height: 680px;
+  height: calc(100vh - 86px);
+  min-height: 594px;
   cursor: default;
   user-select: none;
   touch-action: none;
@@ -85,7 +172,7 @@ select {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 22px;
+  min-width: 0;
 }
 
 .brand-mark {
@@ -132,12 +219,121 @@ h3 {
 
 .brand p,
 .control span,
+.top-filter span,
+.top-search span,
 .zoom-row span,
 .node-title p,
+.wiki-page-header p,
+.global-overview header p,
+.group-overview header p,
 .neighbor-list button span,
 .queue-panel button span,
 .node-metrics dd {
   font-size: 12px;
+}
+
+.top-search {
+  display: grid;
+  gap: 5px;
+}
+
+.search-toolbar {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) 180px 150px;
+  align-items: end;
+  gap: 10px;
+}
+
+.top-search,
+.top-filter {
+  min-width: 0;
+}
+
+.top-filter {
+  display: grid;
+  gap: 5px;
+}
+
+.search-input-wrap {
+  position: relative;
+  display: block;
+}
+
+.top-search input,
+.top-filter select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #ece8dd;
+  padding: 0 11px;
+  font-size: 14px;
+  outline: none;
+}
+
+.top-search input {
+  padding-right: 38px;
+}
+
+.clear-search-button {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #c9d0d1;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  transform: translateY(-50%);
+}
+
+.clear-search-button:hover,
+.clear-search-button:focus-visible {
+  background: rgba(255, 255, 255, 0.16);
+  color: #f4efe6;
+  outline: none;
+}
+
+.top-search input:focus,
+.top-filter select:focus {
+  border-color: #8da2ff;
+  box-shadow: 0 0 0 3px rgba(141, 162, 255, 0.16);
+}
+
+.top-filter select {
+  cursor: pointer;
+}
+
+.hierarchy-button,
+.wiki-actions button {
+  min-height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.055);
+  color: #ece8dd;
+  cursor: pointer;
+  padding: 0 14px;
+}
+
+.hierarchy-button {
+  width: 96px;
+}
+
+.hierarchy-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.hierarchy-button:not(:disabled):hover,
+.wiki-actions button:hover {
+  background: rgba(141, 162, 255, 0.14);
 }
 
 .control {
@@ -231,9 +427,36 @@ h3 {
 .queue-panel,
 .inspector,
 .neighbor-list,
-.warning-box {
+.warning-box,
+.global-overview,
+.group-overview {
   display: grid;
   gap: 9px;
+}
+
+.group-overview header,
+.global-overview header {
+  display: grid;
+  gap: 7px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.group-overview h2,
+.global-overview h2 {
+  font-size: 24px;
+  line-height: 1.12;
+}
+
+.panel-kicker {
+  width: fit-content;
+  border: 1px solid rgba(141, 162, 255, 0.24);
+  border-radius: 999px;
+  background: rgba(141, 162, 255, 0.12);
+  color: #cbd4ff;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 760;
 }
 
 .queue-panel {
@@ -270,18 +493,152 @@ h3 {
   line-height: 1.16;
 }
 
+.wiki-page {
+  display: grid;
+  gap: 16px;
+}
+
+.wiki-page-header {
+  display: grid;
+  gap: 9px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.wiki-page-header h1 {
+  font-size: 28px;
+  line-height: 1.08;
+}
+
+.wiki-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.wiki-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.wiki-meta-grid div {
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.055);
+  padding: 10px;
+}
+
+.wiki-meta-grid dt {
+  color: #9da6a8;
+  font-size: 12px;
+}
+
+.wiki-meta-grid dd {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 16px;
+  font-weight: 760;
+}
+
+.wiki-markdown {
+  display: grid;
+  gap: 12px;
+  color: #e6e1d7;
+  font-size: 14px;
+  line-height: 1.62;
+}
+
+.wiki-markdown h2,
+.wiki-markdown h3,
+.wiki-markdown h4 {
+  margin-top: 8px;
+  color: #f3efe7;
+  line-height: 1.2;
+}
+
+.wiki-markdown h2 {
+  font-size: 22px;
+}
+
+.wiki-markdown h3 {
+  font-size: 17px;
+}
+
+.wiki-markdown h4 {
+  font-size: 14px;
+}
+
+.wiki-markdown ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.wiki-markdown li + li {
+  margin-top: 5px;
+}
+
+.wiki-markdown strong {
+  color: #f5f0e6;
+  font-weight: 780;
+}
+
+.wiki-markdown a {
+  color: #9fb0ff;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(159, 176, 255, 0.45);
+}
+
+.wiki-markdown a:hover {
+  color: #c7d0ff;
+  border-bottom-color: rgba(199, 208, 255, 0.82);
+}
+
+.wiki-markdown p code,
+.wiki-markdown li code,
+.wiki-markdown h2 code,
+.wiki-markdown h3 code,
+.wiki-markdown h4 code {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #f3efe7;
+  padding: 1px 5px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+}
+
+.wiki-link-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  border: 1px solid rgba(141, 162, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(141, 162, 255, 0.1);
+  color: #d4dcff;
+  padding: 0 7px;
+  font-size: 0.94em;
+  line-height: 1.35;
+}
+
+.wiki-markdown pre {
+  max-height: 260px;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 11px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 .node-title p,
 .node-metrics dd {
   overflow-wrap: anywhere;
-}
-
-.type-chip {
-  width: fit-content;
-  border-radius: 999px;
-  color: #111415;
-  padding: 4px 9px;
-  font-size: 12px;
-  font-weight: 850;
 }
 
 .node-metrics {
@@ -320,6 +677,27 @@ h3 {
   color: #c9d2ff;
   padding: 4px 8px;
   font-size: 12px;
+}
+
+.wiki-text-panel {
+  display: grid;
+  gap: 9px;
+}
+
+.wiki-text-panel pre {
+  max-height: 42vh;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #dfe5e4;
+  padding: 11px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.52;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .warning-box {
@@ -497,12 +875,20 @@ h3 {
 
   .app-shell {
     grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+    grid-template-areas:
+      "top"
+      "graph"
+      "right";
     height: auto;
   }
 
-  .left-panel,
   .right-panel {
     border: 0;
+  }
+
+  .top-nav {
+    grid-template-columns: 1fr;
   }
 
   .graph-svg {

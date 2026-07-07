@@ -48,13 +48,12 @@ async function walk(dir) {
 }
 
 function parseFrontmatter(content) {
-  if (!content.startsWith("---\n")) return {};
-  const end = content.indexOf("\n---", 4);
-  if (end === -1) return {};
+  const block = frontmatterBlock(content);
+  if (!block) return {};
   const data = {};
   let currentKey = null;
 
-  for (const rawLine of content.slice(4, end).split("\n")) {
+  for (const rawLine of block.yaml.split("\n")) {
     const line = rawLine.replace(/\r$/, "");
     const keyMatch = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
     if (keyMatch) {
@@ -72,6 +71,17 @@ function parseFrontmatter(content) {
   }
 
   return data;
+}
+
+function frontmatterBlock(content) {
+  const cleaned = String(content).replace(/^\uFEFF/, "");
+  const match = cleaned.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  if (!match) return null;
+  return {
+    yaml: match[1],
+    bodyStart: match[0].length,
+    content: cleaned
+  };
 }
 
 function parseScalar(value) {
@@ -92,9 +102,13 @@ function cleanValue(value) {
 }
 
 function stripFrontmatter(content) {
-  if (!content.startsWith("---\n")) return content;
-  const end = content.indexOf("\n---", 4);
-  return end === -1 ? content : content.slice(end + 4);
+  const block = frontmatterBlock(content);
+  return block ? block.content.slice(block.bodyStart) : String(content).replace(/^\uFEFF/, "");
+}
+
+function wikiContentForGraph(id, content) {
+  if (!id.startsWith("wiki/")) return undefined;
+  return stripFrontmatter(content).replace(/\r\n/g, "\n").trim();
 }
 
 function asArray(value) {
@@ -214,6 +228,7 @@ async function main() {
         group: inferGroup(id, frontmatter),
         status: String(frontmatter.status || "unknown"),
         tags: asArray(frontmatter.tags),
+        content: wikiContentForGraph(id, content),
         aliases: asArray(frontmatter.aliases),
         relations: parseRelationHints(frontmatter),
         links: Array.from(new Set([...extractWikiLinks(stripFrontmatter(content)), ...frontmatterLinks(frontmatter)]))
