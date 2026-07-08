@@ -6,8 +6,9 @@ Endorsement code: `U8RIG3`
 
 Release:
 
-- GitHub Release: https://github.com/NimaChu/agent-wiki/releases/tag/v0.1.0
-- PDF: https://github.com/NimaChu/agent-wiki/releases/download/v0.1.0/agent-wiki-technical-report.pdf
+- GitHub Release: https://github.com/NimaChu/agent-wiki/releases/tag/v0.1.2
+- PDF: https://github.com/NimaChu/agent-wiki/releases/download/v0.1.2/agent-wiki-technical-report.pdf
+- Zenodo DOI: https://doi.org/10.5281/zenodo.21252490
 
 ## Draft Recipients
 
@@ -38,10 +39,13 @@ Title:
 Agent Wiki: A Local-First Evidence-Closed Markdown Wiki for LLM Agents
 
 GitHub release:
-https://github.com/NimaChu/agent-wiki/releases/tag/v0.1.0
+https://github.com/NimaChu/agent-wiki/releases/tag/v0.1.2
 
 PDF:
-https://github.com/NimaChu/agent-wiki/releases/download/v0.1.0/agent-wiki-technical-report.pdf
+https://github.com/NimaChu/agent-wiki/releases/download/v0.1.2/agent-wiki-technical-report.pdf
+
+Zenodo DOI:
+https://doi.org/10.5281/zenodo.21252490
 
 The report describes a local-first Markdown knowledge substrate for LLM coding agents, with raw evidence notes, synthesized wiki pages, link/lint-based evidence closure, image evidence indexing, and a graph dashboard.
 
