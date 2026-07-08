@@ -132,18 +132,35 @@ async function listFolder(client, kb, folder) {
   return items;
 }
 
-async function collectItems(client, kb) {
+function isQuotaError(error) {
+  return /\u6b21\u6570\u5df2\u8fbe\u4e0a\u9650|frequency|rate|limit|too many/i.test(String(error?.message || error || ""));
+}
+
+async function collectItems(client, kb, onItem = null, shouldStop = null) {
   const seenFolders = new Set();
   const queue = [{ id: "", name: "", path: "" }];
   const docs = [];
+  const errors = [];
 
-  while (queue.length) {
+  while (queue.length && !(shouldStop && shouldStop())) {
     const folder = queue.shift();
     const folderKey = folder.id || "<root>";
     if (seenFolders.has(folderKey)) continue;
     seenFolders.add(folderKey);
 
-    const items = await listFolder(client, kb, folder);
+    let items = [];
+    try {
+      items = await listFolder(client, kb, folder);
+    } catch (error) {
+      errors.push({
+        kb: kbName(kb),
+        folder: folder.path || "root",
+        error: error.message
+      });
+      if (isQuotaError(error)) break;
+      continue;
+    }
+
     for (const item of items) {
       if (isFolder(item)) {
         const folderId = item.folder_id || item.media_id;
@@ -157,17 +174,19 @@ async function collectItems(client, kb) {
         continue;
       }
       if (!item.media_id) continue;
-      docs.push({
+      const doc = {
         ...item,
         folder_id: folder.id,
         folder_name: folder.name,
         folder_path: folder.path
-      });
-      if (maxItems > 0 && docs.length >= maxItems) return docs;
+      };
+      docs.push(doc);
+      if (onItem) await onItem(doc);
+      if ((shouldStop && shouldStop()) || (maxItems > 0 && docs.length >= maxItems)) return { docs, errors };
     }
   }
 
-  return docs;
+  return { docs, errors };
 }
 
 async function uniqueFilePath(title, mediaId) {
@@ -205,15 +224,14 @@ async function main() {
   const imageRuns = [];
   let discovered = 0;
   let skipped = 0;
+  let stopEarly = false;
 
   for (const kb of selected) {
-    const docs = await collectItems(client, kb);
-    discovered += docs.length;
-    for (const item of docs) {
+    const result = await collectItems(client, kb, async (item) => {
       const title = item.title || item.name || item.media_id;
       if (knownIds.has(item.media_id)) {
         skipped += 1;
-        continue;
+        return;
       }
       const target = await uniqueFilePath(title, item.media_id);
       const relative = path.relative(vault, target).replace(/\\/g, "/");
@@ -225,7 +243,7 @@ async function main() {
         path: relative
       };
       planned.push(plan);
-      if (dryRun) continue;
+      if (dryRun) return;
 
       try {
         const original = await fetchImaOriginal(client, item.media_id);
@@ -240,9 +258,14 @@ async function main() {
         }
       } catch (error) {
         errors.push({ ...plan, error: error.message });
+        if (isQuotaError(error)) stopEarly = true;
       }
-    }
+    }, () => stopEarly);
+    discovered += result.docs.length;
+    errors.push(...result.errors.map((error) => ({ phase: "list", ...error })));
+    if (result.errors.some((error) => isQuotaError(error))) stopEarly = true;
     if (maxItems > 0 && discovered >= maxItems) break;
+    if (stopEarly) break;
   }
 
   console.log(JSON.stringify({
@@ -253,6 +276,7 @@ async function main() {
     createdRaw: written.length,
     imageMirroringRuns: imageRuns.length,
     errors,
+    partial: errors.length > 0,
     dryRun,
     files: summaryOnly ? undefined : (dryRun ? planned : written),
     sampleFiles: summaryOnly ? (dryRun ? planned : written).slice(0, 20) : undefined,
