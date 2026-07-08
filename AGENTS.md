@@ -44,6 +44,7 @@ Prefer root npm scripts:
 npm run wiki:status
 npm run wiki:lint
 npm run wiki:garden
+npm run wiki:universes
 npm run wiki:repair-links
 npm run wiki:search -- "query terms"
 npm run wiki:capture -- --title "Source title" --url "https://example.com"
@@ -98,12 +99,13 @@ Use this when answering from the vault.
 ## Maintain
 
 - Treat short user requests such as `维护知识库`, `维护本地知识库`, `maintain the knowledge base`, or `maintain this vault` as a complete local maintenance request. Do not require the user to restate the full workflow.
-- A maintenance request means: run `npm run wiki:status`, review the queue with `npm run wiki:garden` when useful, process a coherent batch of `inbox`, legacy `ima-pointer`, or weak raw notes, update or create atomic wiki pages, repair wiki-to-wiki and wiki-to-raw evidence links, update `wiki/index.md` and `wiki/log.md` when material knowledge changes, then run `npm run wiki:lint`.
+- A maintenance request means: run `npm run wiki:status`, review the queue with `npm run wiki:garden` when useful, process a coherent batch of `inbox`, legacy `ima-pointer`, or weak raw notes, update or create atomic wiki pages, review universe taxonomy with `npm run wiki:universes`, repair wiki-to-wiki and wiki-to-raw evidence links, update `wiki/index.md` and `wiki/log.md` when material knowledge changes, then run `npm run wiki:lint`.
 - For large backlogs, work in reasonable batches. Prefer one corpus section, topic family, source folder, or high-value cluster at a time; report what was completed and what remains instead of trying to finish the whole vault in one oversized pass.
 - Keep knowledge maintenance local. Do not `git add`, commit, push, or otherwise sync local raw/wiki knowledge just because the user asked to maintain the knowledge base.
 - Do not refresh, build, start, or open the dashboard during maintenance unless the user explicitly asks to view or work on the graph/frontend/dashboard.
 - Fix broken links and orphaned pages.
 - Use `garden`, `lint`, and `repair-links` to review the maintenance queue.
+- Review universe evolution after each material batch with a minimal-universe bias: keep the number of `group` universes as small as practical, merge when boundaries are fuzzy, rename broad universes before splitting them, and create or split a universe only when a durable cluster would remain large, coherent, and useful on its own. Update affected wiki frontmatter plus `wiki/index.md` together.
 - Merge duplicate concepts when one idea has multiple names.
 - Split pages that mix unrelated ideas.
 - Mark stale pages with `status: stale` and explain why.

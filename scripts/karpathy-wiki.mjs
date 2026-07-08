@@ -17,6 +17,7 @@ const commands = {
   build: ["refresh-dashboard.mjs", "--build", ...rest],
   "build-dashboard": ["refresh-dashboard.mjs", "--build", ...rest],
   garden: ["garden.mjs", ...rest],
+  universes: ["universe-audit.mjs"],
   "repair-links": ["repair-links.mjs", ...rest],
   "distill-query": ["distill-query.mjs", ...rest],
   "sync-ima": ["ima-sync.mjs", ...rest],

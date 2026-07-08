@@ -8,6 +8,7 @@
     "wiki:status": "node scripts/karpathy-wiki.mjs status",
     "wiki:lint": "node scripts/karpathy-wiki.mjs lint",
     "wiki:garden": "node scripts/karpathy-wiki.mjs garden",
+    "wiki:universes": "node scripts/karpathy-wiki.mjs universes",
     "wiki:repair-links": "node scripts/karpathy-wiki.mjs repair-links",
     "wiki:search": "node scripts/karpathy-wiki.mjs search",
     "wiki:capture": "node scripts/karpathy-wiki.mjs capture",

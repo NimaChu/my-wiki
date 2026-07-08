@@ -64,6 +64,7 @@ npm install
 ```bash
 npm run wiki:status
 npm run wiki:lint
+npm run wiki:universes
 ```
 
 然后打开你的 AI coding agent，对它说：
@@ -72,7 +73,7 @@ npm run wiki:lint
 维护这个本地知识库。
 ```
 
-就可以开始用了。项目规则已经告诉 agent：维护时要分批处理 raw/，把长期有用的知识蒸馏到 wiki/，补证据链接和知识关系；本地知识维护不等于推 GitHub，也不会默认启动 dashboard。
+就可以开始用了。项目规则已经告诉 agent：维护时要分批处理 raw/，把长期有用的知识蒸馏到 wiki/，补证据链接和知识关系；维护宇宙分组时尽量保持数量少、边界宽而稳定，优先合并或改名，不轻易新增顶层宇宙；本地知识维护不等于推 GitHub，也不会默认启动 dashboard。
 
 ## 最常见的用法
 
@@ -212,6 +213,7 @@ npm run wiki:fetch-ima -- raw/ima/source-note.md --metadata
 npm run wiki:status
 npm run wiki:lint
 npm run wiki:garden
+npm run wiki:universes
 npm run wiki:repair-links
 npm run wiki:search -- "query terms"
 npm run wiki:capture -- --title "Source title" --url "https://example.com"

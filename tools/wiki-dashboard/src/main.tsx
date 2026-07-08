@@ -61,6 +61,8 @@ type LayoutNode = WikiNode & {
   depthScale?: number;
   depthOpacity?: number;
   universeRadius?: number;
+  universeCenterX?: number;
+  universeCenterY?: number;
   degree: number;
 };
 
@@ -632,7 +634,7 @@ function GraphView({
     <g className="group-name-layer">
       {groupLabels.map((label) => {
         const width = Math.min(250, Math.max(92, label.label.length * 6.2 + 28));
-        const y = label.y - label.radius - 28;
+        const y = label.y;
         return (
           <g key={label.group} transform={`translate(${label.x}, ${y})`} pointerEvents="none">
             <rect x={-width / 2} y={-13} width={width} height={26} rx={13} stroke={label.color} />
@@ -1319,15 +1321,19 @@ function buildWikiSphereLayout(nodes: WikiNode[], degree: Map<string, number>, r
 
   const groups = Array.from(groupBuckets.keys())
     .sort((a, b) => (groupBuckets.get(b)?.length ?? 0) - (groupBuckets.get(a)?.length ?? 0) || a.localeCompare(b));
-  const centers = wikiSphereCenters(groups, groupBuckets);
+  const sharedUniversePairs = sharedWikiUniversePairs(nodes);
   const isOverview = groups.length > 1;
-  const sharedUniverseRadius = overviewUniverseRadius(groups.length);
+  const overviewRadii = new Map(groups.map((group) => [
+    group,
+    overviewGroupUniverseRadius(groupBuckets.get(group)?.length ?? 1, groups.length)
+  ]));
+  const centers = wikiSphereCenters(groups, overviewRadii, sharedUniversePairs);
 
   return groups.flatMap((group) => {
     const bucket = [...(groupBuckets.get(group) ?? [])]
       .sort((a, b) => nodeDegree(b) - nodeDegree(a) || a.title.localeCompare(b.title));
     const center = centers.get(group) ?? { x: viewBox.width / 2, y: viewBox.height / 2 };
-    const sphereRadius = isOverview ? sharedUniverseRadius : groupSphereRadius(bucket.length);
+    const sphereRadius = isOverview ? overviewRadii.get(group) ?? overviewUniverseRadius(groups.length) : groupSphereRadius(bucket.length);
     const count = bucket.length;
 
     return bucket.map((node, index) => {
@@ -1339,12 +1345,14 @@ function buildWikiSphereLayout(nodes: WikiNode[], degree: Map<string, number>, r
       return {
         ...node,
         degree: degree.get(node.id) ?? 0,
-        x: clamp(x, 42, viewBox.width - 42),
-        y: clamp(y, 42, viewBox.height - 42),
+        x: isOverview ? x : clamp(x, 42, viewBox.width - 42),
+        y: isOverview ? y : clamp(y, 42, viewBox.height - 42),
         z: point.z,
         depthScale: 0.66 + depth * 0.34,
         depthOpacity: 0.52 + depth * 0.48,
-        universeRadius: isOverview ? sharedUniverseRadius : undefined
+        universeRadius: isOverview ? sphereRadius : undefined,
+        universeCenterX: isOverview ? center.x : undefined,
+        universeCenterY: isOverview ? center.y : undefined
       };
     });
   });
@@ -1364,7 +1372,7 @@ function rotateSpherePoint(point: { x: number; y: number; z: number }, rotation:
   };
 }
 
-function wikiSphereCenters(groups: string[], groupBuckets: Map<string, WikiNode[]>) {
+function wikiSphereCenters(groups: string[], universeRadii: Map<string, number>, sharedUniversePairs: Set<string>) {
   const centers = new Map<string, { x: number; y: number }>();
   if (groups.length === 0) return centers;
   if (groups.length === 1) {
@@ -1372,13 +1380,13 @@ function wikiSphereCenters(groups: string[], groupBuckets: Map<string, WikiNode[
     return centers;
   }
 
-  const radius = overviewUniverseRadius(groups.length);
-  const shellRadius = overviewUniverseShellRadius(radius);
-  const gap = Math.max(86, radius * 0.58);
-  const cols = Math.min(groups.length, Math.max(2, Math.ceil(Math.sqrt(groups.length * 1.45))));
+  const maxRadius = Math.max(...groups.map((group) => universeRadii.get(group) ?? overviewUniverseRadius(groups.length)));
+  const maxShellRadius = overviewUniverseShellRadius(maxRadius);
+  const gap = Math.max(72, maxRadius * 0.42);
+  const cols = groups.length === 4 ? 2 : Math.min(groups.length, Math.max(2, Math.ceil(Math.sqrt(groups.length * 1.45))));
   const rows = Math.ceil(groups.length / cols);
-  const stepX = shellRadius * 2 + gap;
-  const stepY = shellRadius * 2 + gap * 0.76;
+  const stepX = maxShellRadius * 2 + gap;
+  const stepY = maxShellRadius * 2 + gap;
   const startX = viewBox.width / 2 - ((cols - 1) * stepX) / 2;
   const startY = viewBox.height / 2 - ((rows - 1) * stepY) / 2;
   groups.forEach((group, index) => {
@@ -1387,15 +1395,103 @@ function wikiSphereCenters(groups: string[], groupBuckets: Map<string, WikiNode[
     const rowCount = Math.min(cols, groups.length - row * cols);
     const rowOffset = ((cols - rowCount) * stepX) / 2;
     centers.set(group, {
-      x: clamp(startX + col * stepX + rowOffset, radius + 72, viewBox.width - radius - 72),
-      y: clamp(startY + row * stepY, radius + 68, viewBox.height - radius - 68)
+      x: startX + col * stepX + rowOffset,
+      y: startY + row * stepY
     });
   });
-  return centers;
+  return settleUniverseCenters(groups, centers, universeRadii, sharedUniversePairs);
+}
+
+function settleUniverseCenters(groups: string[], initialCenters: Map<string, { x: number; y: number }>, universeRadii: Map<string, number>, sharedUniversePairs: Set<string>) {
+  const centers = new Map(groups.map((group) => {
+    const center = initialCenters.get(group) ?? { x: viewBox.width / 2, y: viewBox.height / 2 };
+    return [group, { ...center, vx: 0, vy: 0 }];
+  }));
+  const attractionCenter = { x: viewBox.width / 2, y: viewBox.height / 2 };
+
+  for (let tick = 0; tick < 180; tick += 1) {
+    const alpha = 1 - tick / 180;
+    for (const group of groups) {
+      const center = centers.get(group);
+      if (!center) continue;
+      center.vx += (attractionCenter.x - center.x) * 0.0026 * alpha;
+      center.vy += (attractionCenter.y - center.y) * 0.0026 * alpha;
+    }
+
+    for (let i = 0; i < groups.length; i += 1) {
+      for (let j = i + 1; j < groups.length; j += 1) {
+        const a = centers.get(groups[i]);
+        const b = centers.get(groups[j]);
+        if (!a || !b) continue;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const distance = Math.max(Math.hypot(dx, dy), 0.001);
+        const shared = sharedUniversePairs.has(universePairKey(groups[i], groups[j]));
+        const aShellRadius = overviewUniverseShellRadius(universeRadii.get(groups[i]) ?? overviewUniverseRadius(groups.length));
+        const bShellRadius = overviewUniverseShellRadius(universeRadii.get(groups[j]) ?? overviewUniverseRadius(groups.length));
+        const noOverlapDistance = (aShellRadius + bShellRadius) * 1.1 + 8;
+        const sharedOverlapDistance = (aShellRadius + bShellRadius) * 0.58;
+        const targetDistance = shared ? sharedOverlapDistance : noOverlapDistance;
+
+        if (distance < targetDistance) {
+          const push = ((targetDistance - distance) / distance) * 0.5;
+          const px = dx * push;
+          const py = dy * push;
+          a.vx -= px;
+          a.vy -= py;
+          b.vx += px;
+          b.vy += py;
+        } else {
+          const pull = (distance - targetDistance) * (shared ? 0.0018 : 0.00055) * alpha;
+          const px = (dx / distance) * pull;
+          const py = (dy / distance) * pull;
+          a.vx += px;
+          a.vy += py;
+          b.vx -= px;
+          b.vy -= py;
+        }
+      }
+    }
+
+    for (const center of centers.values()) {
+      center.x += center.vx;
+      center.y += center.vy;
+      center.vx *= 0.72;
+      center.vy *= 0.72;
+    }
+  }
+
+  return new Map(groups.map((group) => {
+    const center = centers.get(group) ?? { x: viewBox.width / 2, y: viewBox.height / 2 };
+    return [group, { x: center.x, y: center.y }];
+  }));
+}
+
+function sharedWikiUniversePairs(nodes: WikiNode[]) {
+  const pairs = new Set<string>();
+  for (const node of nodes) {
+    if (!node.id.startsWith("wiki/")) continue;
+    const universes = nodeUniverses(node);
+    for (let i = 0; i < universes.length; i += 1) {
+      for (let j = i + 1; j < universes.length; j += 1) {
+        pairs.add(universePairKey(universes[i], universes[j]));
+      }
+    }
+  }
+  return pairs;
+}
+
+function universePairKey(a: string, b: string) {
+  return [a, b].sort((left, right) => left.localeCompare(right)).join("\u0000");
 }
 
 function overviewUniverseRadius(groupCount: number) {
   return clamp(172 - Math.max(groupCount - 2, 0) * 12, 126, 172);
+}
+
+function overviewGroupUniverseRadius(nodeCount: number, groupCount: number) {
+  const maxRadius = overviewUniverseRadius(groupCount);
+  return clamp(92 + Math.sqrt(Math.max(nodeCount, 1)) * 18, 112, maxRadius);
 }
 
 function overviewUniverseShellRadius(universeRadius: number) {
@@ -1612,9 +1708,13 @@ function buildGroupLabels(layout: LayoutNode[]): GroupLabel[] {
 
   return Array.from(buckets.entries())
     .map(([group, nodes]) => {
-      const x = nodes.reduce((sum, node) => sum + node.x, 0) / nodes.length;
-      const y = nodes.reduce((sum, node) => sum + node.y, 0) / nodes.length;
       const fixedUniverseRadius = nodes[0]?.universeRadius;
+      const x = fixedUniverseRadius && nodes[0]?.universeCenterX !== undefined
+        ? nodes[0].universeCenterX
+        : nodes.reduce((sum, node) => sum + node.x, 0) / nodes.length;
+      const y = fixedUniverseRadius && nodes[0]?.universeCenterY !== undefined
+        ? nodes[0].universeCenterY
+        : nodes.reduce((sum, node) => sum + node.y, 0) / nodes.length;
       const radius = fixedUniverseRadius
         ? overviewUniverseShellRadius(fixedUniverseRadius)
         : Math.max(

@@ -66,6 +66,7 @@ Check health:
 ```bash
 npm run wiki:lint
 npm run wiki:garden
+npm run wiki:universes
 npm run wiki:repair-links
 ```
 
@@ -104,7 +105,7 @@ Good wiki pages are:
 - **Reusable**: written so a future agent can answer from it without rereading the full source first.
 - **Linked**: connected to related concepts with Obsidian-style `[[Page Name]]` links.
 - **Evidence backed**: important claims point back to raw source notes.
-- **Small enough to maintain**: split pages that become mixed grab bags; merge pages that are duplicates.
+- **Small enough to maintain**: split pages that become mixed grab bags; merge pages that are duplicates; keep universes few, broad, and stable, preferring merge or rename over creating new top-level groups.
 
 ## Image Evidence
 
@@ -160,6 +161,7 @@ Detailed agent workflow: `docs/ima-local-import.md`.
 npm run wiki:status
 npm run wiki:lint
 npm run wiki:garden
+npm run wiki:universes
 npm run wiki:repair-links
 npm run wiki:search -- "query terms"
 npm run wiki:capture -- --title "Source title" --url "https://example.com"
