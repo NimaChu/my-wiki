@@ -1,0 +1,429 @@
+\documentclass[10pt]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{url}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!55!black,
+  citecolor=blue!55!black,
+  urlcolor=blue!55!black
+}
+\urlstyle{same}
+\emergencystretch=2em
+
+\title{Agent Wiki: A Local-First Evidence-Closed Markdown Wiki for LLM Agents}
+\author{Zijun Chu\\
+\texttt{https://github.com/NimaChu/agent-wiki}}
+\date{Technical Report, July 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Large language model (LLM) agents increasingly perform long-running reading,
+coding, and maintenance tasks, but their durable knowledge often remains trapped
+in chat transcripts, proprietary note systems, vector databases, or ad hoc
+project memories. This report introduces Agent Wiki, a local-first,
+Markdown-native knowledge substrate designed for coding agents and human users
+who want source-grounded, inspectable, and low-cost long-term knowledge
+management. Agent Wiki separates immutable or lightly edited raw evidence from
+agent-synthesized wiki pages, uses Obsidian-compatible links as a computable
+knowledge graph, and defines a ``processed'' closure condition that is checked by
+local linting tools: a raw source is processed only when its primary wiki targets
+resolve, the wiki layer links back to the raw evidence, and follow-up flags are
+closed. The system also treats images as evidence by mirroring remote images,
+building image inventories, and allowing selected visuals to be promoted into
+wiki answers. A read-only dashboard exposes global and local graph views,
+evidence drill-downs, and health indicators such as broken links, orphaned wiki
+pages, stale sources, and processed-gate failures. A case study on an Autodesk
+FlexSim documentation corpus produced 1,097 raw source notes, 93 durable wiki
+pages, and 5,261 graph edges, with zero unresolved links, zero orphaned wiki
+pages, and zero processed-gate violations under the included lint checks. Agent
+Wiki does not replace retrieval-augmented generation; instead, it offers a
+file-native, auditable staging layer from which retrieval, dashboards, and agent
+workflows can later be built.
+\end{abstract}
+
+\section{Introduction}
+
+LLM agents are now capable of reading documentation, summarizing long sources,
+editing code, and maintaining project-local context across multi-step workflows.
+Yet durable agent knowledge remains awkward. Many practical systems fall into
+one of three patterns: transient chat history, human-authored note vaults, or
+retrieval-augmented generation (RAG) stacks backed by a database or vector
+index. Each pattern is useful, but each leaves a gap for independent developers
+and small teams who want a private, inspectable, source-grounded knowledge base
+that agents can maintain without requiring a hosted service, a custom database,
+or a heavy retrieval pipeline.
+
+Agent Wiki addresses this gap with a deliberately simple design: files first,
+Markdown first, and evidence first. The system is a repository layout, command
+line interface, and optional dashboard for maintaining a local knowledge base in
+which raw captures and durable wiki pages are separate layers. Raw notes preserve
+bibliographic metadata, capture details, snapshots, content hashes, images, and
+processing status. Wiki pages distill durable knowledge units such as concepts,
+entities, APIs, workflows, comparisons, and recurring questions. Claims in wiki
+pages link back to raw evidence using ordinary wiki links. Local scripts scan the
+vault, resolve links, build graph statistics, surface maintenance queues, and
+enforce a strict processed-source closure rule.
+
+The guiding premise is that agent memory should be inspectable before it is
+intelligent. Instead of beginning with embeddings or opaque hidden state, Agent
+Wiki creates a substrate that humans and agents can both read, edit, diff,
+lint, and version. This makes it possible to separate capture from synthesis,
+review agent-maintained knowledge with ordinary developer tools, and preserve
+the option to add retrieval or automation later.
+
+This report makes four contributions:
+
+\begin{enumerate}[leftmargin=1.5em]
+  \item It describes a local-first architecture for agent-maintained knowledge
+  bases that separates raw evidence from synthesized wiki knowledge.
+  \item It defines an evidence-closure invariant for processed sources and
+  implements local linting checks for unresolved links, orphaned wiki pages,
+  missing source links, and processed-gate failures.
+  \item It introduces an image-evidence workflow for mirroring, indexing, and
+  promoting visual source material into answer-ready wiki pages.
+  \item It reports an initial case study over a large technical documentation
+  corpus, demonstrating that the approach scales to more than one thousand raw
+  source notes while preserving graph health under local checks.
+\end{enumerate}
+
+\section{Design Goals}
+
+Agent Wiki was designed around constraints that appear frequently in real
+personal and small-team agent workflows.
+
+\paragraph{Local ownership.}
+The user should own the source captures, synthesized pages, images, snapshots,
+and maintenance state as local files. A user should be able to inspect the
+knowledge base with a text editor, search it with command line tools, and keep
+private knowledge out of public code repositories.
+
+\paragraph{Agent-native operation.}
+The repository should be legible to coding agents. The project includes
+workspace rules, templates, and root npm scripts so that agents can capture
+sources, maintain the vault, repair links, and answer from the wiki without
+depending on globally installed skills or a particular editor.
+
+\paragraph{Evidence before synthesis.}
+Raw source material should remain available after synthesis. The wiki layer is
+not a replacement for source evidence; it is a compiled layer of durable
+knowledge units whose claims point back to raw notes.
+
+\paragraph{Low operational cost.}
+The system should work without a hosted database, paid subscription, required
+embedding service, or always-on dashboard. Visualization is generated and opened
+only when requested.
+
+\paragraph{Auditable maintenance.}
+Agent-maintained knowledge needs health checks. Broken links, orphaned pages,
+unprocessed sources, follow-up flags, and weakly connected pages should be
+computable from local files.
+
+\section{System Overview}
+
+Agent Wiki is organized as a self-contained repository with the following major
+directories:
+
+\begin{center}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.28\linewidth}p{0.62\linewidth}}
+\toprule
+Directory & Role \\
+\midrule
+\path|raw/| & source notes, snapshots, evidence metadata, image inventories \\
+\path|wiki/| & durable synthesized knowledge pages \\
+\path|templates/| & reusable raw and wiki page templates \\
+\path|scripts/| & local command line workflows for capture, lint, search, repair \\
+\path|tools/wiki-dashboard/| & optional read-only graph dashboard \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The main command line entry point is \path|scripts/karpathy-wiki.mjs|, exposed
+through root npm scripts. The core commands are:
+\path|wiki:status|, \path|wiki:lint|, \path|wiki:garden|,
+\path|wiki:repair-links|, \path|wiki:search|, \path|wiki:capture|,
+\path|wiki:images|, \path|dashboard|, and \path|dashboard:open|.
+
+\subsection{Raw Evidence Layer}
+
+The raw layer is the factual source layer. A raw note stores metadata such as
+title, author, publication date, source URL, capture date, source type,
+snapshot path, content hash, capture method, source quality, tags, related wiki
+targets, and processing status. The body preserves captured content, explicit
+images, extracted claims, candidate wiki links, and processing notes.
+
+Raw notes are intentionally not treated as disposable summaries. They are the
+evidence ledger from which multiple wiki pages can be synthesized. A single
+source may update many durable concepts, and a single wiki concept may cite many
+raw notes.
+
+\subsection{Wiki Layer}
+
+The wiki layer is the compiled knowledge layer. It favors one durable knowledge
+unit per page: a concept, entity, method, API, workflow, comparison, or recurring
+question. Pages use Obsidian-compatible links such as \texttt{[[Page Name]]} or
+\texttt{[[Page Name|label]]}. Frontmatter may include typed relation hints from
+a small supported vocabulary: \texttt{supports}, \texttt{challenges},
+\texttt{related\_to}, \texttt{applies\_to}, \texttt{company\_of}, and
+\texttt{product\_of}.
+
+This design borrows from evergreen-note practices, especially the preference for
+atomic, linked, evolving notes \cite{matuschakEvergreen}. The difference is that
+Agent Wiki makes the maintenance procedure executable by agents and auditable by
+local scripts.
+
+\subsection{Graph and Resolver}
+
+The scanner walks Markdown files under \texttt{raw/}, \texttt{wiki/},
+\texttt{templates/}, and archives. It parses simple YAML frontmatter, extracts
+body links and frontmatter links, resolves targets by id, title, basename, and
+alias, and emits nodes, edges, unresolved links, typed relations, invalid
+relations, incoming counts, and outgoing counts.
+
+The resolver deliberately uses ordinary Markdown and wiki-link conventions
+rather than a hidden database. The graph is therefore a derived artifact, not the
+source of truth. If a generated JSON file is deleted, it can be rebuilt from the
+Markdown vault.
+
+\section{Evidence Closure}
+
+The central maintenance invariant in Agent Wiki is evidence closure. A raw note
+with status \texttt{processed} should satisfy three conditions:
+
+\begin{enumerate}[leftmargin=1.5em]
+  \item It has at least one related wiki target.
+  \item Each related target resolves to an existing page.
+  \item At least one resolved wiki target links back to the raw note.
+\end{enumerate}
+
+In addition, explicit follow-up flags prevent a source from being treated as
+complete. The lint workflow reports processed-source issues such as
+\path|missing-related|, \path|unresolved-related|,
+\path|missing-wiki-backlink|, and \path|explicit-followup|. This turns a
+normally subjective maintenance action---``this source has been processed''---into
+a local, reviewable property.
+
+Evidence closure is modest but important. It does not prove that every claim is
+correct or that the synthesis is complete. It does, however, prevent a common
+failure mode in agent-maintained knowledge bases: raw material is summarized,
+marked done, and later becomes unreachable from the synthesized knowledge layer.
+
+\section{Image Evidence}
+
+Many useful sources are visual: documentation screenshots, UI states,
+architecture diagrams, charts, workflows, and configuration examples. Agent Wiki
+therefore treats images as evidence rather than decoration.
+
+The image workflow scans raw notes and selected snapshots for Markdown image
+syntax and HTML \texttt{img} tags, resolves relative URLs, deduplicates images,
+mirrors remote images into \path|raw/assets/<source-note>/|, writes an
+\path|image-index.json|, records local paths, content types, byte counts, and
+download errors, and updates the raw note's \texttt{Images} section with a
+preview table. Agents are instructed to promote only the most useful visual
+evidence into wiki pages, keeping exhaustive inventories in raw notes.
+
+This mechanism supports grounded answers that include local images when a visual
+state is material to the answer. It also avoids a common degradation in web
+captures: links to remote images rot or become difficult to associate with their
+source context.
+
+\section{Dashboard}
+
+The dashboard is a read-only visualization surface. Its graph generator scans
+\texttt{raw/} and \texttt{wiki/}, excludes navigation and maintenance files, and
+writes \texttt{public/wiki-graph.json}. The frontend displays global and local
+graph browsing, a wiki-only knowledge view by default, evidence drill-down for a
+wiki page and its directly linked raw sources, search, group and status filters,
+selected-node links and backlinks, tags, raw/wiki/link counts, and health
+indicators for inbox, follow-up, stale, broken-link, and processed-gate queues.
+
+The dashboard does not write to the vault. This read-only constraint keeps the
+Markdown repository as the source of truth and lets visualization remain an
+on-demand artifact rather than a runtime dependency.
+
+\section{Implementation}
+
+Agent Wiki is implemented with Node.js scripts and a Vite/React dashboard. The
+repository is intentionally small. In the inspected version, the root scripts
+directory contains roughly 94 KB of JavaScript source, and the dashboard source
+contains a React graph surface plus CSS. No database server is required.
+
+Table~\ref{tab:commands} summarizes the primary command line workflows.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\toprule
+Command & Purpose \\
+\midrule
+\texttt{npm run wiki:status} & report vault graph and queue statistics \\
+\texttt{npm run wiki:lint} & validate unresolved links, source closure, and metadata \\
+\texttt{npm run wiki:garden} & show maintenance queues and weakly connected pages \\
+\texttt{npm run wiki:repair-links} & assist with link repair \\
+\texttt{npm run wiki:search -- "query"} & search across titles, tags, aliases, and excerpts \\
+\texttt{npm run wiki:capture} & create a raw source note with metadata and snapshots \\
+\texttt{npm run wiki:images} & extract, mirror, and index image evidence \\
+\texttt{npm run dashboard:open} & refresh graph, start local frontend, open browser \\
+\bottomrule
+\end{tabular}
+\caption{Primary local workflows exposed as npm scripts.}
+\label{tab:commands}
+\end{table}
+
+\section{Case Study: FlexSim Documentation Vault}
+
+To evaluate the system as a practical maintenance substrate, Agent Wiki was used
+to ingest and synthesize a large technical documentation corpus for Autodesk
+FlexSim. The vault health commands were run on July 7, 2026. Table~\ref{tab:case}
+shows the resulting graph statistics.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lr}
+\toprule
+Metric & Value \\
+\midrule
+Total nodes & 1,201 \\
+Graph edges & 5,261 \\
+Raw source notes & 1,097 \\
+Wiki pages & 93 \\
+Inbox raw sources & 0 \\
+Processed raw sources & 1,096 \\
+Needs follow-up & 0 \\
+Stale sources & 0 \\
+Unresolved links & 0 \\
+Invalid relation hints & 0 \\
+Orphaned wiki pages & 0 \\
+Processed-source issues & 0 \\
+\bottomrule
+\end{tabular}
+\caption{Vault health for the FlexSim case study. Metrics are produced by the
+included local status and lint commands.}
+\label{tab:case}
+\end{table}
+
+The case study suggests that a file-native approach can remain mechanically
+healthy over a documentation-scale corpus. The strongest result is not the node
+count alone, but the absence of unresolved links, orphaned wiki pages, and
+processed-gate violations after agent-assisted maintenance. These metrics show
+that the raw evidence layer and wiki synthesis layer can be kept connected by
+local checks.
+
+\section{Relationship to RAG and Agent Memory}
+
+RAG combines parametric language models with external non-parametric memory to
+improve knowledge-intensive generation \cite{lewis2020rag}. Agent Wiki is
+complementary to RAG rather than a replacement for it. RAG typically optimizes
+retrieval at answer time; Agent Wiki optimizes source preservation, synthesis,
+inspection, and maintenance before retrieval. A clean Agent Wiki vault can later
+serve as a high-quality corpus for embeddings, search, or retrieval pipelines.
+
+Agent memory systems such as MemGPT study how LLMs can manage context beyond a
+fixed context window using memory tiers and control flow \cite{packer2023memgpt}.
+Agent Wiki focuses on the external substrate that an agent can maintain: ordinary
+files, explicit evidence links, and local health checks. It does not assume that
+the LLM owns or hides the memory representation.
+
+Personal AI systems such as Khoj provide search and chat over user documents and
+support Markdown, PDFs, and note tools \cite{khojDocs}. Obsidian provides a
+widely used local Markdown note environment with links and graph visualization
+\cite{obsidian}. Agent Wiki is narrower and more procedural: it packages a vault
+layout, agent instructions, capture templates, evidence-closure rules, image
+evidence handling, and lintable maintenance workflows specifically for
+agent-maintained knowledge bases.
+
+\section{Limitations}
+
+Agent Wiki currently emphasizes auditable structure over semantic automation.
+The search command is lightweight and does not rank with embeddings. The system
+does not automatically prove that wiki claims faithfully summarize raw sources;
+it only makes source links and maintenance state inspectable. The YAML parser is
+purposefully simple and may not support every frontmatter convention used by
+larger static-site or note-taking ecosystems. The dashboard is read-only and
+local. Finally, the case study is a single-developer, single-corpus deployment;
+future work should evaluate multi-user workflows, cross-agent consistency, and
+answer quality compared with chat-only and RAG-first baselines.
+
+\section{Future Work}
+
+Several extensions follow naturally from the current design. First, the vault
+could expose a stable Model Context Protocol server so agents can query graph
+state and source evidence through structured APIs while preserving Markdown as
+the source of truth. Second, the system could add optional embedding indexes that
+are built from the wiki layer, the raw layer, or both, allowing retrieval to be
+compared against graph-guided search. Third, evidence closure could be extended
+from page-level links to claim-level citations. Fourth, image evidence could be
+augmented with OCR, diagram captions, and visual similarity search. Fifth,
+dashboard interactions could create suggested maintenance actions while keeping
+write operations explicit and reviewable.
+
+\section{Conclusion}
+
+Agent Wiki demonstrates that a useful LLM-agent memory substrate can begin as a
+local Markdown repository rather than a hosted service or vector database. By
+separating raw evidence from synthesized wiki knowledge, enforcing a processed
+closure rule, indexing images as evidence, and deriving graph health from plain
+files, the system offers a pragmatic bridge between personal knowledge
+management, source-grounded agent answers, and future retrieval pipelines. The
+initial FlexSim case study shows that the approach can support more than one
+thousand raw sources while preserving link and evidence health under local lint
+checks. The broader claim is simple: before agent knowledge becomes more
+automated, it should become more inspectable.
+
+\section*{Availability}
+
+The Agent Wiki source code is available at
+\url{https://github.com/NimaChu/agent-wiki}. The current report describes the
+repository state inspected on July 7, 2026.
+
+\begin{thebibliography}{9}
+
+\bibitem{lewis2020rag}
+Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir
+Karpukhin, Naman Goyal, Heinrich Kuttler, Mike Lewis, Wen-tau Yih, Tim
+Rocktaschel, Sebastian Riedel, and Douwe Kiela.
+\newblock Retrieval-augmented generation for knowledge-intensive NLP tasks.
+\newblock In \emph{Advances in Neural Information Processing Systems}, 2020.
+\newblock \url{https://arxiv.org/abs/2005.11401}.
+
+\bibitem{packer2023memgpt}
+Charles Packer, Sarah Wooders, Kevin Lin, Vivian Fang, Shishir G. Patil, Ion
+Stoica, and Joseph E. Gonzalez.
+\newblock MemGPT: Towards LLMs as operating systems.
+\newblock arXiv:2310.08560, 2023.
+\newblock \url{https://arxiv.org/abs/2310.08560}.
+
+\bibitem{matuschakEvergreen}
+Andy Matuschak.
+\newblock Evergreen notes.
+\newblock \url{https://notes.andymatuschak.org/}.
+
+\bibitem{obsidian}
+Obsidian.
+\newblock Obsidian: Sharpen your thinking.
+\newblock \url{https://obsidian.md/}.
+
+\bibitem{khojDocs}
+Khoj AI.
+\newblock Khoj documentation.
+\newblock \url{https://docs.khoj.dev/}.
+
+\bibitem{notebooklm}
+Google.
+\newblock NotebookLM.
+\newblock \url{https://notebooklm.google/}.
+
+\end{thebibliography}
+
+\end{document}

@@ -1,0 +1,27 @@
+{
+  "title": "Agent Wiki: A Local-First Evidence-Closed Markdown Wiki for LLM Agents",
+  "upload_type": "software",
+  "description": "Agent Wiki is a local-first, Markdown-native knowledge substrate for LLM coding agents. It separates raw evidence from synthesized wiki pages, checks evidence-closure invariants with local linting tools, indexes image evidence, and provides an optional read-only graph dashboard.",
+  "creators": [
+    {
+      "name": "Chu, Zijun",
+      "affiliation": "Independent Researcher"
+    }
+  ],
+  "access_right": "open",
+  "keywords": [
+    "LLM agents",
+    "knowledge base",
+    "Markdown",
+    "software engineering",
+    "source-grounded AI",
+    "personal knowledge management"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/NimaChu/agent-wiki",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    }
+  ]
+}

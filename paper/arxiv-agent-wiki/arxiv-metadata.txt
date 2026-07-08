@@ -1,0 +1,23 @@
+Title:
+Agent Wiki: A Local-First Evidence-Closed Markdown Wiki for LLM Agents
+
+Authors:
+Zijun Chu
+
+Primary category:
+cs.SE
+
+Cross-list categories:
+cs.HC
+
+Optional additional cross-list:
+cs.AI or cs.IR
+
+Comments:
+Technical report. 6 pages, 2 tables. Code: https://github.com/NimaChu/agent-wiki
+
+Abstract:
+Large language model (LLM) agents increasingly perform long-running reading, coding, and maintenance tasks, but their durable knowledge often remains trapped in chat transcripts, proprietary note systems, vector databases, or ad hoc project memories. This report introduces Agent Wiki, a local-first, Markdown-native knowledge substrate designed for coding agents and human users who want source-grounded, inspectable, and low-cost long-term knowledge management. Agent Wiki separates immutable or lightly edited raw evidence from agent-synthesized wiki pages, uses Obsidian-compatible links as a computable knowledge graph, and defines a "processed" closure condition that is checked by local linting tools: a raw source is processed only when its primary wiki targets resolve, the wiki layer links back to the raw evidence, and follow-up flags are closed. The system also treats images as evidence by mirroring remote images, building image inventories, and allowing selected visuals to be promoted into wiki answers. A read-only dashboard exposes global and local graph views, evidence drill-downs, and health indicators such as broken links, orphaned wiki pages, stale sources, and processed-gate failures. A case study on an Autodesk FlexSim documentation corpus produced 1,097 raw source notes, 93 durable wiki pages, and 5,261 graph edges, with zero unresolved links, zero orphaned wiki pages, and zero processed-gate violations under the included lint checks. Agent Wiki does not replace retrieval-augmented generation; instead, it offers a file-native, auditable staging layer from which retrieval, dashboards, and agent workflows can later be built.
+
+License suggestion:
+arXiv.org perpetual, non-exclusive license if you want conservative distribution; CC BY 4.0 if you want broad reuse.
