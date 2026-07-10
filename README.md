@@ -1,5 +1,7 @@
 # Agent Wiki
 
+<img width="1536" height="1024" alt="baa1975d853c5267d8b005b65569c09c_origin" src="https://github.com/user-attachments/assets/bea713c3-8d37-427b-ab04-5f601123f252" />
+
 Zero-cost, beginner-friendly local knowledge base for AI agents.
 
 [简体中文](README.zh-CN.md)
@@ -28,6 +30,9 @@ templates/  reusable raw and wiki page templates
 scripts/    local CLI for capture, search, lint, repair, images, dashboard
 tools/      optional local graph dashboard
 ```
+And graph visualization
+<img width="1895" height="936" alt="75d483a7df92c5e45cd101f3b44775c6_origin" src="https://github.com/user-attachments/assets/30230076-f34e-4749-bfef-84f3a6293b75" />
+
 
 Agent Wiki is intentionally simple: Markdown in, Markdown out. You can inspect everything with a text editor, search it with ripgrep, sync the tool code with GitHub, and keep private knowledge out of commits.
 
