@@ -30,7 +30,7 @@ templates/  reusable raw and wiki page templates
 scripts/    local CLI for capture, search, lint, repair, images, dashboard
 tools/      optional local graph dashboard
 ```
-And graph visualization
+### And graph visualization
 <img width="1895" height="936" alt="75d483a7df92c5e45cd101f3b44775c6_origin" src="https://github.com/user-attachments/assets/30230076-f34e-4749-bfef-84f3a6293b75" />
 
 
