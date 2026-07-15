@@ -90,6 +90,8 @@ npm run wiki:capture -- --title "文章标题" --url "https://example.com"
 把这篇文章入库：https://example.com
 ```
 
+如果 Dashboard 前端已经在运行，入库或维护造成的 `raw/`、`wiki/` 变化会自动刷新到图谱；如果前端没有运行，则不会因此启动或刷新 Dashboard。
+
 ### 2. 查询知识库
 
 ```bash

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { promises as fs } from "node:fs";
+import { promises as fs, rmSync } from "node:fs";
+import http from "node:http";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
-import { dashboardPath, exists, vaultPath } from "./wiki-lib.mjs";
+import { DASHBOARD_URL, dashboardPath, exists, vaultPath } from "./wiki-lib.mjs";
 
 const vault = vaultPath();
 const dash = dashboardPath(vault);
@@ -23,6 +24,20 @@ function pidAlive(pid) {
   } catch {
     return false;
   }
+}
+
+async function isDashboardAlive() {
+  return new Promise((resolve) => {
+    const req = http.get(DASHBOARD_URL, (res) => {
+      res.resume();
+      resolve(Boolean(res.statusCode && res.statusCode < 500));
+    });
+    req.on("error", () => resolve(false));
+    req.setTimeout(800, () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
 }
 
 async function acquireLock() {
@@ -75,19 +90,32 @@ function buildGraph() {
 
 async function main() {
   await acquireLock();
-  log(`watching ${vault}`);
-  let last = await signature();
 
   process.on("exit", () => {
     try {
-      fs.rm(lockPath, { force: true });
+      rmSync(lockPath, { force: true });
     } catch {
       // best effort
     }
   });
 
+  if (!(await isDashboardAlive())) {
+    log("dashboard is offline; watcher exiting");
+    process.exit(0);
+  }
+
+  log(`watching ${vault}`);
+  let last = await signature();
+  let checking = false;
+
   setInterval(async () => {
+    if (checking) return;
+    checking = true;
     try {
+      if (!(await isDashboardAlive())) {
+        log("dashboard stopped; watcher exiting");
+        process.exit(0);
+      }
       const next = await signature();
       if (next !== last) {
         last = next;
@@ -95,10 +123,10 @@ async function main() {
       }
     } catch (error) {
       log(`watch error: ${error.message || String(error)}`);
+    } finally {
+      checking = false;
     }
-  }, intervalMs).unref();
-
-  setInterval(() => {}, 1 << 30);
+  }, intervalMs);
 }
 
 main().catch((error) => {

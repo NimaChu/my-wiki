@@ -89,6 +89,8 @@ http://127.0.0.1:5173/
 
 Agents should treat requests like "show the graph", "open the frontend", or "open the dashboard" as a request to run `npm run dashboard:open`.
 
+While the frontend is running, Agent Wiki watches `raw/` and `wiki/` Markdown and refreshes the graph automatically. The watcher exits with the frontend, so normal capture and maintenance do not start or refresh an offline dashboard.
+
 ## Core Workflow
 
 1. Capture source material into `raw/`.
