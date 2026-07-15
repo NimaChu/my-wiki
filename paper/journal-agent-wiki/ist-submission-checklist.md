@@ -21,8 +21,9 @@ Updated: 2026-07-15
 - Run `npm run paper:ist-evaluate` from the repository root.
 - Check `experiments/ist-evaluation-results.json` against all manuscript values.
 - Check the runtime and fault-injection CSV files against Tables 4 and 5.
-- Archive the experiment script and results in a new GitHub/Zenodo release before
-  submission, then update the release version and DOI wording in `ist.tex`.
+- The experiment script and results are archived in GitHub release `v0.2.2`
+  and Zenodo DOI `10.5281/zenodo.21368436`; the availability statement in
+  `ist.tex` has been updated accordingly.
 - Keep Autodesk documentation text, snapshots, and images out of the public
   package; publish only the approved metadata and derived structures.
 
@@ -49,4 +50,4 @@ Updated: 2026-07-15
 - Compile `ist.tex` and inspect every page, table, URL, and line break.
 - Validate reference titles, author lists, venues, years, and DOI links.
 - Confirm manuscript word count under the journal's counting rules.
-- Replace any future-tense archival wording after the new DOI is minted.
+- Confirm the final manuscript PDF contains DOI `10.5281/zenodo.21368436`.
