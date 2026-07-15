@@ -39,15 +39,11 @@ The case study supports a claim of mechanical graph health at documentation
 scale. It does not establish semantic correctness, user-productivity gains, or
 superiority over RAG baselines.
 
-## Hard Blockers Before Submission
+## Remaining Decision Before Submission
 
-1. Create a new permanent GitHub release and Zenodo archive after the MIT and
-   `src/` changes are committed.
-2. Replace the submission-candidate placeholders in the metadata tables with
-   the final release tag and DOI.
-3. Enter the provided phone number directly in Editorial Manager; it is not
+1. Enter the provided phone number directly in Editorial Manager; it is not
    stored in the public repository.
-4. Decide whether to publish a sanitized case-study data snapshot.
+2. Decide whether to publish a sanitized case-study data snapshot.
 
 ## Current Evidence
 

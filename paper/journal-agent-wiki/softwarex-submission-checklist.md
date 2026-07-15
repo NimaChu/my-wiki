@@ -27,13 +27,13 @@ Checked against the official SoftwareX Guide for Authors on 2026-07-15.
 
 - [x] Public GitHub repository exists.
 - [x] README.md exists and describes installation and use.
-- [x] Permanent release tag v0.1.2 exists.
+- [x] Permanent release tag v0.2.0 exists.
 - [x] GitHub Release and Zenodo DOI exist.
 - [x] MIT LICENSE.txt has been added.
 - [x] Canonical public CLI source is under the top-level src/ directory; legacy
   scripts/ paths remain as compatibility wrappers.
-- [ ] Create a new permanent release after license and repository-layout changes.
-- [ ] Update the manuscript metadata tables from v0.1.2 to that final release.
+- [x] Created a permanent release after license and repository-layout changes.
+- [x] Updated the manuscript metadata tables to v0.2.0 and its Zenodo DOI.
 - [ ] Consider publishing a sanitized case-study vault or reproducible fixture.
 
 ## Submission Files

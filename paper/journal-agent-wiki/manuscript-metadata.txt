@@ -20,8 +20,11 @@ management; evidence-grounded AI; personal knowledge bases; reproducible tools.
 Repository:
 https://github.com/NimaChu/agent-wiki
 
+Release:
+https://github.com/NimaChu/agent-wiki/releases/tag/v0.2.0
+
 Zenodo DOI:
-https://doi.org/10.5281/zenodo.21252490
+https://doi.org/10.5281/zenodo.21366773
 
 Software license:
 MIT License
@@ -48,5 +51,4 @@ orphaned_wiki_pages: 0
 processed_source_closure_issues: 0
 
 Submission blockers:
-- final GitHub release tag and Zenodo DOI not yet created for the MIT/src version
 - sanitized case-study snapshot decision remains open

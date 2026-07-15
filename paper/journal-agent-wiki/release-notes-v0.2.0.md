@@ -17,5 +17,5 @@ SoftwareX Original Software Publication.
 - `agent-wiki-softwarex-manuscript.pdf`
 - `agent-wiki-softwarex-source.zip`
 
-The archived software release is published under the MIT License. A Zenodo DOI
-will be added to this release after archival synchronization completes.
+The archived software release is published under the MIT License and is
+available from Zenodo at https://doi.org/10.5281/zenodo.21366773.
