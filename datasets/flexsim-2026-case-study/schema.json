@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "files": {
+    "raw-sources.jsonl": "Whitelisted source metadata and structural features for each captured help page.",
+    "wiki-pages.jsonl": "Metadata and link-derived features for each synthesized FlexSim wiki page.",
+    "edges.jsonl": "Resolved evidence and wiki-link edges whose endpoints are in this dataset.",
+    "typed-relations.jsonl": "Supported typed relations within the selected subgraph.",
+    "metrics.json": "Dataset-level counts and disclosure flags."
+  },
+  "identifiers": {
+    "raw": "raw/autodesk-flexsim-2026/<local-note-id>",
+    "wiki": "wiki/<page-title>"
+  },
+  "omitted_fields": [
+    "captured document body",
+    "webpage snapshot",
+    "mirrored image",
+    "absolute filesystem path",
+    "credentials and personal contact data"
+  ]
+}

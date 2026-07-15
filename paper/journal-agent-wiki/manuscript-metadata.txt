@@ -21,10 +21,10 @@ Repository:
 https://github.com/NimaChu/agent-wiki
 
 Release:
-https://github.com/NimaChu/agent-wiki/releases/tag/v0.2.0
+https://github.com/NimaChu/agent-wiki/releases/tag/v0.2.1
 
 Zenodo DOI:
-https://doi.org/10.5281/zenodo.21366773
+https://doi.org/10.5281/zenodo.21252445
 
 Software license:
 MIT License
@@ -51,4 +51,4 @@ orphaned_wiki_pages: 0
 processed_source_closure_issues: 0
 
 Submission blockers:
-- sanitized case-study snapshot decision remains open
+- enter the corresponding-author phone number directly in Editorial Manager

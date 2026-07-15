@@ -1,6 +1,6 @@
 {
   "name": "agent-wiki",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -17,6 +17,7 @@
     "wiki:sync-ima": "node src/karpathy-wiki.mjs sync-ima",
     "wiki:fetch-ima": "node src/karpathy-wiki.mjs fetch-ima",
     "wiki:distill-query": "node src/karpathy-wiki.mjs distill-query",
+    "dataset:flexsim": "node src/export-flexsim-case-study.mjs",
     "wiki:ingest-flexsim-2026": "node scripts/ingest-autodesk-flexsim-2026.mjs",
     "wiki:qa-flexsim-2026": "node scripts/qa-flexsim-2026.mjs",
     "wiki:images-flexsim-2026": "node scripts/images-flexsim-2026.mjs",

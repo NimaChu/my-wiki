@@ -64,10 +64,10 @@ LLM agents \sep knowledge management \sep Markdown \sep local-first software
 \hline
 \textbf{Nr.} & \textbf{Code metadata description} & \textbf{Current Agent Wiki release} \\
 \hline
-C1 & Current code version & v0.2.0 \\
+C1 & Current code version & v0.2.1 \\
 \hline
 C2 & Permanent GitHub link to code/repository used for this code version &
-\url{https://github.com/NimaChu/agent-wiki/releases/tag/v0.2.0} \\
+\url{https://github.com/NimaChu/agent-wiki/releases/tag/v0.2.1} \\
 \hline
 C3 & Legal Code License & MIT License \\
 \hline
@@ -82,7 +82,7 @@ optional dashboard requires a modern web browser. Validated on Windows 11 with
 Node.js 20.20.0. \\
 \hline
 C7 & Link to developer documentation/manual &
-\url{https://github.com/NimaChu/agent-wiki/blob/v0.2.0/README.md} \\
+\url{https://github.com/NimaChu/agent-wiki/blob/v0.2.1/README.md} \\
 \hline
 C8 & Support email for questions & \href{mailto:chunimav5@gmail.com}{chunimav5@gmail.com} \\
 \hline
@@ -250,9 +250,9 @@ while private or bulky knowledge remains outside version control.
 Current adoption evidence is limited to a single-developer, single-corpus case
 study. Agent Wiki has not yet been evaluated through a controlled user study or
 against chat-only and RAG-first baselines. Future work should measure answer
-quality, maintenance effort, cross-agent consistency, and user trust; publish a
-sanitized case-study snapshot; and evaluate optional claim-level citations and
-embedding indexes. The public software distribution and archived release [5]
+quality, maintenance effort, cross-agent consistency, and user trust; extend the
+public case-study snapshot with semantic annotations; and evaluate optional
+claim-level citations and embedding indexes. The public software distribution and archived release [5]
 allow these questions to be pursued without depending on a hosted service.
 
 \section{Conclusions}
@@ -275,13 +275,13 @@ upstream of, or independent from, retrieval systems.
 \hline
 \textbf{Nr.} & \textbf{Executable software metadata description} & \textbf{Current Agent Wiki release} \\
 \hline
-S1 & Current software version & v0.2.0 \\
+S1 & Current software version & v0.2.1 \\
 \hline
 S2 & Permanent link to executables of this version &
-\url{https://github.com/NimaChu/agent-wiki/releases/tag/v0.2.0} \\
+\url{https://github.com/NimaChu/agent-wiki/releases/tag/v0.2.1} \\
 \hline
 S3 & Permanent link to reproducible capsule/archive &
-\url{https://doi.org/10.5281/zenodo.21366773} \\
+\url{https://doi.org/10.5281/zenodo.21252445} \\
 \hline
 S4 & Legal Software License & MIT License \\
 \hline
@@ -291,7 +291,7 @@ Node.js 18+ environment; validated on Windows 11. \\
 S6 & Installation requirements and dependencies & Node.js 18+ and npm; run \texttt{npm install}. \\
 \hline
 S7 & Link to user manual &
-\url{https://github.com/NimaChu/agent-wiki/blob/v0.2.0/README.md} \\
+\url{https://github.com/NimaChu/agent-wiki/blob/v0.2.1/README.md} \\
 \hline
 S8 & Support email for questions & \href{mailto:chunimav5@gmail.com}{chunimav5@gmail.com} \\
 \hline
@@ -303,11 +303,12 @@ S8 & Support email for questions & \href{mailto:chunimav5@gmail.com}{chunimav5@g
 \section*{Data availability}
 
 The reusable software and manuscript materials are available from GitHub and
-Zenodo [5]. The reported case-study vault includes locally captured technical
-documentation and is not part of the public software release. The aggregate
-health results can be regenerated from that vault with \texttt{npm run
-wiki:status} and \texttt{npm run wiki:lint}. A sanitized replication snapshot is
-planned for a future release.
+Zenodo [5]. A public, derived FlexSim 2026 case-study subset is included in the
+release at \url{https://github.com/NimaChu/agent-wiki/tree/v0.2.1/datasets/flexsim-2026-case-study}.
+It contains metadata and graph structure for 1,092 source records and 88
+synthesized wiki records (1,180 nodes and 5,163 resolved edges), but excludes
+captured Autodesk text, snapshots, and images. The manuscript's full-vault
+counts also include non-FlexSim local sources and pages that are not public.
 
 \section*{CRediT author statement}
 
@@ -365,8 +366,8 @@ Process Syst 2024;37.
 
 \bibitem{agentwiki}
 Chu Z. Agent Wiki: A local-first evidence-closed Markdown wiki for LLM agents.
-Version 0.2.0 [software]. Zenodo; 2026 Jul 15.
-\url{https://doi.org/10.5281/zenodo.21366773}.
+Version 0.2.1 [software]. Zenodo; 2026 Jul 15.
+\url{https://doi.org/10.5281/zenodo.21252445}.
 
 \end{thebibliography}
 

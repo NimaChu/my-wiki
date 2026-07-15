@@ -1,7 +1,7 @@
 {
   "title": "Agent Wiki: A Local-First Evidence-Closed Markdown Wiki for LLM Agents",
   "upload_type": "software",
-  "description": "Agent Wiki is a local-first, Markdown-native knowledge substrate for LLM coding agents. It separates raw evidence from synthesized wiki pages, checks evidence-closure invariants with local linting tools, indexes image evidence, and provides an optional read-only graph dashboard.",
+  "description": "Agent Wiki is a local-first, Markdown-native knowledge substrate for LLM coding agents. It separates raw evidence from synthesized wiki pages, checks evidence-closure invariants with local linting tools, indexes image evidence, provides an optional read-only graph dashboard, and includes a public metadata-only FlexSim 2026 case-study dataset.",
   "creators": [
     {
       "name": "Chu, Zijun",

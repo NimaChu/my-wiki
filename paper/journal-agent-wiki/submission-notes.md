@@ -39,11 +39,10 @@ The case study supports a claim of mechanical graph health at documentation
 scale. It does not establish semantic correctness, user-productivity gains, or
 superiority over RAG baselines.
 
-## Remaining Decision Before Submission
+## Remaining Submission Step
 
 1. Enter the provided phone number directly in Editorial Manager; it is not
    stored in the public repository.
-2. Decide whether to publish a sanitized case-study data snapshot.
 
 ## Current Evidence
 

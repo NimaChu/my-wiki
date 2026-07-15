@@ -26,9 +26,9 @@ The public software repository is:
 
 https://github.com/NimaChu/agent-wiki
 
-The archived v0.2.0 release is:
+The archived v0.2.1 release is:
 
-https://doi.org/10.5281/zenodo.21366773
+https://doi.org/10.5281/zenodo.21252445
 
 The manuscript is original, is not under consideration elsewhere, and has not
 been published as a peer-reviewed journal article. The author declares no

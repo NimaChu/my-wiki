@@ -27,14 +27,15 @@ Checked against the official SoftwareX Guide for Authors on 2026-07-15.
 
 - [x] Public GitHub repository exists.
 - [x] README.md exists and describes installation and use.
-- [x] Permanent release tag v0.2.0 exists.
+- [ ] Permanent release tag v0.2.1 exists.
 - [x] GitHub Release and Zenodo DOI exist.
 - [x] MIT LICENSE.txt has been added.
 - [x] Canonical public CLI source is under the top-level src/ directory; legacy
   scripts/ paths remain as compatibility wrappers.
 - [x] Created a permanent release after license and repository-layout changes.
-- [x] Updated the manuscript metadata tables to v0.2.0 and its Zenodo DOI.
-- [ ] Consider publishing a sanitized case-study vault or reproducible fixture.
+- [x] Updated the manuscript metadata tables for v0.2.1 and the Zenodo concept DOI.
+- [x] Published a metadata-only FlexSim case-study dataset without third-party
+  documentation text, snapshots, or images.
 
 ## Submission Files
 
@@ -52,5 +53,5 @@ Checked against the official SoftwareX Guide for Authors on 2026-07-15.
   paper is accepted. Recheck the current amount immediately before submission.
 - The journal requires disclosure of generative AI used in manuscript
   preparation. The manuscript contains that disclosure.
-- The local case-study corpus is not currently public. The data statement is
-  explicit about this limitation.
+- A derived FlexSim case-study subset is public. The data statement distinguishes
+  it from the complete local vault used for the full-vault metrics.

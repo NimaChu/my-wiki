@@ -26,6 +26,7 @@ If you can open a terminal and talk to an agent, you can have a local knowledge 
 ```text
 raw/        source notes, snapshots, evidence, image inventories
 wiki/       durable knowledge pages synthesized from raw sources
+datasets/   public derived datasets without mirrored source content
 templates/  reusable raw and wiki page templates
 src/        canonical CLI source for capture, search, lint, repair, and images
 scripts/    backwards-compatible launchers and optional local-only helpers
@@ -187,6 +188,20 @@ node src/karpathy-wiki.mjs help
 
 The legacy `node scripts/karpathy-wiki.mjs ...` entry point remains available
 as a compatibility wrapper.
+
+## Public Case-Study Data
+
+The repository includes a derived FlexSim 2026 case-study dataset containing
+source metadata, content hashes, structural features, and evidence-graph edges.
+It intentionally excludes captured Autodesk documentation text, snapshots, and
+images. Rebuild it from an authorized local capture with:
+
+```bash
+npm run dataset:flexsim
+```
+
+See [`datasets/flexsim-2026-case-study/README.md`](datasets/flexsim-2026-case-study/README.md)
+for scope, schema, provenance, and licensing details.
 
 ## License
 
