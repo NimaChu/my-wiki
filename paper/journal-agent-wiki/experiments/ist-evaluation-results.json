@@ -1,0 +1,162 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-07-15T05:15:04.871Z",
+  "software_release": "v0.2.1",
+  "archive_package_release": "v0.2.2",
+  "machine": {
+    "node": "v20.20.0",
+    "platform": "win32",
+    "release": "10.0.26100",
+    "architecture": "x64",
+    "logical_cpu_count": 32,
+    "cpu_model": "Intel(R) Core(TM) i9-14900K",
+    "memory_gib": 127.7
+  },
+  "protocol": {
+    "fault_classes": [
+      "missing-related",
+      "unresolved-related",
+      "missing-wiki-backlink",
+      "explicit-followup"
+    ],
+    "faults_per_class": 30,
+    "runtime_sizes": [
+      100,
+      500,
+      1000,
+      2000
+    ],
+    "warmups": 2,
+    "repetitions": 10
+  },
+  "public_dataset": {
+    "declared": {
+      "schema_version": "1.0",
+      "dataset_version": "1.0.0",
+      "software_release": "v0.2.1",
+      "generated_at": "2026-07-15T02:10:06.357Z",
+      "corpus": "Autodesk FlexSim 2026 English online help",
+      "public_content_policy": "metadata-and-derived-structure-only",
+      "raw_source_records": 1092,
+      "synthesized_wiki_records": 88,
+      "graph_nodes": 1180,
+      "graph_edges": 5163,
+      "typed_relation_edges": 0,
+      "raw_to_wiki_edges": 2273,
+      "wiki_to_raw_edges": 2310,
+      "wiki_to_wiki_edges": 580,
+      "notes_with_source_urls": 1092,
+      "notes_with_content_hashes": 1092,
+      "raw_note_word_count_p10": 106,
+      "raw_note_word_count_median": 544,
+      "raw_note_word_count_p90": 2851,
+      "captured_document_text_included": false,
+      "mirrored_images_included": false,
+      "webpage_snapshots_included": false
+    },
+    "observed": {
+      "raw_records": 1092,
+      "wiki_records": 88,
+      "edges": 5163,
+      "raw_with_resolved_related_target": 1092,
+      "raw_with_reciprocal_wiki_backlink": 1092,
+      "raw_with_source_url": 1092,
+      "raw_with_sha256_hash": 1092,
+      "related_target_coverage_percent": 100,
+      "reciprocal_backlink_coverage_percent": 100,
+      "source_url_coverage_percent": 100,
+      "content_hash_coverage_percent": 100
+    }
+  },
+  "fault_injection": {
+    "fixture_raw_records": 1000,
+    "faults_per_class": 30,
+    "total_injected_faults": 120,
+    "by_class": {
+      "missing-related": {
+        "injected": 30,
+        "agent_wiki_detected": 30,
+        "existence_only_detected": 0
+      },
+      "unresolved-related": {
+        "injected": 30,
+        "agent_wiki_detected": 30,
+        "existence_only_detected": 30
+      },
+      "missing-wiki-backlink": {
+        "injected": 30,
+        "agent_wiki_detected": 30,
+        "existence_only_detected": 0
+      },
+      "explicit-followup": {
+        "injected": 30,
+        "agent_wiki_detected": 30,
+        "existence_only_detected": 0
+      }
+    },
+    "agent_wiki": {
+      "true_positive": 120,
+      "false_positive": 0,
+      "false_negative": 0,
+      "precision": 1,
+      "recall": 1
+    },
+    "existence_only_baseline": {
+      "true_positive": 30,
+      "false_positive": 0,
+      "false_negative": 90,
+      "precision": 1,
+      "recall": 0.25
+    }
+  },
+  "runtime": [
+    {
+      "raw_records": 100,
+      "wiki_records": 4,
+      "nodes": 104,
+      "edges": 200,
+      "repetitions": 10,
+      "median_ms": 56.79,
+      "p95_ms": 84.218,
+      "min_ms": 53.224,
+      "max_ms": 84.218,
+      "detected_issues": 0
+    },
+    {
+      "raw_records": 500,
+      "wiki_records": 20,
+      "nodes": 520,
+      "edges": 1000,
+      "repetitions": 10,
+      "median_ms": 314.441,
+      "p95_ms": 341.97,
+      "min_ms": 297.713,
+      "max_ms": 341.97,
+      "detected_issues": 0
+    },
+    {
+      "raw_records": 1000,
+      "wiki_records": 40,
+      "nodes": 1040,
+      "edges": 2000,
+      "repetitions": 10,
+      "median_ms": 651.282,
+      "p95_ms": 912.311,
+      "min_ms": 642.787,
+      "max_ms": 912.311,
+      "detected_issues": 0
+    },
+    {
+      "raw_records": 2000,
+      "wiki_records": 80,
+      "nodes": 2080,
+      "edges": 4000,
+      "repetitions": 10,
+      "median_ms": 1302.31,
+      "p95_ms": 1344.911,
+      "min_ms": 1202.791,
+      "max_ms": 1344.911,
+      "detected_issues": 0
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+Evidence closure turns processed status into an executable invariant.
+A public graph links 1,092 sources to 88 synthesized wiki records.
+All 120 seeded maintenance faults were detected without false positives.
+An existence-only link baseline detected 30 of the 120 seeded faults.
+Median checking time was 1.30 s for a 2,080-node Markdown fixture.

@@ -1,0 +1,5 @@
+fault,injected,agent_wiki_detected,existence_only_detected
+missing-related,30,30,0
+unresolved-related,30,30,30
+missing-wiki-backlink,30,30,0
+explicit-followup,30,30,0
