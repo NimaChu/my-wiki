@@ -68,7 +68,21 @@ async function createStagingPackage() {
     repository: { type: "git", url: "git+https://github.com/NimaChu/my-wiki-skill.git" },
     homepage: "https://github.com/NimaChu/my-wiki-skill#readme",
     bugs: { url: "https://github.com/NimaChu/my-wiki-skill/issues" },
-    keywords: ["agent-skill", "knowledge-base", "local-first", "markdown", "knowledge-graph", "rag", "obsidian", "llm"],
+    keywords: [
+      "agent-skill",
+      "knowledge-base",
+      "local-first",
+      "markdown",
+      "knowledge-graph",
+      "claude-code",
+      "codex",
+      "opencode",
+      "openclaw",
+      "hermes-agent",
+      "rag",
+      "obsidian",
+      "llm"
+    ],
     engines: { node: ">=18" }
   };
   await fs.writeFile(path.join(staging, "package.json"), `${JSON.stringify(metadata, null, 2)}\n`);

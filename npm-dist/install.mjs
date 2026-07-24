@@ -10,12 +10,12 @@ const skillName = "my-wiki";
 const argv = process.argv.slice(2);
 const packageMetadata = JSON.parse(await fs.readFile(path.join(packageRoot, "package.json"), "utf8"));
 
-function flagValue(flag) {
+function flagValue(flag, valueName = "a value") {
   const index = argv.indexOf(flag);
   if (index < 0) return null;
   const value = argv[index + 1];
   if (!value || value.startsWith("--")) {
-    console.error(`${flag} requires a path.`);
+    console.error(`${flag} requires ${valueName}.`);
     process.exit(2);
   }
   return value;
@@ -57,8 +57,31 @@ const candidates = [
   { agent: "claude", root: path.join(home, ".claude", "skills") },
   { agent: "codex", root: path.join(codexHome, "skills") },
   { agent: "opencode", root: path.join(xdgConfig, "opencode", "skills") },
+  { agent: "openclaw", root: path.join(home, ".openclaw", "workspace", "skills") },
+  { agent: "hermes", root: path.join(home, ".hermes", "skills") },
   { agent: "agents-config", root: path.join(xdgConfig, "agents", "skills") }
 ];
+
+const targetAliases = new Map([
+  ["universal", "agents"],
+  ["claude-code", "claude"],
+  ["open-code", "opencode"],
+  ["open-claw", "openclaw"],
+  ["hermes-agent", "hermes"]
+]);
+
+function targetByName(value) {
+  const requested = value.toLowerCase();
+  const name = targetAliases.get(requested) || requested;
+  const candidate = candidates.find(({ agent }) => agent === name);
+  if (candidate) return candidate;
+
+  const supported = ["agents", "claude", "codex", "opencode", "openclaw", "hermes"].join(", ");
+  console.error(`Unknown Agent target: ${value}`);
+  console.error(`Supported targets: ${supported}`);
+  console.error("For another Agent host, use --dir <skills-root>.");
+  process.exit(2);
+}
 
 async function detectedTargets() {
   const found = [];
@@ -165,17 +188,31 @@ if (argv.includes("--help") || argv.includes("-h")) {
 
 Usage:
   npx my-wiki-skill@latest
+  npx my-wiki-skill@latest --target <agent>
   npx my-wiki-skill@latest --dir <skills-root>
   npx my-wiki-skill@latest --list
   npx my-wiki-skill@latest --codex-only
-  npx my-wiki-skill@latest --opencode-only`);
+  npx my-wiki-skill@latest --opencode-only
+
+Agent targets:
+  agents, claude, codex, opencode, openclaw, hermes`);
   process.exit(0);
 }
 
-const explicitDir = flagValue("--dir");
+const explicitDir = flagValue("--dir", "a path");
+const explicitTarget = flagValue("--target", "an Agent name");
+const legacyTargetFlags = ["--codex-only", "--opencode-only"].filter((flag) => argv.includes(flag));
+const selectorCount = Number(Boolean(explicitDir)) + Number(Boolean(explicitTarget)) + legacyTargetFlags.length;
+if (selectorCount > 1) {
+  console.error("Use only one of --target, --dir, --codex-only, or --opencode-only.");
+  process.exit(2);
+}
+
 let targets;
 if (explicitDir) {
   targets = [{ agent: "custom", root: explicitDir }];
+} else if (explicitTarget) {
+  targets = [targetByName(explicitTarget)];
 } else if (argv.includes("--codex-only")) {
   targets = [candidates.find(({ agent }) => agent === "codex")];
 } else if (argv.includes("--opencode-only")) {

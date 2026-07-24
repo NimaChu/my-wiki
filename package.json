@@ -1,7 +1,7 @@
 {
   "name": "my-wiki",
-  "version": "0.3.0",
-  "description": "Installer for My Wiki, a local-first evidence-backed Markdown knowledge base Agent Skill.",
+  "version": "0.3.1",
+  "description": "Installer for My Wiki, a cross-agent local-first evidence-backed Markdown knowledge base Skill.",
   "private": true,
   "license": "MIT",
   "type": "module",

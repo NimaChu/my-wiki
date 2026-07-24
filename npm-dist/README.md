@@ -8,4 +8,6 @@ The npm package ships only:
 - the clean `my-wiki/` Skill directory
 - the MIT license and bilingual package documentation
 
-The installer detects common local Agent Skill roots, installs or updates `my-wiki` atomically, and preserves existing Dashboard dependencies. Use `--dir <skills-root>` for another Agent host and `--list` to inspect detected destinations.
+The installer detects the standard Skill roots used by Claude Code, Codex, OpenCode, OpenClaw, Hermes Agent, and the shared Agent Skills convention. It installs or updates `my-wiki` atomically and preserves existing Dashboard dependencies.
+
+Use `--target <agent>` for an explicit supported host, `--dir <skills-root>` for any other `SKILL.md`-compatible Agent, and `--list` to inspect detected destinations.

@@ -106,7 +106,20 @@ Install My Wiki Skill for me: npx my-wiki-skill@latest
 China mirror: npx --registry=https://registry.npmmirror.com my-wiki-skill@latest
 ```
 
-The installer detects common local Agent Skill roots and installs the clean `my-wiki` Skill into every discovered location. Use `--dir <skills-root>` for another Agent host or `--list` to inspect detected destinations. The npm package contains no Git metadata, personal vault, tests, build output, or runtime logs.
+The installer detects common local Agent Skill roots and installs the clean `my-wiki` Skill into every discovered location:
+
+| Agent host | Default Skill root | Installer support |
+|---|---|---|
+| Claude Code | `~/.claude/skills` | Auto-detect or `--target claude` |
+| Codex | `~/.codex/skills` | Auto-detect or `--target codex` |
+| OpenCode | `~/.config/opencode/skills` | Auto-detect or `--target opencode` |
+| OpenClaw | `~/.openclaw/workspace/skills` | Auto-detect or `--target openclaw` |
+| Hermes Agent | `~/.hermes/skills` | Auto-detect or `--target hermes` |
+| Other `SKILL.md`-compatible agents | Host-defined | Use `--dir <skills-root>` |
+
+The default command updates every detected host. To select one explicitly, run a command such as `npx my-wiki-skill@latest --target openclaw`. Open a new agent session after installation or updating; OpenClaw and Hermes can also load it after their session refresh/reset flow. Use `--list` to inspect detected destinations.
+
+The npm package contains no Git metadata, personal vault, tests, build output, or runtime logs.
 
 After installation, speak naturally:
 

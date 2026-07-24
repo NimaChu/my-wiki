@@ -106,7 +106,20 @@ npx --registry=https://registry.npmmirror.com my-wiki-skill@latest
 国内镜像：npx --registry=https://registry.npmmirror.com my-wiki-skill@latest
 ```
 
-安装器会自动探测常见的本地 Agent Skill 目录，并把干净的 `my-wiki` 安装到所有已发现位置。使用 `--dir <Skill目录>` 可以指定其他 Agent；使用 `--list` 可以只查看探测结果。npm 包不包含 Git 仓库元数据、本地知识库、测试、构建产物或运行日志。
+安装器会自动探测常见的本地 Agent Skill 目录，并把干净的 `my-wiki` 安装到所有已发现位置：
+
+| Agent 宿主 | 默认 Skill 目录 | 安装支持 |
+|---|---|---|
+| Claude Code | `~/.claude/skills` | 自动探测或 `--target claude` |
+| Codex | `~/.codex/skills` | 自动探测或 `--target codex` |
+| OpenCode | `~/.config/opencode/skills` | 自动探测或 `--target opencode` |
+| OpenClaw | `~/.openclaw/workspace/skills` | 自动探测或 `--target openclaw` |
+| Hermes Agent | `~/.hermes/skills` | 自动探测或 `--target hermes` |
+| 其他兼容 `SKILL.md` 的 Agent | 由宿主决定 | 使用 `--dir <Skill目录>` |
+
+默认命令会同时更新电脑上已探测到的宿主；需要指定某一个时，例如运行 `npx my-wiki-skill@latest --target openclaw`。安装或更新后，请新开 Agent 会话；OpenClaw 和 Hermes 也可在各自工具中刷新或重置会话后加载。使用 `--list` 可以只查看探测结果。
+
+npm 包不包含 Git 仓库元数据、本地知识库、测试、构建产物或运行日志。
 
 安装后继续直接说人话：
 
