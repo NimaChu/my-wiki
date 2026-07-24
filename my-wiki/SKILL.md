@@ -1,6 +1,6 @@
 ---
 name: my-wiki
-description: Manage local Markdown-first My Wiki knowledge vaults from Codex or OpenCode. Use for capturing webpages, PDFs, notes, and images; maintaining raw-to-wiki evidence links; searching or answering from a vault; checking or repairing vault health; switching among local vaults; and opening the My Wiki knowledge graph or dashboard.
+description: Manage local Markdown-first My Wiki knowledge vaults with an AI agent. Use for capturing webpages, PDFs, notes, and images; maintaining raw-to-wiki evidence links; searching or answering from a vault; checking or repairing vault health; switching among local vaults; and opening the My Wiki knowledge graph or dashboard.
 ---
 
 # My Wiki

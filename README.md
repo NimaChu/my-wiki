@@ -1,190 +1,151 @@
 # My Wiki
 
-Install one Agent Skill. Keep your knowledge anywhere on your computer.
+**A zero-cost, beginner-friendly local knowledge base that AI agents can build and maintain for you.**
 
 [简体中文](README.zh-CN.md)
 
-My Wiki is a local-first, Markdown-native knowledge system maintained by Codex or OpenCode. The tool and the knowledge vault are independent:
+<img width="1536" height="1024" alt="AI agent organizing local knowledge into an evidence-backed wiki" src="https://github.com/user-attachments/assets/bea713c3-8d37-427b-ab04-5f601123f252" />
 
-- install the My Wiki Skill once;
-- create one or more vaults in any local path;
-- ask your agent to capture, maintain, search, answer, or visualize them;
-- keep private `raw/` evidence and `wiki/` knowledge out of the tool repository.
+Your useful knowledge is scattered across webpages, PDFs, screenshots, chat history, notes, and documentation. My Wiki gives a local AI agent a durable place to turn those sources into a connected wiki you actually own.
 
-No hosted database, vector database, Obsidian installation, or paid API is required.
+Install one Agent Skill, choose any folder for your knowledge, and speak naturally. The agent captures sources, preserves evidence and images, distills atomic wiki pages, repairs links, answers questions, and opens an interactive graph when you want to explore.
 
-## How It Works
+No hosted database. No vector database. No required Obsidian setup. No paid API by default.
+
+## Why My Wiki
+
+- **Local first**: Markdown, source snapshots, and images stay in folders you control.
+- **Agent maintained**: ask for an article to be saved or the knowledge base to be maintained; the agent handles the workflow.
+- **Evidence backed**: synthesized knowledge remains linked to the raw material it came from.
+- **Image aware**: diagrams, screenshots, charts, and other useful visuals can be preserved and returned with answers.
+- **Knowledge graph included**: explore knowledge universes, wiki relationships, and the raw evidence behind a page.
+- **Portable by design**: use ordinary files, move the vault, open it with any Markdown editor, or index it with a future RAG system.
+- **Zero-cost starting point**: begin with Node.js and a local AI agent instead of a cloud service or infrastructure stack.
+
+## My Wiki, RAG, Or LLM + Obsidian?
+
+They solve different parts of the knowledge problem. My Wiki focuses on the missing middle: turning source material into readable, linked, evidence-closed knowledge before retrieval.
+
+| | My Wiki | Traditional RAG | LLM + Obsidian |
+|---|---|---|---|
+| Getting started | Install one Skill and choose a folder | Build ingestion, chunking, embeddings, retrieval, and services | Install an editor, choose plugins, then design prompts and conventions |
+| Main storage | Markdown, snapshots, and local images | Vector index plus an external source store | Markdown vault |
+| Who organizes it | The agent maintains raw evidence, atomic wiki pages, links, and health checks | The pipeline indexes chunks; human-readable synthesis is separate | Usually the user, assisted by plugins or chat |
+| Traceability | Wiki claims link back to raw evidence and backlinks are checked | Depends on retrieval metadata and application design | Possible, but depends on the user's note discipline |
+| Images | Preserved as evidence and available for answers | Requires multimodal ingestion and retrieval design | Stored well, but answer-time selection needs extra workflow |
+| Visualization | Built-in universe, wiki-network, and evidence views | Usually a separate observability or graph system | Excellent note graph, primarily for the vault itself |
+| Best fit | Personal and project knowledge that should stay readable, grounded, and easy to maintain | Large-scale semantic retrieval and production applications | Hands-on writing, linking, and browsing by a human |
+
+My Wiki does not oppose either approach. Open a My Wiki vault in Obsidian whenever you want its editor, and use the clean Markdown evidence layer as input to RAG when scale or production retrieval eventually requires it.
+
+## From Sources To Durable Knowledge
 
 ```text
-Codex / OpenCode
-       |
-       v
-Self-contained My Wiki Skill
-       |
-       +---- personal -> D:\Knowledge\Personal
-       +---- work     -> E:\Knowledge\Work
-       +---- project  -> /Users/me/Projects/acme-vault
+Webpages / PDFs / notes / images / external platforms
+                         |
+                         v
+                 raw evidence layer
+             originals, metadata, images
+                         |
+                    AI agent
+             distill, link, check, repair
+                         |
+                         v
+                 atomic wiki pages
+           concepts, methods, APIs, entities
+                         |
+               +---------+---------+
+               v                   v
+        grounded answers     knowledge graph
 ```
 
-Each vault owns its data:
+My Wiki does not merely create one summary per document. A useful source can update many durable wiki pages, while one wiki page can draw evidence from many sources. A raw item is only considered processed after its wiki targets exist, the evidence links close in both directions, and follow-up flags are resolved.
 
-```text
-my-vault/
-  .my-wiki.json       vault marker
-  .my-wiki/           local cache and runtime state
-  raw/                captured evidence, snapshots, and images
-  wiki/               durable knowledge pages
-  templates/          vault-local Markdown templates
-```
+## Explore The Knowledge Universe
 
-The installed Skill contains the agent workflow, CLI engine, templates, and Dashboard. It can run after being copied independently of this source checkout.
+<img width="1895" height="936" alt="My Wiki interactive knowledge universes and vault overview" src=".github/assets/knowledge-universe.png" />
 
-## Install
+The optional local frontend is more than a folder graph:
 
-Requirements: Node.js 18+ and Git.
+- zoom out to see multiple knowledge universes and where shared wiki concepts connect them;
+- enter one universe to rotate and inspect its three-dimensional wiki network;
+- select a wiki node to highlight meaningful relationships and read the rendered page;
+- enter the evidence layer to see every raw source supporting that wiki page;
+- search without permanently hiding the rest of the graph;
+- let the running watcher refresh the graph automatically as knowledge changes.
+
+The Dashboard stays off during ordinary capture and maintenance. It starts only when you ask to see the graph or frontend.
+
+## Start In Three Minutes
+
+Requirements: Node.js 18+, Git, and a local AI agent that can load Skills or run local scripts.
 
 ```bash
-git clone https://github.com/NimaChu/my-wiki.git
-cd my-wiki
+git clone https://github.com/NimaChu/my-wiki-skill.git
+cd my-wiki-skill
 npm run skill:install
 ```
 
-The installer copies the complete `my-wiki/` folder into:
+Restart your agent host after installation. The installer currently knows the default Skill locations used by Codex and OpenCode; the `my-wiki/` folder is self-contained and can also be copied or adapted for other local agent hosts.
 
-- Codex: `~/.codex/skills/my-wiki`
-- OpenCode: `~/.config/opencode/skills/my-wiki`
-
-Install only one integration when needed:
-
-```bash
-npm run skill:install -- --codex-only
-npm run skill:install -- --opencode-only
-```
-
-Restart Codex or OpenCode after installation so it discovers the Skill.
-
-Repository developers can use `npm run skill:install -- --link` to install directory links instead of standalone copies.
-
-## Create A Vault Anywhere
-
-```bash
-node my-wiki/scripts/my-wiki.mjs init "D:\Knowledge\Personal" --name personal --use
-```
-
-This creates the Markdown structure, registers `personal`, and makes it the default vault. The source repository does not need to be the agent's working directory.
-
-Then talk naturally to the agent:
+Then speak naturally:
 
 ```text
-把这篇网页入库到 personal 知识库。
-维护知识库。
-查询 FlexSim Process Flow 的相关知识。
-打开知识图谱。
+Create a My Wiki vault in D:\Knowledge\Personal and use it by default.
+Save this webpage to my knowledge base: https://example.com/article
+Maintain the knowledge base.
+Answer this question from my local knowledge and show the relevant evidence images.
+Open the knowledge graph.
 ```
 
-The Skill resolves the default vault and performs the complete workflow without requiring long command prompts.
+You do not need to memorize the CLI. The Skill resolves the selected vault and runs the capture, maintenance, search, image, and visualization workflows for the agent.
 
-## Multiple Vaults
+## What You Can Do
 
-Register an existing vault without moving it:
+### Capture without losing the source
 
-```bash
-node my-wiki/scripts/my-wiki.mjs vault add work "E:\Knowledge\Work"
-node my-wiki/scripts/my-wiki.mjs vault use work
-node my-wiki/scripts/my-wiki.mjs vault list
-node my-wiki/scripts/my-wiki.mjs where
-```
+Store webpages, PDFs, transcripts, long notes, and external-platform exports in `raw/`. Preserve titles, URLs, dates, content hashes, snapshots, image order, and source quality instead of keeping only an AI summary.
 
-Target a vault for one command:
+### Let the wiki improve over time
 
-```bash
-node my-wiki/scripts/my-wiki.mjs --vault personal status
-node my-wiki/scripts/my-wiki.mjs --vault "E:\Knowledge\Work" search "simulation"
-```
+Ask the agent to maintain the knowledge base. It processes a coherent batch, creates or updates atomic pages, merges duplicates, repairs evidence links, keeps the number of universes small, and reports what remains.
 
-Vault resolution order is:
+### Ask grounded questions
 
-1. `--vault <registered-name-or-path>`
-2. `MY_WIKI_VAULT` or a legacy vault environment variable
-3. the nearest `.my-wiki.json`
-4. the default in `~/.my-wiki/config.json`
-5. a nearby legacy `raw/` plus `wiki/` vault as a compatibility fallback
+The agent searches synthesized wiki pages first and follows links back to raw evidence when a claim needs verification. Relevant screenshots, diagrams, charts, or UI states can accompany the answer instead of being forgotten in an attachment folder.
 
-## Existing My Wiki Users
+### Keep several independent vaults
 
-An existing checkout that already contains local `raw/` and `wiki/` data remains valid. Register it as the default without moving any files:
+Personal, work, research, and project vaults can live anywhere on the computer. Install the Skill once, register each vault by name, and keep their knowledge completely separate from this source repository.
 
-```bash
-node my-wiki/scripts/my-wiki.mjs vault add current "E:\agent-wiki\knowledge-base" --use
-```
+## Your Files Stay Yours
 
-You can move the vault later and update the registered path. The public Git repository no longer tracks `raw/` or `wiki/`.
-
-## Core Workflow
-
-1. Capture source material into the selected vault's `raw/` layer.
-2. Preserve source metadata, snapshots, inline image order, and useful visual evidence.
-3. Distill reusable concepts into atomic pages under `wiki/`.
-4. Link wiki claims back to raw evidence and close raw-to-wiki backlinks.
-5. Run local status, lint, garden, universe, and repair checks.
-6. Open the Dashboard only when visualization is requested.
-
-`processed` is strict: a raw note is complete only when its primary wiki targets resolve, the wiki links back to the evidence, and follow-up flags are closed.
-
-## CLI Reference
-
-```bash
-node my-wiki/scripts/my-wiki.mjs init /path/to/vault --name personal --use
-node my-wiki/scripts/my-wiki.mjs vault list
-node my-wiki/scripts/my-wiki.mjs vault add NAME /path/to/vault
-node my-wiki/scripts/my-wiki.mjs vault use NAME
-node my-wiki/scripts/my-wiki.mjs where
-
-node my-wiki/scripts/my-wiki.mjs --vault NAME status
-node my-wiki/scripts/my-wiki.mjs --vault NAME lint
-node my-wiki/scripts/my-wiki.mjs --vault NAME garden
-node my-wiki/scripts/my-wiki.mjs --vault NAME universes
-node my-wiki/scripts/my-wiki.mjs --vault NAME repair-links
-node my-wiki/scripts/my-wiki.mjs --vault NAME search "query terms"
-node my-wiki/scripts/my-wiki.mjs --vault NAME capture --title "Source title" --url "https://example.com"
-node my-wiki/scripts/my-wiki.mjs --vault NAME images --source raw/source-note.md
-node my-wiki/scripts/my-wiki.mjs --vault NAME open-dashboard
-```
-
-Root npm scripts remain available for repository development and backwards compatibility.
-
-## Knowledge Graph
-
-The optional local frontend shows the selected vault's wiki universes, relationships, and raw evidence. It is started on demand:
-
-```bash
-node my-wiki/scripts/my-wiki.mjs --vault personal open-dashboard
-```
-
-Use `dashboard` instead of `open-dashboard` to start the service silently in the background without opening a browser. Neither command opens a terminal window for the background Vite server or watcher.
-
-While it is running, the watcher refreshes graph data when that vault's Markdown changes. Opening another vault switches the graph and watcher to the newly selected vault.
-
-## Images And Web Capture
-
-My Wiki preserves image references and can mirror useful remote images into the selected vault. Firecrawl MCP remains an optional capture helper for rendered or difficult webpages; it is never the vault's source of truth.
-
-After external capture, durable evidence must still be written into `raw/` and distilled through the normal workflow.
-
-## Repository Layout
+Each vault is an ordinary folder:
 
 ```text
-my-wiki/              complete installable Skill
-  scripts/core/       CLI engine
-  assets/templates/   templates copied by `init`
-  assets/dashboard/   optional local frontend
-  tests/              source-only regression tests, excluded from installed copies
-knowledge-base/       local ignored vault data
-paper/                local ignored research materials and datasets
-backup/               local ignored legacy files
+my-vault/
+  raw/          captured evidence, snapshots, and images
+  wiki/         durable, linked knowledge pages
+  templates/    Markdown templates copied into this vault
+  .my-wiki/     local cache and runtime state
 ```
 
-The repository deliberately does not track user `raw/`, `wiki/`, snapshots, or mirrored assets.
+The public repository contains the Skill, templates, Dashboard, and tests. It does not contain your vault, local MCP credentials, or workspace-specific agent rules. You decide whether a vault is backed up, synced, encrypted, or never leaves one computer.
+
+## Optional, Not Required
+
+- **Obsidian**: use it as an excellent human editor for the same Markdown vault; My Wiki does not depend on it.
+- **Firecrawl MCP**: improve capture for rendered or difficult webpages. A keyless hosted endpoint is available with limits; full crawling requires Firecrawl authentication.
+- **IMA and other external platforms**: import authorized material into local raw notes first, then maintain it through the same evidence workflow.
+- **RAG**: add embeddings and production retrieval later without throwing away the readable source and wiki layers.
+
+## For Contributors
+
+The complete distributable Skill lives in [`my-wiki/`](my-wiki/). Source-only regression tests verify that it can initialize and operate an external vault after being copied independently of this checkout.
+
+```bash
+npm test
+```
 
 ## License
 
