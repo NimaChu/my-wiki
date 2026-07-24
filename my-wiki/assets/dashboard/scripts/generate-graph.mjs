@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { universeGraphGroup, wikiUniverseNames } from "../../../scripts/core/wiki-lib.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(here, "..");
@@ -143,6 +144,10 @@ function inferType(id, frontmatter) {
 }
 
 function inferGroup(id, frontmatter) {
+  if (id.startsWith("wiki/")) {
+    const title = titleFromFrontmatter(frontmatter, id);
+    return universeGraphGroup(wikiUniverseNames(frontmatter, title, asArray(frontmatter.tags))[0]);
+  }
   if (frontmatter.group) return String(frontmatter.group);
 
   if (id.startsWith("raw/autodesk-flexsim-2026/")) {
@@ -157,24 +162,13 @@ function inferGroup(id, frontmatter) {
   }
 
   if (id.startsWith("raw/")) return "Raw / Other";
-  if (id.startsWith("wiki/")) {
-    const title = titleFromFrontmatter(frontmatter, id);
-    return inferWikiGroup(title, asArray(frontmatter.tags));
-  }
   return id.split("/")[0] || "Other";
 }
 
 function inferUniverses(id, frontmatter, primaryGroup) {
-  const explicit = [...asArray(frontmatter.universes), ...asArray(frontmatter.universe)]
-    .map((item) => String(item).trim())
-    .filter(Boolean);
-  return Array.from(new Set([primaryGroup, ...explicit]));
-}
-
-function inferWikiGroup(title, tags = []) {
-  const label = `${title} ${tags.join(" ")}`.toLowerCase();
-  if (/flexsim/i.test(label)) return "Wiki / FlexSim";
-  return "Wiki / AI";
+  if (!id.startsWith("wiki/")) return [primaryGroup];
+  const title = titleFromFrontmatter(frontmatter, id);
+  return wikiUniverseNames(frontmatter, title, asArray(frontmatter.tags)).map(universeGraphGroup);
 }
 
 function titleFromId(id) {

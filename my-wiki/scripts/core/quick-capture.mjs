@@ -7,6 +7,7 @@ import {
   appendLog,
   exists,
   hashContent,
+  inferRawCollection,
   slugify,
   vaultPath,
   yamlList,
@@ -142,6 +143,12 @@ const author = arg("--author", "");
 const published = arg("--published", "");
 const sourceQuality = arg("--source-quality", url ? "primary-url" : "captured");
 const captureMethod = arg("--capture-method", "");
+const collection = inferRawCollection({
+  collection: arg("--collection", ""),
+  sourceUrl: url,
+  sourceType,
+  captureMethod
+});
 const snapshotFile = arg("--snapshot-file", "");
 const contentFile = arg("--content-file", "");
 const inputContent = contentFile ? await fs.readFile(contentFile, "utf8") : await stdin();
@@ -152,7 +159,7 @@ const shouldRefreshDashboard = has("--refresh-dashboard") || has("--serve-dashbo
 const shouldServeDashboard = has("--serve-dashboard");
 const date = new Date().toISOString().slice(0, 10);
 const capturedAt = new Date().toISOString();
-const rawDir = path.join(vault, "raw");
+const rawDir = path.join(vault, "raw", "sources");
 const noteSlug = slugify(title);
 
 await fs.mkdir(rawDir, { recursive: true });
@@ -174,7 +181,7 @@ const mirroredContent = shouldMirrorImages
 
 const explicitImages = [];
 if (imageInputs.length > 0) {
-  const assetDir = path.join(rawDir, "assets", rawBase);
+  const assetDir = path.join(vault, "raw", "assets", rawBase);
   await fs.mkdir(assetDir, { recursive: true });
   for (const image of imageInputs) {
     if (/^https?:\/\//i.test(image) && shouldMirrorImages) {
@@ -218,6 +225,7 @@ const body = `---
 title: ${yamlString(title)}
 type: raw-source
 source_type: ${yamlString(sourceType)}
+collection: ${yamlString(collection)}
 status: inbox
 author: ${yamlString(author)}
 published: ${yamlString(published)}
@@ -291,6 +299,7 @@ console.log(JSON.stringify({
   path: target,
   vaultRelative: path.relative(vault, target).replace(/\\/g, "/"),
   title,
+  collection,
   snapshot: snapshot?.path || "",
   captureMethod: effectiveCaptureMethod,
   mirroredInlineImages: mirroredContent.copied,

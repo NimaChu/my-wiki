@@ -1,7 +1,7 @@
-const WIKI_UTILITY_IDS = new Set(["wiki/index", "wiki/log", "wiki/README"]);
+import { isWikiKnowledgeNode, wikiUniverseNames } from "./wiki-lib.mjs";
 
 export function wikiKnowledgeNodes(scan) {
-  return scan.nodes.filter((node) => node.id.startsWith("wiki/") && !WIKI_UTILITY_IDS.has(node.id));
+  return scan.nodes.filter(isWikiKnowledgeNode);
 }
 
 export function universeAudit(scan) {
@@ -9,9 +9,10 @@ export function universeAudit(scan) {
   const byId = new Map(scan.nodes.map((node) => [node.id, node]));
   const groups = new Map();
   for (const node of wikiNodes) {
-    const group = String(node.frontmatter.group || "Unknown");
-    if (!groups.has(group)) groups.set(group, []);
-    groups.get(group).push(node);
+    for (const universe of wikiUniverseNames(node)) {
+      if (!groups.has(universe)) groups.set(universe, []);
+      groups.get(universe).push(node);
+    }
   }
 
   const summaries = [...groups.entries()]
@@ -29,9 +30,10 @@ export function universeAudit(scan) {
           if (!targetId) continue;
           if (targetId.startsWith("raw/")) rawEvidence.add(targetId);
           const target = byId.get(targetId);
-          if (target?.id.startsWith("wiki/") && !WIKI_UTILITY_IDS.has(target.id)) {
-            const targetGroup = String(target.frontmatter.group || "Unknown");
-            if (targetGroup !== group) relatedGroups.set(targetGroup, (relatedGroups.get(targetGroup) ?? 0) + 1);
+          if (target && isWikiKnowledgeNode(target)) {
+            for (const targetGroup of wikiUniverseNames(target)) {
+              if (targetGroup !== group) relatedGroups.set(targetGroup, (relatedGroups.get(targetGroup) ?? 0) + 1);
+            }
           }
         }
       }
@@ -66,12 +68,14 @@ function crossGroupWikiPairs(scan, byId) {
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
     if (!source?.id.startsWith("wiki/") || !target?.id.startsWith("wiki/")) continue;
-    if (WIKI_UTILITY_IDS.has(source.id) || WIKI_UTILITY_IDS.has(target.id)) continue;
-    const sourceGroup = String(source.frontmatter.group || "Unknown");
-    const targetGroup = String(target.frontmatter.group || "Unknown");
-    if (sourceGroup === targetGroup) continue;
-    const key = [sourceGroup, targetGroup].sort((a, b) => a.localeCompare(b)).join(" -> ");
-    pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
+    if (!isWikiKnowledgeNode(source) || !isWikiKnowledgeNode(target)) continue;
+    for (const sourceGroup of wikiUniverseNames(source)) {
+      for (const targetGroup of wikiUniverseNames(target)) {
+        if (sourceGroup === targetGroup) continue;
+        const key = [sourceGroup, targetGroup].sort((a, b) => a.localeCompare(b)).join(" -> ");
+        pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
+      }
+    }
   }
   return [...pairCounts.entries()]
     .map(([pair, count]) => ({ pair, count }))

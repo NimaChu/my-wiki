@@ -223,9 +223,9 @@ export async function materializeOriginal({ vault = vaultPath(), notePath, title
       result.capture = result.imageMarkdown;
       result.localFiles.push(vaultRelative);
     } else {
-      const snapshotDir = path.join(vault, "raw", "snapshots", "ima", noteBase);
+      const snapshotDir = path.join(vault, "raw", "snapshots");
       await fs.mkdir(snapshotDir, { recursive: true });
-      const target = path.join(snapshotDir, `original${ext}`);
+      const target = path.join(snapshotDir, `${noteBase}--original${ext}`);
       await fs.writeFile(target, original.binary);
       result.snapshotPath = path.relative(vault, target).replace(/\\/g, "/");
       result.capture = [
@@ -258,6 +258,7 @@ export function rawImaMarkdown({ kb, item, target, original, materialized }) {
 title: ${yamlString(title)}
 type: raw-source
 source_type: ima
+collection: "ima"
 status: inbox
 author: ${yamlString(item.author || "")}
 published: ${yamlString(item.published || item.create_time || "")}

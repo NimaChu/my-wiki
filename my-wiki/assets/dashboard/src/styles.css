@@ -100,11 +100,10 @@ select {
   min-width: 0;
   min-height: 0;
   background:
-    radial-gradient(circle at 50% 50%, rgba(141, 162, 255, 0.1), transparent 38%),
     linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
     #151718;
-  background-size: auto, 28px 28px, 28px 28px, auto;
+  background-size: 28px 28px, 28px 28px, auto;
 }
 
 .graph-layer-bar {
@@ -222,6 +221,7 @@ h3 {
 .control span,
 .top-filter span,
 .top-search span,
+.language-control > span,
 .zoom-row span,
 .node-title p,
 .wiki-page-header p,
@@ -233,6 +233,10 @@ h3 {
   font-size: 12px;
 }
 
+.language-control > span {
+  white-space: nowrap;
+}
+
 .top-search {
   display: grid;
   gap: 5px;
@@ -240,19 +244,53 @@ h3 {
 
 .search-toolbar {
   display: grid;
-  grid-template-columns: minmax(320px, 1fr) 220px;
+  grid-template-columns: minmax(320px, 1fr) 220px 86px;
   align-items: end;
   gap: 10px;
 }
 
 .top-search,
-.top-filter {
+.top-filter,
+.language-control {
   min-width: 0;
 }
 
-.top-filter {
+.top-filter,
+.language-control {
   display: grid;
   gap: 5px;
+}
+
+.language-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 3px;
+}
+
+.language-switch button {
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #9da6a8;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.language-switch button:hover,
+.language-switch button:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ece8dd;
+  outline: none;
+}
+
+.language-switch button.is-active {
+  background: rgba(141, 162, 255, 0.2);
+  color: #f3efe7;
 }
 
 .search-input-wrap {
@@ -836,12 +874,12 @@ h3 {
   overflow-wrap: anywhere;
 }
 
-.group-shell-layer,
+.group-hit-layer,
 .group-name-layer {
   pointer-events: none;
 }
 
-.group-shell-layer.is-enterable-layer {
+.group-hit-layer.is-enterable-layer {
   pointer-events: all;
 }
 
@@ -851,28 +889,22 @@ h3 {
 
 .group-universe.is-enterable {
   cursor: pointer;
-  pointer-events: visiblePainted;
+  pointer-events: all;
+}
+
+.universe-hit-area {
+  fill: rgba(255, 255, 255, 0.001);
+  stroke: none;
 }
 
 .group-name-layer rect {
-  fill: rgba(21, 23, 24, 0.76);
-  stroke-width: 1.1;
+  fill: rgba(18, 20, 21, 0.9);
+  stroke-width: 1;
 }
 
-.universe-glow {
-  opacity: 0.055;
-}
-
-.group-shell {
-  fill: rgba(141, 162, 255, 0.025);
-  stroke-opacity: 0.22;
-  stroke-width: 1.1;
-}
-
-.group-shell.is-meridian,
-.group-shell.is-equator {
-  fill: none;
-  stroke-opacity: 0.14;
+.group-name {
+  cursor: pointer;
+  pointer-events: all;
 }
 
 .group-name-layer text {
@@ -888,6 +920,15 @@ h3 {
   stroke-width: 1.15;
 }
 
+.graph-svg.is-universe-overview .graph-edge {
+  stroke-linecap: round;
+  stroke-width: 0.76;
+}
+
+.graph-svg.is-universe-overview .graph-edge.is-cross-universe {
+  stroke-width: 0.7;
+}
+
 .graph-svg.is-focused-group .graph-edge {
   stroke: rgba(215, 222, 224, 0.42);
   stroke-width: 1.35;
@@ -896,6 +937,10 @@ h3 {
 .graph-edge.is-hot {
   stroke: rgba(236, 232, 221, 0.75);
   stroke-width: 2;
+}
+
+.graph-svg.is-universe-overview .graph-edge.is-hot {
+  stroke-width: 1.8;
 }
 
 .graph-node {
@@ -916,6 +961,36 @@ h3 {
   stroke: rgba(255, 255, 255, 0.76);
   stroke-width: 1.6;
   transition: stroke-width 140ms ease, filter 140ms ease;
+}
+
+.graph-svg.is-universe-overview .node-dot {
+  stroke: rgba(255, 255, 255, 0.5);
+  stroke-width: 0.9;
+}
+
+.graph-svg.is-universe-overview .graph-node:not(.is-selected) .node-dot {
+  animation: neural-breathe 8s ease-in-out infinite;
+  animation-delay: inherit;
+  animation-duration: inherit;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes neural-breathe {
+  0%,
+  100% {
+    transform: scale(0.96);
+  }
+
+  50% {
+    transform: scale(1.045);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .graph-svg.is-universe-overview .graph-node .node-dot {
+    animation: none;
+  }
 }
 
 .graph-node.is-raw .node-dot {

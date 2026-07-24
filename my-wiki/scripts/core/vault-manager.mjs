@@ -57,13 +57,21 @@ async function copyTemplates(target) {
   }
 }
 
+async function copyRawReadme(target) {
+  const source = path.join(TOOL_ROOT, "assets", "raw-README.md");
+  await writeIfMissing(path.join(target, "raw", "README.md"), await fs.readFile(source, "utf8"));
+}
+
 async function initVault() {
   const requested = positional()[0] || process.cwd();
   const target = path.resolve(requested);
-  await fs.mkdir(path.join(target, "raw"), { recursive: true });
+  await fs.mkdir(path.join(target, "raw", "sources"), { recursive: true });
+  await fs.mkdir(path.join(target, "raw", "assets"), { recursive: true });
+  await fs.mkdir(path.join(target, "raw", "snapshots"), { recursive: true });
   await fs.mkdir(path.join(target, "wiki"), { recursive: true });
   await fs.mkdir(path.join(target, ".my-wiki", "cache"), { recursive: true });
   await copyTemplates(target);
+  await copyRawReadme(target);
 
   await writeIfMissing(path.join(target, VAULT_MARKER), `${JSON.stringify({ version: 1 }, null, 2)}\n`);
   await writeIfMissing(path.join(target, "wiki", "index.md"), "---\ntitle: Knowledge Index\ntype: index\nstatus: active\n---\n\n# Knowledge Index\n\nAdd durable wiki pages here as the vault grows.\n");

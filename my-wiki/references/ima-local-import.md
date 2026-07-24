@@ -19,9 +19,9 @@ Only import content the user has the right to store locally.
 
 Prefer local-first ingest. IMA knowledge should become normal local raw evidence before it is distilled:
 
-1. Import selected IMA items into `raw/ima/` as `status: inbox`.
+1. Import selected IMA items directly into `raw/sources/` as `status: inbox`.
 2. Store fetched text in `## Capture`.
-3. Mirror binary originals under `raw/snapshots/ima/`.
+3. Mirror binary originals directly under `raw/snapshots/` with source-specific filenames.
 4. Mirror/index image items or image-rich text under `raw/assets/` when practical.
 5. Maintain imported IMA notes through the normal raw -> wiki -> processed workflow.
 
@@ -34,9 +34,9 @@ node <skill-directory>/scripts/my-wiki.mjs sync-ima
 node <skill-directory>/scripts/my-wiki.mjs sync-ima --kb "Knowledge base name" --max-items 100
 node <skill-directory>/scripts/my-wiki.mjs sync-ima --dry-run --summary
 node <skill-directory>/scripts/my-wiki.mjs sync-ima --no-images
-node <skill-directory>/scripts/my-wiki.mjs fetch-ima raw/ima/source-note.md
-node <skill-directory>/scripts/my-wiki.mjs fetch-ima raw/ima/source-note.md --metadata
-node <skill-directory>/scripts/my-wiki.mjs fetch-ima raw/ima/source-note.md --force
+node <skill-directory>/scripts/my-wiki.mjs fetch-ima raw/sources/source-note.md
+node <skill-directory>/scripts/my-wiki.mjs fetch-ima raw/sources/source-note.md --metadata
+node <skill-directory>/scripts/my-wiki.mjs fetch-ima raw/sources/source-note.md --force
 ```
 
 Use `--dry-run` before broad imports. It plans imports without fetching originals or writing files.
@@ -65,7 +65,7 @@ Keep imported raw/wiki knowledge local unless the user explicitly asks to commit
 Upgrade a legacy pointer before distillation:
 
 ```bash
-node <skill-directory>/scripts/my-wiki.mjs fetch-ima raw/ima/source-note.md
+node <skill-directory>/scripts/my-wiki.mjs fetch-ima raw/sources/source-note.md
 ```
 
 After fetch, treat the note as a normal `status: inbox` raw source. Do not mark a pointer `processed` directly.

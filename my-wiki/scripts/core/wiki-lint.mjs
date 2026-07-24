@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { processedRawIssues, scanVault, statsFromScan } from "./wiki-lib.mjs";
+import { processedRawIssues, rawAttachmentIssues, rawLayoutIssues, scanVault, statsFromScan } from "./wiki-lib.mjs";
 
 const scan = await scanVault();
 const stats = statsFromScan(scan);
@@ -29,6 +29,8 @@ const report = {
   unresolved: scan.unresolved,
   invalidRelations: scan.invalidRelations,
   processedRawIssues: processedRawIssues(scan),
+  rawLayoutIssues: rawLayoutIssues(scan),
+  rawAttachmentIssues: await rawAttachmentIssues(scan),
   orphanedWiki: orphanedWiki.map((node) => node.path),
   weakWiki: weakWiki.map((node) => node.path),
   missingClaimSources: missingClaimSources.map((node) => node.path),

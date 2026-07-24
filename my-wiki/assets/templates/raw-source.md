@@ -2,6 +2,7 @@
 title: "{{title}}"
 type: raw-source
 source_type: webpage
+collection:
 status: inbox
 author:
 published:
@@ -31,6 +32,8 @@ related:
 - Capture method:
 - Snapshot:
 
+`source_url` is optional for local files. For a PDF, attachment, or other source without a URL, preserve the original under `raw/snapshots/` and set `snapshot_path` (or the matching snapshot field). Do not replace the original with an AI summary.
+
 ## Capture
 
 Paste or capture the source material here without rewriting it into a wiki article. Preserve meaningful image placement.
@@ -38,7 +41,7 @@ Paste or capture the source material here without rewriting it into a wiki artic
 ## Images
 
 - Preserve remote images as Markdown image links during initial capture.
-- For image-rich sources, run `npm run wiki:images -- --source raw/source-note.md`.
+- For image-rich sources, run `my-wiki images --source raw/sources/<source-note>.md`.
 - Store local copied images under `raw/assets/<source-note>/`.
 - Keep a concise table of visual evidence here and the complete machine-readable inventory in `image-index.json`.
 - Prefer image placement that matches the original reading flow.

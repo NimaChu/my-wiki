@@ -85,6 +85,18 @@ The optional local frontend is more than a folder graph:
 
 The Dashboard stays off during ordinary capture and maintenance. It starts only when you ask to see the graph or frontend.
 
+## Share A Knowledge Universe
+
+A vault can contain several human-named universes. Ask the agent to export one universe as a single `.mywiki` knowledge package, then give that file to another My Wiki user to preview and import.
+
+The package contains only that universe's Wiki Markdown, linked raw Markdown, available source URLs, related images, and the webpage snapshots, PDFs, or other originals explicitly referenced by those raw notes. This keeps evidence complete even when a local PDF has no URL. It has no package ID, universe ID, license setting, or public mode, and it excludes runtime state and unrelated local knowledge. Import previews duplicates and conflicts before writing anything, and the recipient can rename the universe during import when useful.
+
+```text
+Export the "FlexSim" universe as a knowledge package.
+Preview importing this flexsim.mywiki knowledge package.
+Import it and rename the universe to "Simulation Engineering".
+```
+
 ## Quick Start
 
 Requires Node.js 18+ and npm. Installation and updates use the same command; run it again to update in place:
@@ -157,11 +169,16 @@ Each vault is an ordinary folder:
 
 ```text
 my-vault/
-  raw/          captured evidence, snapshots, and images
+  raw/
+    sources/    flat source-note storage
+    assets/     one image and index directory per source
+    snapshots/  flat webpage snapshot, PDF, and original storage
   wiki/         durable, linked knowledge pages
   templates/    Markdown templates copied into this vault
   .my-wiki/     local cache and runtime state
 ```
+
+`sources/` and `snapshots/` have no classification subdirectories. `assets/` keeps only the necessary one-directory-per-source level so images from different articles never mix. Source classification is optional metadata and does not affect the wiki. The Skill can preview and back up legacy layout migrations while updating wiki, image, and snapshot references together.
 
 The public repository contains the Skill, templates, and Dashboard. It does not contain your vault, local MCP credentials, workspace-specific agent rules, or local regression tests. You decide whether a vault is backed up, synced, encrypted, or never leaves one computer.
 

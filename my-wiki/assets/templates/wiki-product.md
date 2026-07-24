@@ -2,6 +2,7 @@
 title: "{{title}}"
 type: product
 status: active
+universes: []
 aliases:
 reviewed_at:
 source_count: 0

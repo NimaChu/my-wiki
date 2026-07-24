@@ -16,7 +16,7 @@ import {
 } from "./ima-local-lib.mjs";
 
 const vault = vaultPath();
-const rawImaDir = path.join(vault, "raw", "ima");
+const rawImaDir = path.join(vault, "raw", "sources");
 const args = process.argv.slice(2);
 
 function usage() {
@@ -39,8 +39,8 @@ Options:
   --base-url <url>    IMA OpenAPI base URL. Defaults to https://ima.qq.com.
 
 Default behavior is local-first: each imported IMA item becomes a normal
-raw/ima/*.md source note with status: inbox. Text content is stored in Capture,
-binary originals are mirrored under raw/snapshots/ima/, and image items are
+raw/sources/*.md source note with status: inbox. Text content is stored in Capture,
+binary originals are mirrored under raw/snapshots/, and image items are
 mirrored under raw/assets/.
 `);
 }

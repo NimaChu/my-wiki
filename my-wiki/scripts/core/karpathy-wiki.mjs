@@ -34,6 +34,7 @@ const commands = {
   status: ["vault-status.mjs"],
   lint: ["wiki-lint.mjs"],
   capture: ["quick-capture.mjs", ...rest],
+  "organize-raw": ["raw-layout.mjs", ...rest],
   images: ["image-assets.mjs", ...rest],
   refresh: ["refresh-dashboard.mjs", ...rest],
   dashboard: ["refresh-dashboard.mjs", "--serve", ...rest],
@@ -41,7 +42,9 @@ const commands = {
   build: ["refresh-dashboard.mjs", "--build", ...rest],
   "build-dashboard": ["refresh-dashboard.mjs", "--build", ...rest],
   garden: ["garden.mjs", ...rest],
-  universes: ["universe-audit.mjs"],
+  universes: ["universe-audit.mjs", ...rest],
+  "export-universe": ["export-universe.mjs", ...rest],
+  "import-universe": ["import-universe.mjs", ...rest],
   "repair-links": ["repair-links.mjs", ...rest],
   "distill-query": ["distill-query.mjs", ...rest],
   "sync-ima": ["ima-sync.mjs", ...rest],
@@ -65,14 +68,17 @@ Usage:
   my-wiki refresh [--serve] [--build]
   my-wiki build-dashboard
   my-wiki capture --title "Title" --url "https://..." --type webpage
-  my-wiki images --source raw/source-note.md
+  my-wiki organize-raw [--apply]
+  my-wiki images --source raw/sources/source-note.md
   my-wiki capture --title "Title" --url "https://..." --refresh-dashboard
   my-wiki capture --title "Title" --url "https://..." --serve-dashboard
   my-wiki search "query terms"
   my-wiki sync-ima [--kb "Knowledge base name"] [--no-images]
-  my-wiki fetch-ima raw/ima/source.md [--metadata|--force]
+  my-wiki fetch-ima raw/sources/source.md [--metadata|--force]
   my-wiki garden
-  my-wiki universes
+  my-wiki universes [--apply]
+  my-wiki export-universe "Universe Name" [--output package.mywiki]
+  my-wiki import-universe package.mywiki [--as "Universe Name"] [--apply]
   my-wiki repair-links
   my-wiki distill-query --title "Durable answer" --summary-file /tmp/answer.md --source raw/...
 

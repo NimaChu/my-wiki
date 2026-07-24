@@ -21,6 +21,13 @@ export const RELATION_TYPES = new Set([
   "company_of",
   "product_of"
 ]);
+export const WIKI_UTILITY_IDS = new Set([
+  "wiki/index",
+  "wiki/log",
+  "wiki/README",
+  "wiki/Autodesk FlexSim 2026 Help",
+  "wiki/FlexSim 2026 Ingest QA"
+]);
 
 const linkPattern = /\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g;
 
@@ -138,6 +145,65 @@ export function slugify(value) {
     .replace(/^-+|-+$/g, "")
     .slice(0, 80)
     .toLowerCase() || "untitled";
+}
+
+export function normalizeUniverseName(value) {
+  const cleaned = String(value || "")
+    .trim()
+    .replace(/^Wiki\s*\/\s*/i, "")
+    .replace(/^FlexSim\s*\/\s*/i, "");
+  if (/^flexsim$/i.test(cleaned)) return "FlexSim";
+  if (/^ai$/i.test(cleaned)) return "AI";
+  return cleaned;
+}
+
+export function inferWikiUniverse(title, tags = []) {
+  const label = `${title || ""} ${asArray(tags).join(" ")}`.toLowerCase();
+  if (/flexsim/i.test(label)) return "FlexSim";
+  return "AI";
+}
+
+export function wikiUniverseNames(nodeOrFrontmatter = {}, title = "", tags = []) {
+  const frontmatter = nodeOrFrontmatter.frontmatter || nodeOrFrontmatter;
+  const nodeTitle = nodeOrFrontmatter.title || title || frontmatter.title || "";
+  const nodeTags = nodeOrFrontmatter.tags || tags || frontmatter.tags || [];
+  const explicit = [...asArray(frontmatter.universes), ...asArray(frontmatter.universe)]
+    .map(normalizeUniverseName)
+    .filter(Boolean);
+  if (explicit.length > 0) return Array.from(new Set(explicit));
+  const legacy = normalizeUniverseName(frontmatter.group || "");
+  if (legacy && legacy.toLowerCase() !== "unknown") return [legacy];
+  return [inferWikiUniverse(nodeTitle, nodeTags)];
+}
+
+export function isWikiKnowledgeNode(nodeOrId) {
+  const id = typeof nodeOrId === "string" ? nodeOrId : nodeOrId?.id || "";
+  return id.startsWith("wiki/") && !WIKI_UTILITY_IDS.has(id);
+}
+
+export function universeGraphGroup(name) {
+  return `Wiki / ${normalizeUniverseName(name)}`;
+}
+
+export function normalizeRawCollection(value, fallback = "general") {
+  return slugify(String(value || fallback)).slice(0, 64) || fallback;
+}
+
+export function inferRawCollection({ collection = "", sourceUrl = "", sourceType = "", captureMethod = "" } = {}) {
+  if (collection) return normalizeRawCollection(collection);
+  if (sourceUrl) {
+    try {
+      const hostname = new URL(sourceUrl).hostname.toLowerCase().replace(/^(?:www|m)\./, "");
+      if (hostname) return normalizeRawCollection(hostname.replace(/\./g, "-"));
+    } catch {
+      // Fall through to source metadata when the URL is incomplete.
+    }
+  }
+  const source = `${sourceType} ${captureMethod}`.toLowerCase();
+  if (source.includes("ima")) return "ima";
+  if (/pdf|document|word|ppt|excel|archive/.test(source)) return "documents";
+  if (/local|desktop|folder|offline/.test(source)) return "local-imports";
+  return "general";
 }
 
 export function titleFromPath(filePath) {
@@ -301,6 +367,104 @@ export function processedRawIssues(scan) {
     });
 }
 
+export function upsertFrontmatterValues(content, updates) {
+  const bounds = frontmatterBounds(content);
+  if (!bounds) return content;
+  const newline = content.includes("\r\n") ? "\r\n" : "\n";
+  const lines = content.slice(bounds.dataStart, bounds.dataEnd).split(/\r?\n/);
+  const pending = new Map(Object.entries(updates));
+  const output = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(/^([A-Za-z0-9_-]+):/);
+    if (!match || !pending.has(match[1])) {
+      output.push(lines[index]);
+      continue;
+    }
+    const key = match[1];
+    while (index + 1 < lines.length && /^\s+-\s+/.test(lines[index + 1])) index += 1;
+    output.push(...frontmatterValueLines(key, pending.get(key)));
+    pending.delete(key);
+  }
+
+  for (const [key, value] of pending) output.push(...frontmatterValueLines(key, value));
+  return `${content.slice(0, bounds.dataStart)}${output.join(newline)}${content.slice(bounds.dataEnd)}`;
+}
+
+function frontmatterValueLines(key, value) {
+  if (Array.isArray(value)) {
+    if (value.length === 0) return [`${key}: []`];
+    return [`${key}:`, ...value.map((item) => `  - ${yamlString(item)}`)];
+  }
+  if (value === null || value === undefined || value === "") return [`${key}:`];
+  if (typeof value === "number" || typeof value === "boolean") return [`${key}: ${value}`];
+  return [`${key}: ${yamlString(value)}`];
+}
+
+export function rawLayoutIssues(scan) {
+  return scan.nodes
+    .filter((node) => node.id.startsWith("raw/") && node.type === "raw-source")
+    .flatMap((node) => {
+      const issues = [];
+      const parts = node.id.split("/");
+      if (parts[1] !== "sources" || parts.length !== 3) {
+        issues.push({ source: node.id, reason: "misplaced-source" });
+      }
+      return issues;
+    });
+}
+
+function localAttachmentTarget(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed || /^(?:https?:|data:|#|\/)/i.test(trimmed)) return "";
+  const wrapped = trimmed.startsWith("<") && trimmed.includes(">");
+  const raw = wrapped ? trimmed.slice(1, trimmed.indexOf(">")) : trimmed.match(/^\S+/)?.[0] || trimmed;
+  const withoutAnchor = raw.split("#")[0].split("?")[0];
+  try {
+    return decodeURIComponent(withoutAnchor).replace(/\\/g, "/");
+  } catch {
+    return withoutAnchor.replace(/\\/g, "/");
+  }
+}
+
+export async function rawAttachmentIssues(scan) {
+  const issues = [];
+  const seen = new Set();
+  for (const node of scan.nodes.filter((candidate) => candidate.id.startsWith("raw/") || candidate.id.startsWith("wiki/"))) {
+    const references = [];
+    if (node.type === "raw-source") {
+      for (const key of ["snapshot_path", "snapshot_markdown_path", "snapshot_html_path", "snapshot_json_path", "image_index_path"]) {
+        const value = String(node.frontmatter[key] || "");
+        if (value) references.push({ key, value, rootStyle: true });
+      }
+    }
+    for (const match of node.content.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)) {
+      references.push({ key: "markdown-image", value: match[1], rootStyle: false });
+    }
+    for (const match of node.content.matchAll(/<img\b[^>]*\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi)) {
+      references.push({ key: "html-image", value: match[1] || match[2] || match[3], rootStyle: false });
+    }
+
+    for (const reference of references) {
+      const target = localAttachmentTarget(reference.value);
+      if (!target) continue;
+      const rootStyle = reference.rootStyle || /^(?:raw|wiki|templates|_archive)\//.test(target);
+      const resolved = rootStyle ? path.join(scan.vault, target) : path.resolve(path.dirname(node.file), target);
+      const resolvedRelative = path.relative(scan.vault, resolved).replace(/\\/g, "/");
+      const managedSyntax = /(?:^|\/)(?:assets|snapshots)(?:\/|$)/.test(target);
+      const managedLocation = /^(?:raw\/(?:assets|snapshots))(?:\/|$)/.test(resolvedRelative);
+      if (!reference.rootStyle && !managedSyntax && !managedLocation) continue;
+      const key = `${node.id}|${reference.key}|${resolved.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (!(await exists(resolved))) {
+        issues.push({ source: node.id, field: reference.key, target: target.replace(/\\/g, "/") });
+      }
+    }
+  }
+  return issues;
+}
+
 export function statsFromScan(scan) {
   const inbox = scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "inbox").length;
   const imaPointers = scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "ima-pointer").length;
@@ -309,7 +473,7 @@ export function statsFromScan(scan) {
     nodes: scan.nodes.length,
     edges: scan.edges.length,
     typedRelations: scan.typedRelations.length,
-    rawSources: scan.nodes.filter((node) => node.id.startsWith("raw/")).length,
+    rawSources: scan.nodes.filter((node) => node.id.startsWith("raw/") && node.type === "raw-source").length,
     wikiPages: scan.nodes.filter((node) => node.id.startsWith("wiki/")).length,
     pendingRaw: inbox + imaPointers + needsFollowup,
     inbox,
@@ -319,6 +483,7 @@ export function statsFromScan(scan) {
     stale: scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "stale").length,
     unresolved: scan.unresolved.length,
     invalidRelations: scan.invalidRelations.length,
+    rawLayoutIssues: rawLayoutIssues(scan).length,
     orphanedWiki: scan.nodes.filter((node) =>
       node.id.startsWith("wiki/") &&
       !["wiki/index", "wiki/log", "wiki/README"].includes(node.id) &&

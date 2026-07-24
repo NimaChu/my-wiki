@@ -23,23 +23,31 @@ function has(name) {
 
 function usage() {
   console.log(`Usage:
-  my-wiki images --source raw/source-note.md [--limit 40] [--no-download] [--no-update-note]
+  my-wiki images --source raw/sources/source-note.md [--limit 40] [--no-download] [--no-update-note]
 
 Extract image evidence from a raw note and its snapshots, mirror remote images into
 raw/assets/<source-note>/, write image-index.json, and update the raw note's Images section.`);
 }
 
 function stripFrontmatter(content) {
-  if (!content.startsWith("---\n")) return content;
-  const end = content.indexOf("\n---", 4);
-  return end === -1 ? content : content.slice(end + 4);
+  const range = frontmatterRange(content);
+  return range ? content.slice(range.blockEnd) : content;
 }
 
 function frontmatterRange(content) {
-  if (!content.startsWith("---\n")) return null;
-  const end = content.indexOf("\n---", 4);
-  if (end === -1) return null;
-  return { start: 0, end: end + 4 };
+  const offset = content.charCodeAt(0) === 0xfeff ? 1 : 0;
+  const start = content.slice(offset).match(/^---\r?\n/);
+  if (!start) return null;
+  const dataStart = offset + start[0].length;
+  const rest = content.slice(dataStart);
+  const end = rest.match(/\r?\n---(?=\r?\n|$)/);
+  if (!end) return null;
+  const dataEnd = dataStart + end.index;
+  return { dataStart, dataEnd, blockEnd: dataEnd + end[0].length };
+}
+
+function stripImagesSections(content) {
+  return content.replace(/\r?\n## Images\r?\n[\s\S]*?(?=\r?\n## |\s*$)/g, "");
 }
 
 function toVaultRelative(vault, target) {
@@ -83,6 +91,7 @@ function attr(tag, name) {
 function absolutize(url, baseUrl) {
   const cleaned = String(url || "").trim();
   if (!cleaned || cleaned.startsWith("data:") || cleaned.startsWith("#")) return "";
+  if (/^(?:raw|wiki|templates|_archive)\//.test(cleaned) || /^\.\.?\//.test(cleaned)) return cleaned;
   try {
     return new URL(cleaned, baseUrl || undefined).href;
   } catch {
@@ -150,7 +159,7 @@ async function fetchBuffer(url) {
 async function readCandidateTexts({ vault, notePath, noteContent, frontmatter, includeSnapshots }) {
   const candidates = [{
     source: toVaultRelative(vault, notePath),
-    text: stripFrontmatter(noteContent)
+    text: stripImagesSections(stripFrontmatter(noteContent))
   }];
   if (!includeSnapshots) return candidates;
 
@@ -192,7 +201,8 @@ function dedupeImages(images, limit) {
 function upsertFrontmatter(content, updates) {
   const range = frontmatterRange(content);
   if (!range) return content;
-  const lines = content.slice(4, range.end - 4).split("\n");
+  const newline = content.includes("\r\n") ? "\r\n" : "\n";
+  const lines = content.slice(range.dataStart, range.dataEnd).split(/\r?\n/);
   const next = [];
   const pending = new Map(Object.entries(updates));
   for (let i = 0; i < lines.length; i += 1) {
@@ -205,16 +215,17 @@ function upsertFrontmatter(content, updates) {
     pending.delete(key);
   }
   for (const [key, value] of pending) next.push(`${key}: ${yamlString(value)}`);
-  return `---\n${next.join("\n")}\n---${content.slice(range.end)}`;
+  return `${content.slice(0, range.dataStart)}${next.join(newline)}${content.slice(range.dataEnd)}`;
 }
 
 function replaceImagesSection(content, section) {
-  const pattern = /\n## Images\n[\s\S]*?(?=\n## |\n?$)/;
-  if (pattern.test(content)) return content.replace(pattern, `\n${section.trim()}\n`);
-  const marker = "\n## Extracted Claims";
-  const index = content.indexOf(marker);
-  if (index >= 0) return `${content.slice(0, index)}\n${section.trim()}\n${content.slice(index)}`;
-  return `${content.trimEnd()}\n\n${section.trim()}\n`;
+  const newline = content.includes("\r\n") ? "\r\n" : "\n";
+  const withoutImages = stripImagesSections(content);
+  const marker = withoutImages.match(/\r?\n## Extracted Claims/);
+  if (marker?.index !== undefined) {
+    return `${withoutImages.slice(0, marker.index)}${newline}${section.trim().replace(/\n/g, newline)}${newline}${withoutImages.slice(marker.index)}`;
+  }
+  return `${withoutImages.trimEnd()}${newline}${newline}${section.trim().replace(/\n/g, newline)}${newline}`;
 }
 
 function imagesSection({ images, indexPath, generatedAt }) {
@@ -296,7 +307,21 @@ for (let i = 0; i < extracted.length; i += 1) {
     status: shouldDownload ? "pending" : "remote-only",
     error: ""
   };
-  if (shouldDownload && /^https?:\/\//i.test(image.url)) {
+  if (!/^https?:\/\//i.test(image.url)) {
+    const rootStyle = /^(?:raw|wiki|templates|_archive)\//.test(image.url);
+    const discoveredIn = image.source ? path.join(vault, ...image.source.split("/")) : sourcePath;
+    const resolved = rootStyle ? path.join(vault, ...image.url.split("/")) : path.resolve(path.dirname(discoveredIn), image.url);
+    if (await exists(resolved)) {
+      const stat = await fs.stat(resolved);
+      record.local_path = toVaultRelative(vault, resolved);
+      record.local_note_path = path.relative(path.dirname(sourcePath), resolved).replace(/\\/g, "/");
+      record.bytes = stat.size;
+      record.status = "local";
+    } else {
+      record.status = "missing-local";
+      record.error = `Local image not found: ${image.url}`;
+    }
+  } else if (shouldDownload) {
     try {
       const { buffer, contentType } = await fetchBuffer(image.url);
       const target = path.join(assetDir, `${id}${guessImageExtension(image.url, contentType)}`);
@@ -315,6 +340,7 @@ for (let i = 0; i < extracted.length; i += 1) {
 }
 
 const generatedAt = new Date().toISOString();
+const availableImages = mirrored.filter((image) => image.status === "mirrored" || image.status === "local");
 const indexPathAbs = path.join(assetDir, "image-index.json");
 const indexPath = toVaultRelative(vault, indexPathAbs);
 await fs.writeFile(indexPathAbs, JSON.stringify({
@@ -328,11 +354,11 @@ if (shouldUpdateNote) {
   let updated = upsertFrontmatter(noteContent, {
     image_index_path: indexPath,
     image_count: String(mirrored.length),
-    mirrored_image_count: String(mirrored.filter((image) => image.status === "mirrored").length)
+    mirrored_image_count: String(availableImages.length)
   });
   updated = replaceImagesSection(updated, imagesSection({ images: mirrored, indexPath, generatedAt }));
   await fs.writeFile(sourcePath, updated, "utf8");
-  await appendLog(`IMAGE_ASSETS source="${toVaultRelative(vault, sourcePath)}" images="${mirrored.length}" mirrored="${mirrored.filter((image) => image.status === "mirrored").length}"`, vault);
+  await appendLog(`IMAGE_ASSETS source="${toVaultRelative(vault, sourcePath)}" images="${mirrored.length}" local="${availableImages.length}"`, vault);
 }
 
 console.log(JSON.stringify({
@@ -342,6 +368,7 @@ console.log(JSON.stringify({
   indexPath,
   discovered: extracted.length,
   mirrored: mirrored.filter((image) => image.status === "mirrored").length,
+  local: availableImages.length,
   failed: mirrored.filter((image) => image.status === "failed").map((image) => ({ url: image.url, error: image.error })),
   updatedNote: shouldUpdateNote,
   script: path.relative(vault, path.join(here, "image-assets.mjs")).replace(/\\/g, "/")

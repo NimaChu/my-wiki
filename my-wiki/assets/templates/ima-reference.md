@@ -58,7 +58,7 @@ related:
 
 ## Images
 
-- Inline Markdown/HTML images are preserved in Capture. Run `npm run wiki:images -- --source raw/ima/source-note.md` when image references are present.
+- Inline Markdown/HTML images are preserved in Capture. Run `my-wiki images --source raw/sources/source-note.md` when image references are present.
 
 ## Extracted Claims
 

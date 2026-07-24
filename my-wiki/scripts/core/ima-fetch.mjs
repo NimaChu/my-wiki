@@ -36,11 +36,11 @@ function usage() {
   console.log(`IMA local raw fetch
 
 Usage:
-  npm run wiki:fetch-ima -- raw/ima/source.md
-  npm run wiki:fetch-ima -- raw/ima/source.md --metadata
-  npm run wiki:fetch-ima -- raw/ima/source.md --force
-  npm run wiki:fetch-ima -- raw/ima/source.md --stdout
-  npm run wiki:fetch-ima -- raw/ima/source.md --output /tmp/source.md
+  my-wiki fetch-ima raw/sources/source.md
+  my-wiki fetch-ima raw/sources/source.md --metadata
+  my-wiki fetch-ima raw/sources/source.md --force
+  my-wiki fetch-ima raw/sources/source.md --stdout
+  my-wiki fetch-ima raw/sources/source.md --output /tmp/source.md
 
 Default behavior upgrades or refreshes one IMA raw note into local-first form:
 status: inbox, source_type: ima, Capture filled with fetched text or a local
