@@ -76,19 +76,25 @@ The optional local frontend is more than a folder graph:
 
 The Dashboard stays off during ordinary capture and maintenance. It starts only when you ask to see the graph or frontend.
 
-## Start In Three Minutes
+## Install By Asking Your Agent
 
-Requirements: Node.js 18+, Git, and a local AI agent that can load Skills or run local scripts.
+Requirements: Node.js 18+ and a local AI agent that can load Skills or run local scripts. Copy this prompt into your agent:
 
-```bash
-git clone https://github.com/NimaChu/my-wiki-skill.git
-cd my-wiki-skill
-npm run skill:install
+```text
+Install the My Wiki Skill from https://github.com/NimaChu/my-wiki-skill.
+The installable Skill is the `my-wiki/` subdirectory. Use your native Skill installer
+or a GitHub subdirectory download to install only that directory as `my-wiki` in your
+local Skills folder. Do not clone or retain the whole repository, and do not include any
+generated runtime files in the installed copy. Verify that `SKILL.md` and
+`scripts/my-wiki.mjs` exist, then tell me the installed path and whether
+the agent host needs to be restarted. Do not modify or delete any existing knowledge vault.
 ```
 
-Restart your agent host after installation. The installer currently knows the default Skill locations used by Codex and OpenCode; the `my-wiki/` folder is self-contained and can also be copied or adapted for other local agent hosts.
+Codex's native Skill installer downloads the public `my-wiki/` subdirectory directly and falls back to Git sparse checkout only when necessary. Other Skill-capable agents can use the equivalent subdirectory installation workflow.
 
-Then speak naturally:
+A normal `git clone` downloads every public tracked file in the repository, including both READMEs, the license, Zenodo metadata, and GitHub image assets. It still does **not** download anyone's private vault, local MCP configuration, paper folder, workspace rules, or source-only tests because those files are not part of the public repository. The prompt above is the cleaner choice for ordinary users.
+
+After installation, speak naturally:
 
 ```text
 Create a My Wiki vault in D:\Knowledge\Personal and use it by default.
@@ -130,7 +136,7 @@ my-vault/
   .my-wiki/     local cache and runtime state
 ```
 
-The public repository contains the Skill, templates, Dashboard, and tests. It does not contain your vault, local MCP credentials, or workspace-specific agent rules. You decide whether a vault is backed up, synced, encrypted, or never leaves one computer.
+The public repository contains the Skill, templates, and Dashboard. It does not contain your vault, local MCP credentials, workspace-specific agent rules, or local regression tests. You decide whether a vault is backed up, synced, encrypted, or never leaves one computer.
 
 ## Optional, Not Required
 
@@ -138,14 +144,6 @@ The public repository contains the Skill, templates, Dashboard, and tests. It do
 - **Firecrawl MCP**: improve capture for rendered or difficult webpages. A keyless hosted endpoint is available with limits; full crawling requires Firecrawl authentication.
 - **IMA and other external platforms**: import authorized material into local raw notes first, then maintain it through the same evidence workflow.
 - **RAG**: add embeddings and production retrieval later without throwing away the readable source and wiki layers.
-
-## For Contributors
-
-The complete distributable Skill lives in [`my-wiki/`](my-wiki/). Source-only regression tests verify that it can initialize and operate an external vault after being copied independently of this checkout.
-
-```bash
-npm test
-```
 
 ## License
 

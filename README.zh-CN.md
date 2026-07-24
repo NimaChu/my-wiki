@@ -76,19 +76,24 @@ My Wiki 不是简单地给每份文档生成一篇摘要。一份有价值的资
 
 日常入库和维护不会启动 Dashboard。只有当你说“打开知识图谱”“打开前端”或类似需求时，它才会按需运行。
 
-## 三分钟开始
+## 直接让 Agent 安装
 
-需要准备：Node.js 18+、Git，以及一个能够加载 Skill 或执行本地脚本的 AI Agent。
+需要准备：Node.js 18+，以及一个能够加载 Skill 或执行本地脚本的 AI Agent。把下面这段话直接发给 Agent：
 
-```bash
-git clone https://github.com/NimaChu/my-wiki-skill.git
-cd my-wiki-skill
-npm run skill:install
+```text
+请从 https://github.com/NimaChu/my-wiki-skill 安装 My Wiki Skill。
+可安装的 Skill 位于仓库的 `my-wiki/` 子目录。请使用你自带的 Skill 安装器
+或 GitHub 子目录下载方式，只把这个目录安装到本机 Skill 目录，并命名为 `my-wiki`。
+不要克隆或保留整个仓库，也不要带入任何动态生成的运行文件。安装后确认
+`SKILL.md` 和 `scripts/my-wiki.mjs` 存在，
+告诉我最终安装路径以及是否需要重启 Agent。不要修改或删除任何已有知识库。
 ```
 
-安装后重启你的 Agent 宿主。目前安装器可以自动识别 Codex 和 OpenCode 的默认 Skill 目录；`my-wiki/` 本身是完整、自包含的，也可以复制或适配到其他支持本地 Skill 的 Agent。
+Codex 自带的 Skill 安装器会直接下载公开仓库中的 `my-wiki/` 子目录，只有直接下载失败时才回退到 Git sparse checkout。其他支持 Skill 的 Agent 可以采用等价的子目录安装方式。
 
-接下来直接说人话即可：
+普通 `git clone` 会下载仓库中所有公开跟踪的文件，包括中英文 README、许可证、Zenodo 元数据和 GitHub 图片资源。不过，它仍然**不会**下载任何人的私人知识库、本地 MCP 配置、论文目录、工作区规则或源码测试，因为这些内容根本不在公开仓库中。对普通用户来说，上面的提示词更干净。
+
+安装后继续直接说人话：
 
 ```text
 在 D:\Knowledge\Personal 创建一个 My Wiki 知识库并设为默认。
@@ -130,7 +135,7 @@ my-vault/
   .my-wiki/     本地缓存和运行状态
 ```
 
-公开仓库只包含 Skill、模板、Dashboard 和测试，不包含你的知识库、本地 MCP 凭据或工作区专用 Agent 规则。知识库是否备份、同步、加密，或者始终只留在一台电脑上，都由你决定。
+公开仓库只包含 Skill、模板和 Dashboard，不包含你的知识库、本地 MCP 凭据、工作区专用 Agent 规则或本地回归测试。知识库是否备份、同步、加密，或者始终只留在一台电脑上，都由你决定。
 
 ## 都是可选项，不是前置条件
 
@@ -138,14 +143,6 @@ my-vault/
 - **Firecrawl MCP**：用于增强动态或难抓取网页的入库能力；有受限的无 Key 托管入口，完整爬取需要 Firecrawl 认证。
 - **IMA 和其他外部平台**：把得到授权的资料优先下载成本地 raw，再走同一套证据维护流程。
 - **RAG**：未来需要 Embedding 和生产级检索时再增加，不必放弃已经可读、可追溯的 raw 与 Wiki。
-
-## 参与开发
-
-完整、可分发的 Skill 位于 [`my-wiki/`](my-wiki/)。源码回归测试会验证它被独立复制后，仍能在仓库外初始化和运行任意知识库。
-
-```bash
-npm test
-```
 
 ## 开源许可证
 

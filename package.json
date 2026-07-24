@@ -8,7 +8,6 @@
     "my-wiki": "my-wiki/scripts/my-wiki.mjs"
   },
   "scripts": {
-    "test": "node --test my-wiki/tests",
     "skill:install": "node my-wiki/scripts/install.mjs",
     "wiki": "node my-wiki/scripts/my-wiki.mjs",
     "wiki:status": "node my-wiki/scripts/my-wiki.mjs status",

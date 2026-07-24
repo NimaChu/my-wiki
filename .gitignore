@@ -8,6 +8,7 @@ output/
 /paper/
 /.mcp.json
 /AGENTS.md
+/my-wiki/tests/
 *.log
 *.pid
 /my-wiki/assets/dashboard/public/wiki-graph.json
