@@ -72,7 +72,7 @@ async function install({ agent, root }) {
         if (parts.includes("node_modules") || parts.includes("dist")) return false;
         const basename = path.basename(entry);
         if (basename.endsWith(".log") || basename.endsWith(".pid")) return false;
-        return basename !== "wiki-graph.json";
+        return basename !== "wiki-graph.json" && basename !== ".my-wiki-runtime.json";
       }
     });
   }

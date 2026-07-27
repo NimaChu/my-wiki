@@ -40,6 +40,8 @@ node <skill-directory>/scripts/my-wiki.mjs --vault personal open-dashboard
 
 `dashboard` starts the service silently in the background. `open-dashboard` also opens the selected installation's frontend in the browser.
 
+The Dashboard is a local knowledge workspace, not only a graph viewer. It may add a webpage URL or uploaded file directly to `status: inbox`, list pending raw notes, export a named universe, and preview then apply a `.mywiki` import. These deterministic web actions use the same core services as the CLI. They do not invoke an AI agent, distill Wiki pages, mark raw notes processed, or start maintenance automatically.
+
 Read [workflows.md](references/workflows.md) when ingesting, querying, maintaining, sharing, or visualizing a vault.
 
 ## Knowledge Universes
@@ -77,3 +79,4 @@ Read [ima-local-import.md](references/ima-local-import.md) only when the user ex
 - Treat `processed` as an evidence-closure state, not a progress label.
 - Keep vault data local. Do not commit or push it unless the user explicitly requests that exact action.
 - Do not start the Dashboard during ordinary ingest or maintenance. Open it only for graph/frontend requests.
+- Keep the local web service bound to `127.0.0.1`. Preserve its same-origin session token, upload limits, URL private-network checks, import preview, checksum validation, and no-overwrite behavior.

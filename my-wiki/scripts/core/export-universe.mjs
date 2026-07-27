@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   appendLog,
   isWikiKnowledgeNode,
@@ -35,13 +36,9 @@ function positional() {
   return values;
 }
 
-const requestedUniverse = normalizeUniverseName(option("--name") || positional()[0]);
-if (!requestedUniverse) {
-  console.error("Usage: my-wiki export-universe <universe-name> [--output package.mywiki]");
-  process.exit(2);
-}
-
-const vault = vaultPath();
+export async function exportUniverse({ vault = vaultPath(), universeName, output: requestedOutput = "" }) {
+const requestedUniverse = normalizeUniverseName(universeName);
+if (!requestedUniverse) throw new Error("A universe name is required");
 const scan = await scanVault(vault);
 const availableUniverses = Array.from(new Set(scan.nodes.filter(isWikiKnowledgeNode).flatMap((node) => wikiUniverseNames(node))));
 const universe = availableUniverses.find((name) => name.localeCompare(requestedUniverse, undefined, { sensitivity: "accent" }) === 0) ||
@@ -154,7 +151,6 @@ const manifest = {
 };
 const manifestBuffer = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 
-const requestedOutput = option("--output");
 const now = new Date();
 const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 const output = path.resolve(requestedOutput || path.join(vault, ".my-wiki", "exports", `${slugify(universe)}-${timestamp}.mywiki`));
@@ -165,7 +161,7 @@ await writeUniverseArchive(output, [
 const archive = await hashFile(output);
 await appendLog(`EXPORT_UNIVERSE universe="${universe}" wiki="${wikiNodes.length}" raw="${rawNodes.length}" assets="${manifest.contents.assets}" snapshots="${manifest.contents.snapshots}" output="${path.relative(vault, output).replace(/\\/g, "/")}"`, vault);
 
-console.log(JSON.stringify({
+return {
   vault,
   universe,
   output,
@@ -175,9 +171,23 @@ console.log(JSON.stringify({
   sources: sources.length,
   externalWikiReferences: externalWiki.size,
   snapshotsIncluded: true
-}, null, 2));
+};
+}
 
 function managedSnapshotPath(value) {
   const normalized = path.posix.normalize(String(value || "").trim().replace(/\\/g, "/"));
   return normalized.startsWith("raw/snapshots/") ? normalized : "";
+}
+
+const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+if (isDirectRun) {
+  const universeName = option("--name") || positional()[0];
+  if (!universeName) {
+    console.error("Usage: my-wiki export-universe <universe-name> [--output package.mywiki]");
+    process.exit(2);
+  }
+  console.log(JSON.stringify(await exportUniverse({
+    universeName,
+    output: option("--output")
+  }), null, 2));
 }

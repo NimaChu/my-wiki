@@ -1,6 +1,6 @@
 # My Wiki Frontend
 
-Local read-only frontend for My Wiki. The current surface focuses on knowledge graph visualization, and the frontend is intended to grow into the place where users can inspect the local vault, ask local agents questions, and trigger maintenance workflows.
+Local-first knowledge workspace for My Wiki. It combines knowledge graph visualization with deterministic vault operations while keeping AI maintenance and question answering available through the user's agent.
 
 ## Commands
 
@@ -29,5 +29,8 @@ The frontend reads that JSON and displays an Obsidian-like graph surface:
 - selected-node links, backlinks, tags, and status
 - raw/wiki/link counts
 - inbox, follow-up, stale, broken-link, and processed-gate counts
+- webpage and local-file capture directly into Inbox
+- Inbox inspection without starting maintenance
+- universe package export, download, import preview, and confirmed import
 
-The current graph surface does not write to the vault.
+The local service binds only to `127.0.0.1`. Browser writes require a same-origin session token, URL capture rejects local/private networks, uploads are streamed with a size limit, and universe imports preserve the existing preview/checksum/conflict behavior. Web capture creates `status: inbox` evidence only; it does not run an AI agent or mark knowledge processed.

@@ -4,12 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "node server.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "graph": "node scripts/generate-graph.mjs"
   },
   "dependencies": {
+    "lucide-react": "^0.468.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"
   },

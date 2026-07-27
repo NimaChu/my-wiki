@@ -55,6 +55,16 @@ Universe packages use names rather than package IDs or universe IDs. Raw notes d
 
 Treat requests to view the graph, frontend, or Dashboard as permission to run `open-dashboard`. Each installed Skill uses a stable local port, so independent Codex and OpenCode copies do not serve one another's stale graph. Within one installation, opening another vault switches graph generation and the watcher to that vault.
 
+The local Dashboard can perform deterministic vault operations without calling an agent:
+
+- Add a public HTTP/HTTPS URL to `raw/sources/` as `status: inbox`, with a local snapshot and mirrored inline images when available.
+- Upload a local file into `raw/snapshots/` and create its corresponding inbox raw note.
+- List inbox, follow-up, and stale raw notes.
+- Export a named universe and download its `.mywiki` package.
+- Upload a `.mywiki` package, review the dry-run summary, and explicitly confirm the import.
+
+Web capture stops at inbox. Do not treat it as permission to distill, maintain, or mark the source processed. The local service must remain bound to `127.0.0.1`; do not weaken its session token, same-origin checks, upload limits, private-network URL protection, or import conflict safeguards.
+
 ## Vault Resolution
 
 Resolution order is:

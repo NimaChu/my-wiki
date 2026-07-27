@@ -103,7 +103,7 @@ function shouldCopy(entry, copyRoot) {
   const basename = path.basename(entry);
   if (parts[0] === "tests") return false;
   if (parts.includes("node_modules") || parts.includes("dist")) return false;
-  if (basename === ".DS_Store" || basename === "wiki-graph.json") return false;
+  if (basename === ".DS_Store" || basename === "wiki-graph.json" || basename === ".my-wiki-runtime.json") return false;
   return !basename.endsWith(".log") && !basename.endsWith(".pid");
 }
 

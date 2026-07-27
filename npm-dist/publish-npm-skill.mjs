@@ -26,7 +26,7 @@ function shouldExclude(relative, entry) {
   const parts = relative.replace(/\\/g, "/").split("/");
   const basename = entry.name;
   if (parts.includes("tests") || parts.includes("node_modules") || parts.includes("dist")) return true;
-  if (basename === ".DS_Store" || basename === "wiki-graph.json") return true;
+  if (basename === ".DS_Store" || basename === "wiki-graph.json" || basename === ".my-wiki-runtime.json") return true;
   return basename.endsWith(".log") || basename.endsWith(".pid");
 }
 

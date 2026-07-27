@@ -2,6 +2,7 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   appendLog,
   asArray,
@@ -36,15 +37,10 @@ function positional() {
   return values;
 }
 
-const packageFile = path.resolve(positional()[0] || "");
-if (!positional()[0]) {
-  console.error("Usage: my-wiki import-universe <package.mywiki> [--as universe-name] [--apply]");
-  process.exit(2);
-}
+export async function importUniverse({ vault = vaultPath(), packageFile: inputPackage, as = "", apply = false }) {
+const packageFile = path.resolve(inputPackage || "");
+if (!inputPackage) throw new Error("A .mywiki package path is required");
 if (!(await exists(packageFile))) throw new Error(`Package not found: ${packageFile}`);
-
-const apply = args.includes("--apply");
-const vault = vaultPath();
 const staging = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-universe-"));
 
 try {
@@ -66,7 +62,7 @@ try {
   }
 
   const sourceUniverse = normalizeUniverseName(manifest.universe);
-  const targetUniverse = normalizeUniverseName(option("--as") || sourceUniverse);
+  const targetUniverse = normalizeUniverseName(as || sourceUniverse);
   if (!targetUniverse) throw new Error("Package universe name is empty");
 
   const scan = await scanVault(vault);
@@ -251,9 +247,7 @@ try {
   };
 
   if (!apply) {
-    console.log(JSON.stringify(summary, null, 2));
-    await fs.rm(staging, { recursive: true, force: true });
-    process.exit(0);
+    return summary;
   }
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -319,9 +313,10 @@ try {
   };
   await fs.writeFile(path.join(receiptRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
   await appendLog(`IMPORT_UNIVERSE universe="${targetUniverse}" wiki="${summary.wiki.write}" raw="${summary.raw.write}" assets="${summary.assets.write}" snapshots="${summary.snapshots.write}" conflicts="${report.conflicts}"`, vault);
-  console.log(JSON.stringify(report, null, 2));
+  return report;
 } finally {
   await fs.rm(staging, { recursive: true, force: true });
+}
 }
 
 async function uniqueRawTarget(vault, requested, reserved) {
@@ -395,4 +390,18 @@ function safeName(value) {
 function managedSnapshotPath(value) {
   const normalized = path.posix.normalize(String(value || "").trim().replace(/\\/g, "/"));
   return normalized.startsWith("raw/snapshots/") ? normalized : "";
+}
+
+const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+if (isDirectRun) {
+  const packageFile = positional()[0];
+  if (!packageFile) {
+    console.error("Usage: my-wiki import-universe <package.mywiki> [--as universe-name] [--apply]");
+    process.exit(2);
+  }
+  console.log(JSON.stringify(await importUniverse({
+    packageFile,
+    as: option("--as"),
+    apply: args.includes("--apply")
+  }), null, 2));
 }

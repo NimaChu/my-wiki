@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { WorkspaceActions } from "./WorkspaceActions";
 import "./styles.css";
 
 type WikiNode = {
@@ -41,7 +42,6 @@ type WikiGraph = {
 
 type Filters = {
   query: string;
-  groups: string[];
 };
 
 type GraphScope = "global" | "local";
@@ -94,8 +94,7 @@ const groupPalette = [
 ];
 
 const initialFilters: Filters = {
-  query: "",
-  groups: []
+  query: ""
 };
 
 type Language = "en" | "zh";
@@ -106,7 +105,7 @@ const copy = {
     graphUnavailable: "Graph unavailable",
     loadingGraph: "Loading graph",
     localWorkspace: "Local knowledge workspace",
-    searchAndFilter: "Search and filter My Wiki pages",
+    searchAndFilter: "Search My Wiki pages",
     search: "Search",
     searchPlaceholder: "Search wiki pages, tags, paths",
     clearSearch: "Clear search",
@@ -158,7 +157,7 @@ const copy = {
     graphUnavailable: "知识图谱不可用",
     loadingGraph: "正在加载知识图谱",
     localWorkspace: "本地知识工作区",
-    searchAndFilter: "搜索和筛选 My Wiki 页面",
+    searchAndFilter: "搜索 My Wiki 页面",
     search: "搜索",
     searchPlaceholder: "搜索 Wiki 页面、标签或路径",
     clearSearch: "清空搜索",
@@ -334,18 +333,6 @@ function App() {
   }, []);
 
   const nodeById = useMemo(() => new Map((graph?.nodes ?? []).map((node) => [node.id, node])), [graph]);
-  const filterOptions = useMemo(() => {
-    const nodes = (graph?.nodes ?? []).filter((node) => node.id.startsWith("wiki/"));
-    return {
-      groups: unique(nodes.flatMap((node) => nodeUniverses(node)))
-    };
-  }, [graph]);
-  const selectedGroupSet = useMemo(() => new Set(filters.groups), [filters.groups]);
-  const groupPickerLabel = useMemo(() => {
-    if (filters.groups.length === 0) return t("allUniverses");
-    if (filters.groups.length === 1) return groupLabelText(filters.groups[0], language);
-    return t("universeCount", { count: filters.groups.length });
-  }, [filters.groups, language, t]);
   const wikiFilteredNodes = useMemo(() => {
     if (!graph) return [];
     const needle = filters.query.trim().toLowerCase();
@@ -355,7 +342,7 @@ function App() {
       if (!hasSearch) return true;
       const universes = nodeUniverses(node);
       const searchable = [node.title, node.path, node.type, node.status, ...universes, ...node.tags].join(" ").toLowerCase();
-      return searchable.includes(needle) && (filters.groups.length === 0 || universes.some((universe) => filters.groups.includes(universe)));
+      return searchable.includes(needle);
     });
   }, [graph, filters]);
 
@@ -472,15 +459,6 @@ function App() {
     setRotation(initialRotation);
   };
 
-  const toggleGroupFilter = (group: string) => {
-    setFilters((current) => {
-      const groups = current.groups.includes(group)
-        ? current.groups.filter((item) => item !== group)
-        : [...current.groups, group];
-      return { ...current, groups };
-    });
-  };
-
   const zoomByWheel = (deltaY: number) => {
     const direction = deltaY > 0 ? 0.92 : 1.08;
     setZoom((value) => clamp(value * direction, 0.55, 2.4));
@@ -592,7 +570,6 @@ function App() {
 
         <section className="search-toolbar" aria-label={t("searchAndFilter")}>
           <label className="top-search">
-            <span>{t("search")}</span>
             <span className="search-input-wrap">
               <input value={filters.query} onChange={(event) => setFilters({ ...filters, query: event.target.value })} placeholder={t("searchPlaceholder")} />
               {filters.query ? (
@@ -602,29 +579,8 @@ function App() {
               ) : null}
             </span>
           </label>
-          <div className="top-filter">
-            <span>{t("universe")}</span>
-            <details className="group-picker">
-              <summary>{groupPickerLabel}</summary>
-              <div className="group-picker-menu">
-                <button type="button" className="group-picker-clear" onClick={() => setFilters({ ...filters, groups: [] })}>
-                  {t("allUniverses")}
-                </button>
-                {filterOptions.groups.map((group) => (
-                  <label key={group} className="group-picker-option">
-                    <input
-                      type="checkbox"
-                      checked={selectedGroupSet.has(group)}
-                      onChange={() => toggleGroupFilter(group)}
-                    />
-                    <span>{groupLabelText(group, language)}</span>
-                  </label>
-                ))}
-              </div>
-            </details>
-          </div>
+          <WorkspaceActions language={language} />
           <div className="language-control">
-            <span>{t("language")}</span>
             <div className="language-switch" role="group" aria-label={t("language")}>
               <button
                 type="button"
@@ -701,7 +657,6 @@ function App() {
           evidenceCenter={evidenceCenter}
           focusedGroup={focusedGroup}
           isUniverseOverview={isUniverseOverview}
-          visibleNodes={filteredNodes.length}
           visibleEdges={displayEdges.length}
           onSelect={setSelectedId}
           onOpenEvidence={openEvidence}
@@ -1030,7 +985,6 @@ function NodeInspector({
   evidenceCenter,
   focusedGroup,
   isUniverseOverview,
-  visibleNodes,
   visibleEdges,
   onSelect,
   onOpenEvidence,
@@ -1043,7 +997,6 @@ function NodeInspector({
   evidenceCenter: WikiNode | null;
   focusedGroup: string | null;
   isUniverseOverview: boolean;
-  visibleNodes: number;
   visibleEdges: number;
   onSelect: (id: string) => void;
   onOpenEvidence: (id: string) => void;
@@ -1056,7 +1009,6 @@ function NodeInspector({
         <GlobalOverview
           graph={graph}
           nodeById={nodeById}
-          visibleNodes={visibleNodes}
           visibleEdges={visibleEdges}
           onSelect={onSelect}
         />
@@ -1068,7 +1020,6 @@ function NodeInspector({
         <UniverseOverview
           graph={graph}
           group={focusedGroup}
-          visibleNodes={visibleNodes}
           visibleEdges={visibleEdges}
           onSelect={onSelect}
         />
@@ -1197,13 +1148,11 @@ function NodeInspector({
 function UniverseOverview({
   graph,
   group,
-  visibleNodes,
   visibleEdges,
   onSelect
 }: {
   graph: WikiGraph;
   group: string;
-  visibleNodes: number;
   visibleEdges: number;
   onSelect: (id: string) => void;
 }) {
@@ -1219,15 +1168,12 @@ function UniverseOverview({
 
       <Stats
         graph={graph}
-        visibleNodes={visibleNodes}
         visibleEdges={visibleEdges}
         items={[
-          [t("visible"), visibleNodes],
-          [t("links"), visibleEdges],
           [t("wiki"), summary.wikiNodes.length],
           [t("raw"), summary.evidenceCount],
-          [t("tags"), summary.topTags.length],
-          [t("statuses"), summary.statuses.length]
+          [t("links"), visibleEdges],
+          [t("tags"), summary.tagCount]
         ]}
       />
 
@@ -1253,13 +1199,11 @@ function UniverseOverview({
 function GlobalOverview({
   graph,
   nodeById,
-  visibleNodes,
   visibleEdges,
   onSelect
 }: {
   graph: WikiGraph;
   nodeById: Map<string, WikiNode>;
-  visibleNodes: number;
   visibleEdges: number;
   onSelect: (id: string) => void;
 }) {
@@ -1270,7 +1214,7 @@ function GlobalOverview({
         <h2>{t("vaultOverview")}</h2>
         <p>{t("graphHealth")}</p>
       </header>
-      <Stats graph={graph} visibleNodes={visibleNodes} visibleEdges={visibleEdges} />
+      <Stats graph={graph} visibleEdges={visibleEdges} />
       <QueueSummary graph={graph} nodeById={nodeById} onSelect={onSelect} />
     </section>
   );
@@ -1402,17 +1346,15 @@ function stripLeadingMarkdownTitle(content: string, title: string) {
   return content.trim();
 }
 
-function Stats({ graph, visibleNodes, visibleEdges, items }: { graph: WikiGraph; visibleNodes: number; visibleEdges: number; items?: Array<[string, number]> }) {
+function Stats({ graph, visibleEdges, items }: { graph: WikiGraph; visibleEdges: number; items?: Array<[string, number]> }) {
   const { t } = useI18n();
   const defaultItems: Array<[string, number]> = [
-    [t("visible"), visibleNodes],
-    [t("links"), visibleEdges],
     [t("wiki"), graph.stats.wikiPages ?? 0],
     [t("raw"), graph.stats.rawSources ?? 0],
-    [t("pending"), graph.stats.pendingRaw ?? 0],
+    [t("links"), visibleEdges],
+    [t("broken"), graph.stats.unresolved ?? 0],
     [t("inbox"), graph.stats.inbox ?? 0],
-    [t("processed"), graph.stats.processed ?? 0],
-    [t("broken"), graph.stats.unresolved ?? 0]
+    [t("processed"), graph.stats.processed ?? 0]
   ];
   const displayItems = items ?? defaultItems;
 
@@ -1453,11 +1395,9 @@ function buildUniverseSummary(graph: WikiGraph, group: string) {
   const wikiNodes = graph.nodes.filter((node) => node.id.startsWith("wiki/") && nodeUniverses(node).includes(group));
   const wikiIds = new Set(wikiNodes.map((node) => node.id));
   const evidenceIds = new Set<string>();
-  const statusCounts = new Map<string, number>();
   const tagCounts = new Map<string, number>();
 
   for (const node of wikiNodes) {
-    statusCounts.set(node.status, (statusCounts.get(node.status) ?? 0) + 1);
     for (const tag of node.tags) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
   }
 
@@ -1470,14 +1410,13 @@ function buildUniverseSummary(graph: WikiGraph, group: string) {
     .sort((a, b) => (b.out.length + b.backlinks.length) - (a.out.length + a.backlinks.length))
     .slice(0, 10);
   const topTags = [...tagCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 12);
-  const statuses = [...statusCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 
   return {
     wikiNodes,
     evidenceCount: evidenceIds.size,
     topPages,
     topTags,
-    statuses
+    tagCount: tagCounts.size
   };
 }
 

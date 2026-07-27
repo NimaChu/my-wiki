@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { closeSync, openSync } from "node:fs";
 import { promises as fs } from "node:fs";
+import { createHash } from "node:crypto";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,9 +27,9 @@ function run(command, args) {
 
 async function isServerAlive() {
   return new Promise((resolve) => {
-    const req = http.get(DASHBOARD_URL, (res) => {
+    const req = http.get(new URL("/api/v1/health", DASHBOARD_URL), (res) => {
       res.resume();
-      resolve(res.statusCode && res.statusCode < 500);
+      resolve(Boolean(res.statusCode && res.statusCode < 500 && res.headers["x-my-wiki-api"] === "1"));
     });
     req.on("error", () => resolve(false));
     req.setTimeout(800, () => {
@@ -43,18 +44,72 @@ if (!(await exists(dash))) {
   process.exit(1);
 }
 
-if (!(await exists(path.join(dash, "node_modules")))) {
+async function isHttpRootAlive() {
+  return new Promise((resolve) => {
+    const req = http.get(DASHBOARD_URL, (res) => {
+      res.resume();
+      resolve(Boolean(res.statusCode && res.statusCode < 500));
+    });
+    req.on("error", () => resolve(false));
+    req.setTimeout(800, () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
+async function stopLegacyDashboard() {
+  let processes = [];
+  if (process.platform === "win32") {
+    const script = `$items = Get-NetTCPConnection -LocalPort ${DASHBOARD_PORT} -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $p = Get-CimInstance Win32_Process -Filter \"ProcessId = $($_.OwningProcess)\"; [pscustomobject]@{ pid = $_.OwningProcess; commandLine = $p.CommandLine } }; $items | ConvertTo-Json -Compress`;
+    const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true });
+    if (result.status === 0 && result.stdout.trim()) {
+      const parsed = JSON.parse(result.stdout);
+      processes = Array.isArray(parsed) ? parsed : [parsed];
+    }
+  } else {
+    const found = spawnSync("lsof", ["-nP", `-iTCP:${DASHBOARD_PORT}`, "-sTCP:LISTEN", "-t"], { encoding: "utf8" });
+    for (const value of found.stdout.trim().split(/\s+/).filter(Boolean)) {
+      const pid = Number(value);
+      const command = spawnSync("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" });
+      processes.push({ pid, commandLine: command.stdout.trim() });
+    }
+  }
+
+  const dashboardKey = path.resolve(dash).toLowerCase();
+  for (const candidate of processes) {
+    const commandLine = String(candidate.commandLine || "").toLowerCase();
+    if (!commandLine.includes(dashboardKey) || !commandLine.includes("vite")) continue;
+    try {
+      process.kill(Number(candidate.pid));
+    } catch {
+      // The legacy process may exit after the port inspection.
+    }
+  }
+  for (let attempt = 0; attempt < 20 && await isHttpRootAlive(); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+await fs.writeFile(path.join(dash, ".my-wiki-runtime.json"), `${JSON.stringify({ vault, updatedAt: new Date().toISOString() }, null, 2)}\n`, "utf8");
+
+const lockFile = path.join(dash, "package-lock.json");
+const dependencyStamp = path.join(dash, "node_modules", ".my-wiki-package-lock.sha256");
+const lockHash = createHash("sha256").update(await fs.readFile(lockFile)).digest("hex");
+const installedHash = await fs.readFile(dependencyStamp, "utf8").catch(() => "");
+if (!(await exists(path.join(dash, "node_modules"))) || installedHash.trim() !== lockHash) {
   run(npmCommand, ["install"]);
+  await fs.writeFile(dependencyStamp, `${lockHash}\n`, "utf8");
 }
 
 run(npmCommand, ["run", "graph"]);
 if (shouldBuild) run(npmCommand, ["run", "build"]);
 
 if (shouldServe && !(await isServerAlive())) {
+  if (await isHttpRootAlive()) await stopLegacyDashboard();
   const logPath = path.join(dash, "vite.log");
   const logFd = openSync(logPath, "a");
-  const viteEntry = path.join(dash, "node_modules", "vite", "bin", "vite.js");
-  const child = spawn(process.execPath, [viteEntry, "--host", "127.0.0.1", "--port", String(DASHBOARD_PORT)], {
+  const child = spawn(process.execPath, [path.join(dash, "server.mjs"), String(DASHBOARD_PORT)], {
     cwd: dash,
     env: runtimeEnv,
     detached: true,
@@ -68,6 +123,9 @@ if (shouldServe && !(await isServerAlive())) {
   for (let i = 0; i < 60; i += 1) {
     await new Promise((resolve) => setTimeout(resolve, 250));
     if (await isServerAlive()) break;
+  }
+  if (!(await isServerAlive())) {
+    throw new Error(`My Wiki local service could not start at ${DASHBOARD_URL}. Stop an older Dashboard process using this port, then try again.`);
   }
 }
 

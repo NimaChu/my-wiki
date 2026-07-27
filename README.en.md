@@ -82,8 +82,10 @@ The optional local frontend is more than a folder graph:
 - enter the evidence layer to see every raw source supporting that wiki page;
 - search without permanently hiding the rest of the graph;
 - let the running watcher refresh the graph automatically as knowledge changes.
+- add a webpage link or upload a local file directly to Inbox;
+- export a knowledge universe or preview and confirm a `.mywiki` import.
 
-The Dashboard stays off during ordinary capture and maintenance. It starts only when you ask to see the graph or frontend.
+The Dashboard stays off during ordinary agent capture and maintenance. It starts only when you ask to see the graph or frontend. Its local service listens only on `127.0.0.1`; browser capture preserves evidence as `status: inbox` and never silently starts AI maintenance.
 
 ## Share A Knowledge Universe
 

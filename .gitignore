@@ -12,3 +12,5 @@ output/
 *.log
 *.pid
 /my-wiki/assets/dashboard/public/wiki-graph.json
+/my-wiki/assets/dashboard/.my-wiki-runtime.json
+/my-wiki/assets/dashboard/.dashboard-server.pid
