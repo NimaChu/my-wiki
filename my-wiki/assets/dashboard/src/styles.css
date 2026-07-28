@@ -1027,6 +1027,53 @@ h3 {
   padding-top: 16px;
 }
 
+.queue-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.queue-heading .maintenance-button {
+  display: inline-flex;
+  width: auto;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 9px;
+  color: #dce3ff;
+  font-size: 12px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.queue-heading .maintenance-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.maintenance-result,
+.maintenance-error {
+  display: grid;
+  gap: 5px;
+  border-left: 2px solid #7fbe9a;
+  background: rgba(127, 190, 154, 0.08);
+  padding: 9px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.maintenance-error {
+  border-left-color: #e48e86;
+  background: rgba(228, 142, 134, 0.08);
+}
+
+.maintenance-result span {
+  color: #aab3b5;
+  font-size: 11px;
+}
+
 .queue-panel button,
 .neighbor-list button {
   display: grid;
@@ -1467,6 +1514,349 @@ h3 {
   gap: 8px;
   padding: 24px;
   text-align: center;
+}
+
+.viki {
+  position: fixed;
+  z-index: 180;
+  width: 48px;
+  height: 48px;
+  pointer-events: none;
+}
+
+.viki button,
+.viki textarea,
+.viki-panel {
+  pointer-events: auto;
+}
+
+.viki-launcher {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  background: #8da2ff;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.32);
+  color: #151718;
+  padding: 0;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.viki-launcher:hover,
+.viki-launcher:focus-visible {
+  border-color: rgba(141, 162, 255, 0.68);
+  background: #a8b6ff;
+  color: #151718;
+  outline: none;
+}
+
+.viki.is-dragging .viki-launcher {
+  cursor: grabbing;
+}
+
+.viki-avatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid rgba(141, 162, 255, 0.45);
+  border-radius: 50%;
+  background: #8da2ff;
+  color: #151718;
+}
+
+.viki-avatar.large {
+  width: 48px;
+  height: 48px;
+}
+
+.viki-panel {
+  position: absolute;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(420px, calc(100vw - 44px));
+  height: min(620px, calc(100vh - 120px));
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 8px;
+  background: #1a1d1f;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.48);
+}
+
+.viki-panel > header {
+  display: flex;
+  min-height: 62px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  padding: 10px 12px;
+}
+
+.viki-identity,
+.viki-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.viki-identity > div {
+  display: grid;
+  gap: 2px;
+}
+
+.viki-identity span,
+.viki-status > span {
+  color: #9da6a8;
+  font-size: 11px;
+}
+
+.viki-status > span::before {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: #7fbe9a;
+  content: "";
+}
+
+.viki-status > span.is-busy::before {
+  background: #e0bd6f;
+}
+
+.viki-status button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #b7bfc0;
+  cursor: pointer;
+}
+
+.viki-status button:hover,
+.viki-status button:focus-visible {
+  background: rgba(255, 255, 255, 0.07);
+  color: #f3efe7;
+  outline: none;
+}
+
+.viki-provider-select {
+  min-width: 88px;
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  padding: 0 24px 0 8px;
+  background: #24282a;
+  color: #d5dada;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.viki-provider-select:hover,
+.viki-provider-select:focus-visible {
+  border-color: rgba(255, 255, 255, 0.25);
+  outline: none;
+}
+
+.viki-provider-select:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.viki-conversation {
+  overflow: auto;
+  padding: 15px 14px;
+}
+
+.viki-welcome {
+  display: grid;
+  min-height: 100%;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  color: #c4cbcc;
+  text-align: center;
+}
+
+.viki-welcome p {
+  max-width: 310px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.viki-welcome small {
+  color: #818b8d;
+}
+
+.viki-message {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.viki-message.is-user {
+  justify-items: end;
+}
+
+.viki-message-body {
+  max-width: 92%;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.045);
+  padding: 10px 11px;
+  font-size: 13px;
+  line-height: 1.58;
+}
+
+.viki-message.is-user .viki-message-body {
+  border-color: rgba(141, 162, 255, 0.25);
+  background: rgba(141, 162, 255, 0.15);
+}
+
+.viki-message-body p + p,
+.viki-message-body p + ul,
+.viki-message-body ul + p,
+.viki-message-body h4 + p {
+  margin-top: 8px;
+}
+
+.viki-message-body ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.viki-message-body code {
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 4px;
+}
+
+.viki-message-body a {
+  color: #b7c3ff;
+}
+
+.viki-images {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.viki-images figure {
+  margin: 0;
+}
+
+.viki-images img {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 6px;
+  background: #121415;
+}
+
+.viki-images figcaption {
+  margin-top: 4px;
+  color: #929c9e;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.viki-sources {
+  width: 100%;
+  color: #aab3b5;
+  font-size: 11px;
+}
+
+.viki-sources summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.viki-sources div {
+  display: grid;
+  gap: 2px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  margin: 7px 0 0 6px;
+  padding-left: 9px;
+}
+
+.viki-sources span {
+  overflow: hidden;
+  color: #7f898b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viki-thinking,
+.viki-error {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #9da6a8;
+  font-size: 12px;
+}
+
+.viki-error {
+  color: #e6a099;
+}
+
+.viki-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: end;
+  gap: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+  padding: 10px;
+}
+
+.viki-composer textarea {
+  min-height: 42px;
+  max-height: 120px;
+  resize: vertical;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.045);
+  color: #ece8dd;
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  outline: none;
+}
+
+.viki-composer textarea:focus {
+  border-color: rgba(141, 162, 255, 0.7);
+  box-shadow: 0 0 0 3px rgba(141, 162, 255, 0.12);
+}
+
+.viki-composer button {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: #8da2ff;
+  color: #151718;
+  cursor: pointer;
+}
+
+.viki-composer button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
 }
 
 @media (max-width: 1050px) {

@@ -19,14 +19,47 @@ export type UniverseSummary = {
 
 export type Job = {
   id: string;
-  type: "export" | "import-preview" | "import-apply";
-  meta: Record<string, string>;
+  type: "export" | "import-preview" | "import-apply" | "agent-maintenance" | "agent-answer";
+  meta: Record<string, any>;
   status: "queued" | "running" | "complete" | "failed";
   createdAt: string;
   completedAt: string;
   result: Record<string, any> | null;
   error: string;
   downloadUrl: string;
+};
+
+export type AgentProvider = {
+  provider: string;
+  label: string;
+};
+
+export type AgentInfo = {
+  available: boolean;
+  provider: string;
+  label: string;
+  defaultProvider: string;
+  providers: AgentProvider[];
+  message: string;
+  busy: boolean;
+  maintenanceBusy: boolean;
+  activeJob: Job | null;
+  activeMaintenanceJob: Job | null;
+};
+
+export type AgentAnswer = {
+  answerMarkdown: string;
+  sources: Array<{ path: string; title: string }>;
+  images: Array<{ path: string; caption: string }>;
+};
+
+export type MaintenanceResult = {
+  summary: string;
+  processed: string[];
+  createdWiki: string[];
+  updatedWiki: string[];
+  remainingNotes: string;
+  lintIssues: number;
 };
 
 let session: Promise<{ token: string; vault: string }> | null = null;
@@ -91,6 +124,29 @@ export const localApi = {
     return response.json() as Promise<{ universes: UniverseSummary[] }>;
   },
 
+  async agent() {
+    const response = await apiFetch("/api/v1/agent");
+    return response.json() as Promise<AgentInfo>;
+  },
+
+  async maintain(paths: string[], batchSize = 8) {
+    const response = await apiFetch("/api/v1/agent/maintenance", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paths, batchSize })
+    });
+    return response.json() as Promise<Job>;
+  },
+
+  async ask(question: string, history: Array<{ role: "user" | "assistant"; content: string }>, language: "en" | "zh", provider: string) {
+    const response = await apiFetch("/api/v1/agent/ask", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ question, history, language, provider })
+    });
+    return response.json() as Promise<Job>;
+  },
+
   async captureUrl(input: { url: string; title?: string; collection?: string }) {
     const response = await apiFetch("/api/v1/inbox/url", {
       method: "POST",
@@ -149,6 +205,14 @@ export const localApi = {
   async downloadUrl(path: string) {
     const current = await getSession();
     const url = new URL(path, window.location.href);
+    url.searchParams.set("token", current.token);
+    return url.href;
+  },
+
+  async vaultFileUrl(path: string) {
+    const current = await getSession();
+    const url = new URL("/api/v1/vault-file", window.location.href);
+    url.searchParams.set("path", path);
     url.searchParams.set("token", current.token);
     return url.href;
   }

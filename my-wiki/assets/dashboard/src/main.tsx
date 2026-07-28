@@ -1,5 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { LoaderCircle, Sparkles } from "lucide-react";
+import { AgentInfo, localApi, MaintenanceResult, waitForJob } from "./api";
+import { Viki } from "./Viki";
 import { WorkspaceActions } from "./WorkspaceActions";
 import "./styles.css";
 
@@ -104,25 +107,25 @@ const copy = {
   en: {
     graphUnavailable: "Graph unavailable",
     loadingGraph: "Loading graph",
-    localWorkspace: "Local knowledge workspace",
+    localWorkspace: "My second brain",
     searchAndFilter: "Search My Wiki pages",
     search: "Search",
     searchPlaceholder: "Search wiki pages, tags, paths",
     clearSearch: "Clear search",
-    universe: "Universe",
-    allUniverses: "All universes",
-    universeCount: "{count} universes",
+    universe: "Knowledge galaxy",
+    allUniverses: "Knowledge universe",
+    universeCount: "{count} galaxies",
     back: "Back",
     evidenceTitle: "Evidence: {title}",
-    neighbors: "Neighbors",
+    neighbors: "Nearby Wiki planets",
     degree: "Degree",
     high: "High",
-    graphAria: "My Wiki knowledge graph",
+    graphAria: "My Wiki knowledge universe",
     resizePanel: "Resize information panel",
     language: "Language",
     switchChinese: "Switch to Chinese",
     switchEnglish: "Switch to English",
-    selectNode: "Select a node",
+    selectNode: "Select a Wiki planet",
     evidence: "Evidence ({count})",
     backToKnowledge: "Back to Knowledge",
     status: "Status",
@@ -136,9 +139,9 @@ const copy = {
     evidenceLinks: "Evidence Links",
     connectedPages: "Connected Pages",
     noConnectedPages: "No connected pages",
-    wikiEvidenceSummary: "{wiki} wiki pages, {raw} raw evidence notes",
+    wikiEvidenceSummary: "{wiki} Wiki planets, {raw} raw evidence notes",
     visible: "Visible",
-    wiki: "Wiki",
+    wiki: "Wiki planets",
     raw: "Raw",
     tags: "Tags",
     statuses: "Statuses",
@@ -146,35 +149,41 @@ const copy = {
     inbox: "Inbox",
     processed: "Processed",
     broken: "Broken",
-    centralWikiPages: "Central Wiki Pages",
+    centralWikiPages: "Central Wiki Planets",
     linkStatus: "{count} links / {status}",
     vaultOverview: "Vault Overview",
     graphHealth: "Global graph health and maintenance state",
     maintenanceQueue: "Maintenance Queue",
-    noPendingRaw: "No pending raw items"
+    noPendingRaw: "No pending raw items",
+    processBatch: "Process batch",
+    processingBatch: "Processing",
+    maintenanceComplete: "Batch maintenance complete",
+    maintenanceFailed: "Maintenance failed",
+    agentUnavailable: "Local agent unavailable",
+    lintRemaining: "{count} vault health issues remain"
   },
   zh: {
     graphUnavailable: "知识图谱不可用",
     loadingGraph: "正在加载知识图谱",
-    localWorkspace: "本地知识工作区",
+    localWorkspace: "我的第二大脑",
     searchAndFilter: "搜索 My Wiki 页面",
     search: "搜索",
     searchPlaceholder: "搜索 Wiki 页面、标签或路径",
     clearSearch: "清空搜索",
-    universe: "知识宇宙",
-    allUniverses: "全部宇宙",
-    universeCount: "{count} 个宇宙",
+    universe: "知识星系",
+    allUniverses: "知识宇宙",
+    universeCount: "{count} 个星系",
     back: "返回",
     evidenceTitle: "证据：{title}",
-    neighbors: "关联节点",
+    neighbors: "邻近 Wiki 星球",
     degree: "连接度",
     high: "高",
-    graphAria: "My Wiki 知识图谱",
+    graphAria: "My Wiki 知识宇宙",
     resizePanel: "调整信息面板宽度",
     language: "语言",
     switchChinese: "切换为中文",
     switchEnglish: "切换为英文",
-    selectNode: "请选择一个节点",
+    selectNode: "请选择一个 Wiki 星球",
     evidence: "查看证据（{count}）",
     backToKnowledge: "返回知识层",
     status: "状态",
@@ -188,9 +197,9 @@ const copy = {
     evidenceLinks: "证据链接",
     connectedPages: "关联页面",
     noConnectedPages: "暂无关联页面",
-    wikiEvidenceSummary: "{wiki} 个 Wiki 页面，{raw} 条原始证据",
+    wikiEvidenceSummary: "{wiki} 个 Wiki 星球，{raw} 条原始证据",
     visible: "当前显示",
-    wiki: "Wiki",
+    wiki: "Wiki 星球",
     raw: "原始资料",
     tags: "标签",
     statuses: "状态类型",
@@ -198,12 +207,18 @@ const copy = {
     inbox: "收件箱",
     processed: "已处理",
     broken: "断裂链接",
-    centralWikiPages: "核心 Wiki 页面",
+    centralWikiPages: "核心 Wiki 星球",
     linkStatus: "{count} 条链接 / {status}",
     vaultOverview: "知识库概览",
     graphHealth: "全局图谱健康与维护状态",
     maintenanceQueue: "维护队列",
-    noPendingRaw: "没有待处理的原始资料"
+    noPendingRaw: "没有待处理的原始资料",
+    processBatch: "批量处理",
+    processingBatch: "正在处理",
+    maintenanceComplete: "本批维护完成",
+    maintenanceFailed: "维护失败",
+    agentUnavailable: "本地 Agent 不可用",
+    lintRemaining: "仍有 {count} 个知识库健康问题"
   }
 } as const;
 
@@ -325,10 +340,12 @@ function App() {
     const refreshId = window.setInterval(() => loadGraph(false), 10000);
     const refreshOnFocus = () => loadGraph(false);
     window.addEventListener("focus", refreshOnFocus);
+    window.addEventListener("my-wiki:graph-updated", refreshOnFocus);
     return () => {
       cancelled = true;
       window.clearInterval(refreshId);
       window.removeEventListener("focus", refreshOnFocus);
+      window.removeEventListener("my-wiki:graph-updated", refreshOnFocus);
     };
   }, []);
 
@@ -538,18 +555,24 @@ function App() {
 
   if (loadError) {
     return (
-      <main className="empty-state">
-        <h1>{t("graphUnavailable")}</h1>
-        <p>{loadError}</p>
-      </main>
+      <>
+        <main className="empty-state">
+          <h1>{t("graphUnavailable")}</h1>
+          <p>{loadError}</p>
+        </main>
+        <Viki language={language} />
+      </>
     );
   }
 
   if (!graph) {
     return (
-      <main className="empty-state">
-        <h1>{t("loadingGraph")}</h1>
-      </main>
+      <>
+        <main className="empty-state">
+          <h1>{t("loadingGraph")}</h1>
+        </main>
+        <Viki language={language} />
+      </>
     );
   }
 
@@ -628,6 +651,7 @@ function App() {
           zoom={zoom}
           pan={pan}
           onSelect={setSelectedId}
+          onClearSelection={() => setSelectedId(null)}
           onOpenEvidence={openEvidence}
           onOpenGroup={openGroup}
           onHover={setHoveredId}
@@ -663,6 +687,7 @@ function App() {
           onBackToKnowledge={backToKnowledge}
         />
       </aside>
+      <Viki language={language} />
       </main>
     </I18nContext.Provider>
   );
@@ -682,6 +707,7 @@ function GraphView({
   zoom,
   pan,
   onSelect,
+  onClearSelection,
   onOpenEvidence,
   onOpenGroup,
   onHover,
@@ -702,6 +728,7 @@ function GraphView({
   zoom: number;
   pan: { x: number; y: number };
   onSelect: (id: string) => void;
+  onClearSelection: () => void;
   onOpenEvidence: (id: string) => void;
   onOpenGroup: (group: string) => void;
   onHover: (id: string | null) => void;
@@ -780,6 +807,10 @@ function GraphView({
                 return;
               }
               event.stopPropagation();
+              if (selectedId) {
+                onClearSelection();
+                return;
+              }
               onOpenGroup(label.group);
             }}
           >
@@ -824,6 +855,20 @@ function GraphView({
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
       onPointerLeave={endDrag}
+      onClickCapture={(event) => {
+        if (!selectedId || draggedRef.current) return;
+        const target = event.target as Element;
+        if (target.closest(".graph-node, .group-name")) return;
+        event.stopPropagation();
+        onClearSelection();
+      }}
+      onClick={() => {
+        if (draggedRef.current) {
+          draggedRef.current = false;
+          return;
+        }
+        onClearSelection();
+      }}
       onAuxClick={(event) => event.preventDefault()}
       onWheel={(event) => {
         event.preventDefault();
@@ -936,14 +981,16 @@ function GraphView({
               key={node.id}
               className={`graph-node is-${section} ${isSelected ? "is-selected" : ""} ${isDim ? "is-dim" : ""}`}
               transform={`translate(${node.x}, ${node.y})`}
-              onClick={() => {
+              onClick={(event) => {
+                event.stopPropagation();
                 if (draggedRef.current) {
                   draggedRef.current = false;
                   return;
                 }
                 onSelect(node.id);
               }}
-              onDoubleClick={() => {
+              onDoubleClick={(event) => {
+                event.stopPropagation();
                 if (draggedRef.current) return;
                 onOpenEvidence(node.id);
               }}
@@ -1372,11 +1419,52 @@ function Stats({ graph, visibleEdges, items }: { graph: WikiGraph; visibleEdges:
 
 function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeById: Map<string, WikiNode>; onSelect: (id: string) => void }) {
   const { language, t } = useI18n();
-  const ids = [...graph.queues.inbox, ...graph.queues.needsFollowup, ...graph.queues.stale].slice(0, 8);
+  const ids = [...graph.queues.inbox, ...graph.queues.needsFollowup, ...graph.queues.stale]
+    .filter((id) => id.startsWith("raw/"))
+    .slice(0, 8);
   const nodes = ids.map((id) => nodeById.get(id)).filter(Boolean) as WikiNode[];
+  const [agentState, setAgentState] = useState<AgentInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<MaintenanceResult | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    localApi.agent().then(setAgentState).catch(() => setAgentState(null));
+  }, []);
+
+  const processBatch = async () => {
+    if (nodes.length === 0 || busy || !agentState?.available || agentState.maintenanceBusy) return;
+    setBusy(true);
+    setError("");
+    setResult(null);
+    try {
+      const complete = await waitForJob(await localApi.maintain(nodes.map((node) => node.path), nodes.length));
+      setResult(complete.result as MaintenanceResult);
+      setAgentState(await localApi.agent());
+      window.dispatchEvent(new Event("my-wiki:graph-updated"));
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      localApi.agent().then(setAgentState).catch(() => {});
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <section className="queue-panel">
-      <h2>{t("maintenanceQueue")}</h2>
+      <div className="queue-heading">
+        <h2>{t("maintenanceQueue")}</h2>
+        <button
+          type="button"
+          className="maintenance-button"
+          disabled={nodes.length === 0 || busy || !agentState?.available || agentState.maintenanceBusy}
+          title={agentState?.available === false ? t("agentUnavailable") : t("processBatch")}
+          onClick={() => void processBatch()}
+        >
+          {busy || agentState?.maintenanceBusy ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />}
+          {busy || agentState?.maintenanceBusy ? t("processingBatch") : t("processBatch")}
+        </button>
+      </div>
       {nodes.length === 0 ? (
         <p className="muted">{t("noPendingRaw")}</p>
       ) : (
@@ -1387,6 +1475,8 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
           </button>
         ))
       )}
+      {result ? <div className="maintenance-result"><strong>{t("maintenanceComplete")}</strong><p>{result.summary}</p>{result.lintIssues > 0 ? <span>{t("lintRemaining", { count: result.lintIssues })}</span> : null}</div> : null}
+      {error ? <div className="maintenance-error"><strong>{t("maintenanceFailed")}</strong><p>{error}</p></div> : null}
     </section>
   );
 }

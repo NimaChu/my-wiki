@@ -1,6 +1,6 @@
 {
   "name": "my-wiki",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Installer for My Wiki, a cross-agent local-first evidence-backed Markdown knowledge base Skill.",
   "private": true,
   "license": "MIT",

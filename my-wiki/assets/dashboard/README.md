@@ -20,17 +20,19 @@ Navigation, maintenance, template, README, and archive files are intentionally e
 
 The frontend reads that JSON and displays an Obsidian-like graph surface:
 
-- global and local graph browsing
+- knowledge-universe, knowledge-galaxy, and local graph browsing
 - wiki-only Knowledge view by default
 - Evidence drill-down for one wiki page and its directly linked raw sources
 - mouse-wheel zoom on the graph surface
-- search plus group/status filters
+- search scoped to the current graph layer or universe
 - grouped corpus labels for large documentation imports
 - selected-node links, backlinks, tags, and status
 - raw/wiki/link counts
-- inbox, follow-up, stale, broken-link, and processed-gate counts
+- inbox, processed, broken-link, and universe-level counts
 - webpage and local-file capture directly into Inbox
 - Inbox inspection without starting maintenance
-- universe package export, download, import preview, and confirmed import
+- knowledge-galaxy package export, download, import preview, and confirmed import
+- bounded maintenance-queue batches through an authenticated local agent
+- persistent Viki knowledge Q&A with a remembered local Agent CLI selector, validated evidence, and local images
 
-The local service binds only to `127.0.0.1`. Browser writes require a same-origin session token, URL capture rejects local/private networks, uploads are streamed with a size limit, and universe imports preserve the existing preview/checksum/conflict behavior. Web capture creates `status: inbox` evidence only; it does not run an AI agent or mark knowledge processed.
+The local service binds only to `127.0.0.1`. Browser writes require a same-origin session token, URL capture rejects local/private networks, uploads are streamed with a size limit, and universe imports preserve the existing preview/checksum/conflict behavior. Web capture creates `status: inbox` evidence only. Agent work starts only from the maintenance button or a Viki question; query tasks are read-only, maintenance is restricted to the active vault, and only validated local image paths can be shown in the browser.

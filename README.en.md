@@ -27,7 +27,7 @@ No hosted database. No vector database. No required Obsidian setup. No paid API 
 - **Agent maintained**: ask for an article to be saved or the knowledge base to be maintained; the agent handles the workflow.
 - **Evidence backed**: synthesized knowledge remains linked to the raw material it came from.
 - **Image aware**: diagrams, screenshots, charts, and other useful visuals can be preserved and returned with answers.
-- **Knowledge graph included**: explore knowledge universes, wiki relationships, and the raw evidence behind a page.
+- **Knowledge graph included**: explore the knowledge universe, knowledge galaxies, Wiki planets, and the raw evidence behind a page.
 - **Portable by design**: use ordinary files, move the vault, open it with any Markdown editor, or index it with a future RAG system.
 - **Zero-cost starting point**: begin with Node.js and a local AI agent instead of a cloud service or infrastructure stack.
 
@@ -42,7 +42,7 @@ They solve different parts of the knowledge problem. My Wiki focuses on the miss
 | Who organizes it | The agent maintains raw evidence, atomic wiki pages, links, and health checks | The pipeline indexes chunks; human-readable synthesis is separate | Usually the user, assisted by plugins or chat |
 | Traceability | Wiki claims link back to raw evidence and backlinks are checked | Depends on retrieval metadata and application design | Possible, but depends on the user's note discipline |
 | Images | Preserved as evidence and available for answers | Requires multimodal ingestion and retrieval design | Stored well, but answer-time selection needs extra workflow |
-| Visualization | Built-in universe, wiki-network, and evidence views | Usually a separate observability or graph system | Excellent note graph, primarily for the vault itself |
+| Visualization | Built-in universe, galaxy, Wiki-planet, and evidence views | Usually a separate observability or graph system | Excellent note graph, primarily for the vault itself |
 | Best fit | Personal and project knowledge that should stay readable, grounded, and easy to maintain | Large-scale semantic retrieval and production applications | Hands-on writing, linking, and browsing by a human |
 
 My Wiki does not oppose either approach. Open a My Wiki vault in Obsidian whenever you want its editor, and use the clean Markdown evidence layer as input to RAG when scale or production retrieval eventually requires it.
@@ -72,31 +72,33 @@ My Wiki does not merely create one summary per document. A useful source can upd
 
 ## Explore The Knowledge Universe
 
-<img width="1785" height="881" alt="My Wiki interactive knowledge universes and vault overview" src="https://raw.githubusercontent.com/NimaChu/my-wiki-skill/main/.github/assets/knowledge-universe.png" />
+<img width="1785" height="881" alt="My Wiki knowledge universe with galaxies and Wiki planets" src="https://raw.githubusercontent.com/NimaChu/my-wiki-skill/main/.github/assets/knowledge-universe.png" />
 
 The optional local frontend is more than a folder graph:
 
-- zoom out to see multiple knowledge universes and where shared wiki concepts connect them;
-- enter one universe to rotate and inspect its three-dimensional wiki network;
-- select a wiki node to highlight meaningful relationships and read the rendered page;
+- zoom out to see the whole knowledge universe, its knowledge galaxies, and where they intersect;
+- enter one knowledge galaxy to rotate and inspect its three-dimensional network of Wiki planets;
+- select a Wiki planet to highlight meaningful relationships and read the rendered page;
 - enter the evidence layer to see every raw source supporting that wiki page;
 - search without permanently hiding the rest of the graph;
 - let the running watcher refresh the graph automatically as knowledge changes.
 - add a webpage link or upload a local file directly to Inbox;
-- export a knowledge universe or preview and confirm a `.mywiki` import.
+- export a knowledge galaxy or preview and confirm a `.mywiki` import;
+- send one maintenance-queue batch to a local agent to distill Wiki pages and close evidence links;
+- ask the persistent Viki companion questions grounded in Wiki pages, raw evidence, and useful local images.
 
-The Dashboard stays off during ordinary agent capture and maintenance. It starts only when you ask to see the graph or frontend. Its local service listens only on `127.0.0.1`; browser capture preserves evidence as `status: inbox` and never silently starts AI maintenance.
+The Dashboard stays off during ordinary agent capture and maintenance. It starts only when you ask to see the graph or frontend. Its local service listens only on `127.0.0.1`; browser capture preserves evidence as `status: inbox` and never silently starts AI maintenance. It calls an already authenticated local Codex, OpenCode, or Claude only after you click the batch action or submit a question to Viki.
 
-## Share A Knowledge Universe
+## Share A Knowledge Galaxy
 
-A vault can contain several human-named universes. Ask the agent to export one universe as a single `.mywiki` knowledge package, then give that file to another My Wiki user to preview and import.
+A knowledge universe can contain several human-named knowledge galaxies, with every Wiki page shown as a Wiki planet. Ask the agent to export one galaxy as a single `.mywiki` knowledge package, then give that file to another My Wiki user to preview and import.
 
-The package contains only that universe's Wiki Markdown, linked raw Markdown, available source URLs, related images, and the webpage snapshots, PDFs, or other originals explicitly referenced by those raw notes. This keeps evidence complete even when a local PDF has no URL. It has no package ID, universe ID, license setting, or public mode, and it excludes runtime state and unrelated local knowledge. Import previews duplicates and conflicts before writing anything, and the recipient can rename the universe during import when useful.
+The package contains only that galaxy's Wiki Markdown, linked raw Markdown, available source URLs, related images, and the webpage snapshots, PDFs, or other originals explicitly referenced by those raw notes. This keeps evidence complete even when a local PDF has no URL. For compatibility, storage and CLI contracts retain the `universes` field and `export-universe` command; the Dashboard presents each named value as a knowledge galaxy. Import previews duplicates and conflicts before writing anything, and the recipient can rename the galaxy during import when useful.
 
 ```text
-Export the "FlexSim" universe as a knowledge package.
+Export the "FlexSim" knowledge galaxy as a knowledge package.
 Preview importing this flexsim.mywiki knowledge package.
-Import it and rename the universe to "Simulation Engineering".
+Import it and rename the galaxy to "Simulation Engineering".
 ```
 
 ## Quick Start
@@ -155,7 +157,7 @@ Store webpages, PDFs, transcripts, long notes, and external-platform exports in 
 
 ### Let the wiki improve over time
 
-Ask the agent to maintain the knowledge base. It processes a coherent batch, creates or updates atomic pages, merges duplicates, repairs evidence links, keeps the number of universes small, and reports what remains.
+Ask the agent to maintain the knowledge base. It processes a coherent batch, creates or updates atomic pages, merges duplicates, repairs evidence links, keeps the number of knowledge galaxies small, and reports what remains.
 
 ### Ask grounded questions
 

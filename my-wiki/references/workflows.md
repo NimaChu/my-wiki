@@ -24,23 +24,23 @@ Treat short requests such as "维护知识库" or "maintain this vault" as compl
 1. Run `status` and inspect `garden`.
 2. Process a coherent batch of inbox or weak raw notes.
 3. Create, split, merge, and link atomic wiki pages.
-4. Assign each wiki page one or more human-readable names in `universes`, with the primary universe first; review universes with a minimal-universe bias.
+4. Assign each Wiki planet one or more human-readable galaxy names in `universes`, with the primary galaxy first; review galaxies with a minimal-galaxy bias.
 5. Repair links and update the index/log.
 6. Run `lint` and report completed and remaining work.
 
 Do not use Git as part of routine maintenance.
 
-## Share A Universe
+## Share A Galaxy
 
-Treat short requests such as "export the FlexSim universe" or "import this My Wiki universe package" as complete instructions.
+Treat short requests such as "export the FlexSim galaxy" or "import this My Wiki galaxy package" as complete instructions. Keep the existing `export-universe` and `import-universe` command names for compatibility.
 
-1. Run `universes` and confirm the requested human-readable universe name.
-2. Export with `export-universe <name>`. The single `.mywiki` package contains wiki pages, linked raw Markdown, available source URLs, raw assets, and every snapshot or binary original referenced by those raw notes. Missing referenced snapshots stop export instead of producing an incomplete package.
+1. Run `universes` and confirm the requested human-readable galaxy name.
+2. Export with `export-universe <name>`. The single `.mywiki` package contains that galaxy's Wiki pages, linked raw Markdown, available source URLs, raw assets, and every snapshot or binary original referenced by those raw notes. Missing referenced snapshots stop export instead of producing an incomplete package.
 3. Import with `import-universe <package>` for a dry-run. Review Wiki and raw writes, deduplicated evidence, safely renamed snapshots, and conflicts.
-4. Apply with `import-universe <package> --apply`. Use `--as <name>` only to rename the universe for the receiving vault.
+4. Apply with `import-universe <package> --apply`. Use `--as <name>` only to rename the galaxy for the receiving vault.
 5. Run `lint` after import. The Dashboard watcher refreshes an already-running frontend; never start it only for import or export.
 
-Universe packages use names rather than package IDs or universe IDs. Raw notes deduplicate by `content_hash`; snapshots and assets are checksum-verified. A same-name snapshot with different content is renamed and its raw references are rewritten when safe. Otherwise it is preserved in the import conflict receipt. Existing wiki pages with the same title are preserved and recorded as conflicts for the agent to merge instead of being overwritten silently.
+Galaxy packages use names rather than package IDs or galaxy IDs. The package schema retains its historical universe terminology for compatibility. Raw notes deduplicate by `content_hash`; snapshots and assets are checksum-verified. A same-name snapshot with different content is renamed and its raw references are rewritten when safe. Otherwise it is preserved in the import conflict receipt. Existing Wiki pages with the same title are preserved and recorded as conflicts for the agent to merge instead of being overwritten silently.
 
 ## Raw Storage
 
@@ -60,10 +60,15 @@ The local Dashboard can perform deterministic vault operations without calling a
 - Add a public HTTP/HTTPS URL to `raw/sources/` as `status: inbox`, with a local snapshot and mirrored inline images when available.
 - Upload a local file into `raw/snapshots/` and create its corresponding inbox raw note.
 - List inbox, follow-up, and stale raw notes.
-- Export a named universe and download its `.mywiki` package.
+- Export a named knowledge galaxy and download its `.mywiki` package.
 - Upload a `.mywiki` package, review the dry-run summary, and explicitly confirm the import.
 
-Web capture stops at inbox. Do not treat it as permission to distill, maintain, or mark the source processed. The local service must remain bound to `127.0.0.1`; do not weaken its session token, same-origin checks, upload limits, private-network URL protection, or import conflict safeguards.
+It also exposes two explicit local-Agent actions:
+
+- Process one bounded maintenance-queue batch, then refresh graph data after the agent completes the normal maintenance and lint workflow.
+- Ask Viki a read-only knowledge question grounded first in Wiki pages and then raw evidence, with validated local evidence paths and useful images.
+
+Web capture stops at inbox. Do not treat it as permission to distill, maintain, or mark the source processed. Agent work starts only from the batch button or a submitted Viki question. The local service must remain bound to `127.0.0.1`; do not weaken its session token, same-origin checks, upload limits, private-network URL protection, import conflict safeguards, Agent sandboxing, separate query/maintenance task locks, timeouts, structured output, or vault-path validation.
 
 ## Vault Resolution
 

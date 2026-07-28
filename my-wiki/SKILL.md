@@ -40,15 +40,16 @@ node <skill-directory>/scripts/my-wiki.mjs --vault personal open-dashboard
 
 `dashboard` starts the service silently in the background. `open-dashboard` also opens the selected installation's frontend in the browser.
 
-The Dashboard is a local knowledge workspace, not only a graph viewer. It may add a webpage URL or uploaded file directly to `status: inbox`, list pending raw notes, export a named universe, and preview then apply a `.mywiki` import. These deterministic web actions use the same core services as the CLI. They do not invoke an AI agent, distill Wiki pages, mark raw notes processed, or start maintenance automatically.
+The Dashboard is a local knowledge workspace, not only a graph viewer. It may add a webpage URL or uploaded file directly to `status: inbox`, list pending raw notes, export a named universe, and preview then apply a `.mywiki` import. Capture remains deterministic and never starts maintenance automatically. Explicit browser actions may ask Viki a read-only vault question or send one bounded maintenance-queue batch to an authenticated local agent.
 
 Read [workflows.md](references/workflows.md) when ingesting, querying, maintaining, sharing, or visualizing a vault.
+Read [dashboard-agent.md](references/dashboard-agent.md) when changing Dashboard Agent invocation, Viki, maintenance batches, permissions, or provider support.
 
-## Knowledge Universes
+## Knowledge Galaxies
 
-Keep human-readable universe names in each wiki page's `universes` list. The first name is primary; additional names let one page connect multiple universes. Do not create package IDs or universe IDs.
+The Dashboard presents the whole vault graph as one knowledge universe, each human-named group as a knowledge galaxy, and each Wiki page as a Wiki planet. Keep galaxy names in each wiki page's existing `universes` list. The first name is primary; additional names let one Wiki planet connect multiple galaxies. Do not create package IDs or galaxy IDs.
 
-`export-universe` creates one `.mywiki` file containing that universe's wiki pages, linked raw Markdown, available source URLs, related assets, and every snapshot or binary original referenced by those raw notes. `import-universe` previews by default; inspect writes, deduplication, renames, and conflicts, then rerun with `--apply`. Use `--as` only when the recipient wants a different universe name. Never start the Dashboard only for sharing.
+For backward compatibility, storage, CLI, and package schemas retain the `universes`, `export-universe`, and `import-universe` names. `export-universe` creates one `.mywiki` file containing that galaxy's Wiki pages, linked raw Markdown, available source URLs, related assets, and every snapshot or binary original referenced by those raw notes. `import-universe` previews by default; inspect writes, deduplication, renames, and conflicts, then rerun with `--apply`. Use `--as` only when the recipient wants a different galaxy name. Never start the Dashboard only for sharing.
 
 ## Vault Structure
 
