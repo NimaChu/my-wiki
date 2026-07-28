@@ -24,6 +24,9 @@ export async function captureSource({
   collection = "",
   snapshotFile = "",
   content = "",
+  textExtraction = "",
+  extractedPages = 0,
+  extractedCharacters = 0,
   imageInputs = [],
   shouldSnapshot = true,
   requireSnapshot = false,
@@ -73,6 +76,12 @@ export async function captureSource({
   const tags = ["raw"];
   if (snapshot?.path) tags.push("snapshotted");
   if (mirroredContent.copied > 0 || explicitImages.length > 0) tags.push("images");
+  const extractionFrontmatter = textExtraction
+    ? `text_extraction: ${yamlString(textExtraction)}\nextracted_pages: ${Number(extractedPages) || 0}\nextracted_characters: ${Number(extractedCharacters) || 0}\n`
+    : "";
+  const extractionNote = textExtraction
+    ? `- Text extraction: ${textExtraction} (${Number(extractedPages) || 0} pages, ${Number(extractedCharacters) || 0} characters)\n`
+    : "";
 
   const body = `---
 title: ${yamlString(title)}
@@ -85,7 +94,7 @@ published: ${yamlString(published)}
 captured: ${yamlString(capturedAt)}
 source_url: ${yamlString(url)}
 snapshot_path: ${yamlString(snapshot?.path || "")}
-content_hash: ${yamlString(hashContent(digestBasis))}
+${extractionFrontmatter}content_hash: ${yamlString(hashContent(digestBasis))}
 capture_method: ${yamlString(effectiveCaptureMethod)}
 source_quality: ${yamlString(sourceQuality)}
 tags:
@@ -124,7 +133,7 @@ ${explicitImages.length ? explicitImages.join("\n") : "- Inline markdown images 
 ## Processing Notes
 
 - Status: inbox
-- Mirrored inline images: ${mirroredContent.copied}
+${extractionNote}- Mirrored inline images: ${mirroredContent.copied}
 - Image mirror failures: ${mirroredContent.failures.length}
 - Next action: compile durable ideas into wiki pages, close core related links, then mark processed.
 `;
@@ -142,6 +151,9 @@ ${explicitImages.length ? explicitImages.join("\n") : "- Inline markdown images 
     mirroredInlineImages: mirroredContent.copied,
     mirroredImageFailures: mirroredContent.failures,
     explicitImages: explicitImages.length,
+    textExtraction,
+    extractedPages: Number(extractedPages) || 0,
+    extractedCharacters: Number(extractedCharacters) || 0,
     status: "inbox"
   };
 }

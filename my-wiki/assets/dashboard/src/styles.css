@@ -1074,6 +1074,56 @@ h3 {
   font-size: 11px;
 }
 
+.queue-item {
+  position: relative;
+}
+
+.queue-panel .queue-item-main {
+  padding-right: 48px;
+}
+
+.queue-panel .queue-item-process {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  place-items: center;
+  transform: translateY(-50%);
+  border-color: rgba(141, 162, 255, 0.2);
+  background: rgba(141, 162, 255, 0.14);
+  padding: 0;
+  color: #dce3ff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease, background-color 140ms ease, border-color 140ms ease;
+}
+
+.queue-item:hover .queue-item-process,
+.queue-item:focus-within .queue-item-process {
+  opacity: 0.58;
+  pointer-events: auto;
+}
+
+.queue-panel .queue-item-process:hover,
+.queue-panel .queue-item-process:focus-visible {
+  border-color: rgba(141, 162, 255, 0.5);
+  background: rgba(141, 162, 255, 0.28);
+  opacity: 1;
+  outline: none;
+}
+
+.queue-panel .queue-item-process:disabled {
+  cursor: not-allowed;
+}
+
+.queue-item:hover .queue-item-process:disabled,
+.queue-item:focus-within .queue-item-process:disabled {
+  opacity: 0.24;
+}
+
 .queue-panel button,
 .neighbor-list button {
   display: grid;

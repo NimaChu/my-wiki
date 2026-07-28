@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { promises as fs, readFileSync, rmSync } from "node:fs";
+import { promises as fs, appendFileSync, readFileSync, rmSync } from "node:fs";
 import http from "node:http";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
@@ -9,12 +9,17 @@ const vault = vaultPath();
 const dash = dashboardPath(vault);
 const lockPath = path.join(dash, ".graph-watch.pid");
 const logPath = path.join(dash, "graph-watch.log");
+const dashboardPidPath = path.join(dash, ".dashboard-server.pid");
 const roots = ["raw", "wiki"];
 const intervalMs = Number(process.env.WIKI_GRAPH_WATCH_INTERVAL_MS || 5000);
 
 function log(message) {
   const line = `[${new Date().toISOString()}] ${message}\n`;
-  fs.appendFile(logPath, line, "utf8").catch(() => {});
+  try {
+    appendFileSync(logPath, line, "utf8");
+  } catch {
+    // Logging must never stop graph refreshes.
+  }
 }
 
 function pidAlive(pid) {
@@ -33,11 +38,17 @@ async function isDashboardAlive() {
       resolve(Boolean(res.statusCode && res.statusCode < 500));
     });
     req.on("error", () => resolve(false));
-    req.setTimeout(800, () => {
+    req.setTimeout(2500, () => {
       req.destroy();
       resolve(false);
     });
   });
+}
+
+async function isDashboardRunning() {
+  const pid = Number(await fs.readFile(dashboardPidPath, "utf8").catch(() => ""));
+  if (pid && pidAlive(pid)) return true;
+  return isDashboardAlive();
 }
 
 async function acquireLock() {
@@ -126,7 +137,7 @@ async function main() {
     }
   });
 
-  if (!(await isDashboardAlive())) {
+  if (!(await isDashboardRunning())) {
     log("dashboard is offline; watcher exiting");
     process.exit(0);
   }
@@ -139,7 +150,7 @@ async function main() {
     if (checking) return;
     checking = true;
     try {
-      if (!(await isDashboardAlive())) {
+      if (!(await isDashboardRunning())) {
         log("dashboard stopped; watcher exiting");
         process.exit(0);
       }

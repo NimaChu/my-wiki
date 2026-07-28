@@ -40,7 +40,7 @@ node <skill-directory>/scripts/my-wiki.mjs --vault personal open-dashboard
 
 `dashboard` starts the service silently in the background. `open-dashboard` also opens the selected installation's frontend in the browser.
 
-The Dashboard is a local knowledge workspace, not only a graph viewer. It may add a webpage URL or uploaded file directly to `status: inbox`, list pending raw notes, export a named universe, and preview then apply a `.mywiki` import. Capture remains deterministic and never starts maintenance automatically. Explicit browser actions may ask Viki a read-only vault question or send one bounded maintenance-queue batch to an authenticated local agent.
+The Dashboard is a local knowledge workspace, not only a graph viewer. It may add a webpage URL or uploaded file directly to `status: inbox`, list pending raw notes, export a named universe, and preview then apply a `.mywiki` import. Text-based PDFs are extracted locally into page-marked Markdown while the original PDF remains in `raw/snapshots/`; PDFs without searchable text must stay `needs-followup` until OCR is available. Capture remains deterministic and never starts maintenance automatically. Explicit browser actions may ask Viki a read-only vault question or send one bounded maintenance-queue batch to an authenticated local agent.
 
 Read [workflows.md](references/workflows.md) when ingesting, querying, maintaining, sharing, or visualizing a vault.
 Read [dashboard-agent.md](references/dashboard-agent.md) when changing Dashboard Agent invocation, Viki, maintenance batches, permissions, or provider support.

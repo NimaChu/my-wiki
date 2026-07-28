@@ -129,11 +129,11 @@ export const localApi = {
     return response.json() as Promise<AgentInfo>;
   },
 
-  async maintain(paths: string[], batchSize = 8) {
+  async maintain(paths: string[], batchSize = 8, provider = "") {
     const response = await apiFetch("/api/v1/agent/maintenance", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ paths, batchSize })
+      body: JSON.stringify({ paths, batchSize, provider })
     });
     return response.json() as Promise<Job>;
   },

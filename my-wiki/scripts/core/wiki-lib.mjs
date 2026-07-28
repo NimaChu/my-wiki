@@ -363,8 +363,31 @@ export function processedRawIssues(scan) {
       );
       if (resolvedRelated.length > 0 && !hasWikiBacklink) issues.push({ source: node.id, reason: "missing-wiki-backlink" });
       if (String(node.frontmatter.needs_followup || "") === "true") issues.push({ source: node.id, reason: "explicit-followup" });
+      if (missingPdfText(node)) issues.push({ source: node.id, reason: "missing-pdf-text" });
       return issues;
     });
+}
+
+function missingPdfText(node) {
+  if (String(node.frontmatter.source_type || "").toLowerCase() !== "pdf") return false;
+  const extraction = String(node.frontmatter.text_extraction || "").toLowerCase();
+  if (extraction && extraction !== "complete") return true;
+  if (extraction === "complete" && Number(node.frontmatter.extracted_characters || 0) > 0) return false;
+  const capture = markdownSection(node.content, "Capture");
+  const meaningful = capture
+    .replace(/The original source file is preserved[^.]*\./gi, "")
+    .replace(/Read the original during knowledge maintenance\./gi, "")
+    .replace(/[`>*#_\-\s]/g, "");
+  return meaningful.length < 200;
+}
+
+function markdownSection(content, heading) {
+  const body = stripFrontmatter(content);
+  const marker = body.match(new RegExp(`^## ${heading}\\s*$`, "mi"));
+  if (!marker || marker.index === undefined) return "";
+  const tail = body.slice(marker.index + marker[0].length).replace(/^\s+/, "");
+  const nextHeading = tail.search(/^##\s+/m);
+  return nextHeading >= 0 ? tail.slice(0, nextHeading).trim() : tail.trim();
 }
 
 export function upsertFrontmatterValues(content, updates) {

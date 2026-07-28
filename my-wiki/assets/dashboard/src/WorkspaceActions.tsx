@@ -52,6 +52,8 @@ const labels = {
     pending: "Inbox items",
     source: "Source",
     snapshot: "Original",
+    pdfText: "PDF text",
+    pdfNeedsOcr: "No searchable text was extracted; OCR is required.",
     noOriginal: "No local original",
     requiredUrl: "Enter a webpage URL.",
     requiredFile: "Choose a file first.",
@@ -101,6 +103,8 @@ const labels = {
     pending: "Inbox 条目",
     source: "来源",
     snapshot: "原件",
+    pdfText: "PDF 文本",
+    pdfNeedsOcr: "未提取到可搜索文本，需要 OCR。",
     noOriginal: "没有本地原件",
     requiredUrl: "请输入网页链接。",
     requiredFile: "请先选择一个文件。",
@@ -174,6 +178,7 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
         ? await localApi.captureUrl({ url: url.trim(), title: title.trim(), collection: collection.trim() })
         : await localApi.captureFile(file!, { title: title.trim(), collection: collection.trim() });
       setResult(captured);
+      window.dispatchEvent(new Event("my-wiki:graph-updated"));
     } catch (nextError) {
       setError(errorMessage(nextError));
     } finally {
@@ -205,6 +210,9 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
           <p>{String(result.vaultRelative || result.path || "")}</p>
           <dl>
             <div><dt>{l.snapshot}</dt><dd>{String(result.snapshot || l.noOriginal)}</dd></div>
+            {result.textExtraction ? (
+              <div><dt>{l.pdfText}</dt><dd>{result.textExtraction === "complete" ? `${Number(result.extractedPages || 0)} ${language === "zh" ? "页" : "pages"} / ${Number(result.extractedCharacters || 0).toLocaleString()} ${language === "zh" ? "字符" : "characters"}` : l.pdfNeedsOcr}</dd></div>
+            ) : null}
             <div><dt>{l.collection}</dt><dd>{String(result.collection || "-")}</dd></div>
           </dl>
           <div className="dialog-footer"><button type="button" onClick={reset}>{l.addAnother}</button><button className="primary-button" type="button" onClick={onClose}>{l.close}</button></div>

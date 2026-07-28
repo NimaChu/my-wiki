@@ -156,6 +156,7 @@ const copy = {
     maintenanceQueue: "Maintenance Queue",
     noPendingRaw: "No pending raw items",
     processBatch: "Process batch",
+    processItem: "Process this item",
     processingBatch: "Processing",
     maintenanceComplete: "Batch maintenance complete",
     maintenanceFailed: "Maintenance failed",
@@ -214,6 +215,7 @@ const copy = {
     maintenanceQueue: "维护队列",
     noPendingRaw: "没有待处理的原始资料",
     processBatch: "批量处理",
+    processItem: "处理此条知识",
     processingBatch: "正在处理",
     maintenanceComplete: "本批维护完成",
     maintenanceFailed: "维护失败",
@@ -1425,6 +1427,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
   const nodes = ids.map((id) => nodeById.get(id)).filter(Boolean) as WikiNode[];
   const [agentState, setAgentState] = useState<AgentInfo | null>(null);
   const [busy, setBusy] = useState(false);
+  const [activePath, setActivePath] = useState<string | null>(null);
   const [result, setResult] = useState<MaintenanceResult | null>(null);
   const [error, setError] = useState("");
 
@@ -1432,13 +1435,15 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
     localApi.agent().then(setAgentState).catch(() => setAgentState(null));
   }, []);
 
-  const processBatch = async () => {
-    if (nodes.length === 0 || busy || !agentState?.available || agentState.maintenanceBusy) return;
+  const processNodes = async (selectedNodes: WikiNode[]) => {
+    if (selectedNodes.length === 0 || busy || !agentState?.available || agentState.maintenanceBusy) return;
     setBusy(true);
+    setActivePath(selectedNodes.length === 1 ? selectedNodes[0].path : null);
     setError("");
     setResult(null);
     try {
-      const complete = await waitForJob(await localApi.maintain(nodes.map((node) => node.path), nodes.length));
+      const provider = selectedMaintenanceProvider(agentState);
+      const complete = await waitForJob(await localApi.maintain(selectedNodes.map((node) => node.path), selectedNodes.length, provider));
       setResult(complete.result as MaintenanceResult);
       setAgentState(await localApi.agent());
       window.dispatchEvent(new Event("my-wiki:graph-updated"));
@@ -1447,6 +1452,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
       localApi.agent().then(setAgentState).catch(() => {});
     } finally {
       setBusy(false);
+      setActivePath(null);
     }
   };
 
@@ -1459,7 +1465,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
           className="maintenance-button"
           disabled={nodes.length === 0 || busy || !agentState?.available || agentState.maintenanceBusy}
           title={agentState?.available === false ? t("agentUnavailable") : t("processBatch")}
-          onClick={() => void processBatch()}
+          onClick={() => void processNodes(nodes)}
         >
           {busy || agentState?.maintenanceBusy ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />}
           {busy || agentState?.maintenanceBusy ? t("processingBatch") : t("processBatch")}
@@ -1469,16 +1475,40 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
         <p className="muted">{t("noPendingRaw")}</p>
       ) : (
         nodes.map((node) => (
-          <button key={node.id} onClick={() => onSelect(node.id)}>
-            <strong>{node.title}</strong>
-            <span>{localizedStatus(node.status, language)}</span>
-          </button>
+          <div className="queue-item" key={node.id}>
+            <button className="queue-item-main" type="button" onClick={() => onSelect(node.id)}>
+              <strong>{node.title}</strong>
+              <span>{localizedStatus(node.status, language)}</span>
+            </button>
+            <button
+              className="queue-item-process"
+              type="button"
+              aria-label={t("processItem")}
+              title={agentState?.available === false ? t("agentUnavailable") : t("processItem")}
+              disabled={busy || !agentState?.available || agentState.maintenanceBusy}
+              onClick={() => void processNodes([node])}
+            >
+              {busy && activePath === node.path ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />}
+            </button>
+          </div>
         ))
       )}
       {result ? <div className="maintenance-result"><strong>{t("maintenanceComplete")}</strong><p>{result.summary}</p>{result.lintIssues > 0 ? <span>{t("lintRemaining", { count: result.lintIssues })}</span> : null}</div> : null}
       {error ? <div className="maintenance-error"><strong>{t("maintenanceFailed")}</strong><p>{error}</p></div> : null}
     </section>
   );
+}
+
+function selectedMaintenanceProvider(agent: AgentInfo) {
+  const providers = new Set(agent.providers.map((item) => item.provider));
+  try {
+    const stored = String(window.localStorage.getItem("my-wiki-viki-provider") || "").trim().toLowerCase();
+    if (stored && providers.has(stored)) return stored;
+  } catch {
+    // Use the configured default when browser storage is unavailable.
+  }
+  if (agent.defaultProvider && providers.has(agent.defaultProvider)) return agent.defaultProvider;
+  return agent.providers[0]?.provider || agent.provider;
 }
 
 function buildUniverseSummary(graph: WikiGraph, group: string) {

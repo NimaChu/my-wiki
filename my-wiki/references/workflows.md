@@ -58,7 +58,7 @@ Treat requests to view the graph, frontend, or Dashboard as permission to run `o
 The local Dashboard can perform deterministic vault operations without calling an agent:
 
 - Add a public HTTP/HTTPS URL to `raw/sources/` as `status: inbox`, with a local snapshot and mirrored inline images when available.
-- Upload a local file into `raw/snapshots/` and create its corresponding inbox raw note.
+- Upload a local file into `raw/snapshots/` and create its corresponding inbox raw note. For a text-based PDF, extract page-marked text locally into `## Capture` and record extraction metadata.
 - List inbox, follow-up, and stale raw notes.
 - Export a named knowledge galaxy and download its `.mywiki` package.
 - Upload a `.mywiki` package, review the dry-run summary, and explicitly confirm the import.
@@ -69,6 +69,8 @@ It also exposes two explicit local-Agent actions:
 - Ask Viki a read-only knowledge question grounded first in Wiki pages and then raw evidence, with validated local evidence paths and useful images.
 
 Web capture stops at inbox. Do not treat it as permission to distill, maintain, or mark the source processed. Agent work starts only from the batch button or a submitted Viki question. The local service must remain bound to `127.0.0.1`; do not weaken its session token, same-origin checks, upload limits, private-network URL protection, import conflict safeguards, Agent sandboxing, separate query/maintenance task locks, timeouts, structured output, or vault-path validation.
+
+A PDF with failed, skipped, or unavailable text extraction is not evidence-closed. Keep it `needs-followup`, request OCR, and never claim the original was fully reviewed.
 
 ## Vault Resolution
 

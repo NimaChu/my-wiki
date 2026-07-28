@@ -9,6 +9,9 @@ published:
 captured: {{date}}
 source_url:
 snapshot_path:
+text_extraction:
+extracted_pages:
+extracted_characters:
 image_index_path:
 image_count:
 mirrored_image_count:
