@@ -65,9 +65,9 @@ async function createStagingPackage() {
     type: "module",
     bin: { [packageName]: "bin/install.mjs" },
     files: ["bin", "my-wiki", "LICENSE.txt", "README.md", "README.en.md"],
-    repository: { type: "git", url: "git+https://github.com/NimaChu/my-wiki-skill.git" },
-    homepage: "https://github.com/NimaChu/my-wiki-skill#readme",
-    bugs: { url: "https://github.com/NimaChu/my-wiki-skill/issues" },
+    repository: { type: "git", url: "git+https://github.com/NimaChu/my-wiki.git" },
+    homepage: "https://github.com/NimaChu/my-wiki#readme",
+    bugs: { url: "https://github.com/NimaChu/my-wiki/issues" },
     keywords: [
       "agent-skill",
       "knowledge-base",

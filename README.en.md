@@ -1,6 +1,6 @@
 # My Wiki
 
-![GitHub stars](https://img.shields.io/github/stars/NimaChu/my-wiki-skill?style=flat-square)
+![GitHub stars](https://img.shields.io/github/stars/NimaChu/my-wiki?style=flat-square)
 ![npm version](https://img.shields.io/npm/v/my-wiki-skill?style=flat-square)
 ![npm downloads](https://img.shields.io/npm/dm/my-wiki-skill?style=flat-square)
 ![Agent Skill](https://img.shields.io/badge/Agent-Skill-111111?style=flat-square)
@@ -72,7 +72,7 @@ My Wiki does not merely create one summary per document. A useful source can upd
 
 ## Explore The Knowledge Universe
 
-<img width="1785" height="881" alt="My Wiki knowledge universe with galaxies and Wiki planets" src="https://raw.githubusercontent.com/NimaChu/my-wiki-skill/main/.github/assets/knowledge-universe.png" />
+<img width="1785" height="881" alt="My Wiki knowledge universe with galaxies and Wiki planets" src="https://raw.githubusercontent.com/NimaChu/my-wiki/main/.github/assets/knowledge-universe.png" />
 
 The optional local frontend is more than a folder graph:
 

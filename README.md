@@ -1,6 +1,6 @@
 # My Wiki
 
-![GitHub stars](https://img.shields.io/github/stars/NimaChu/my-wiki-skill?style=flat-square)
+![GitHub stars](https://img.shields.io/github/stars/NimaChu/my-wiki?style=flat-square)
 ![npm version](https://img.shields.io/npm/v/my-wiki-skill?style=flat-square)
 ![npm downloads](https://img.shields.io/npm/dm/my-wiki-skill?style=flat-square)
 ![Agent Skill](https://img.shields.io/badge/Agent-Skill-111111?style=flat-square)
@@ -72,7 +72,7 @@ My Wiki 不是简单地给每份文档生成一篇摘要。一份有价值的资
 
 ## 探索知识宇宙
 
-<img width="1785" height="881" alt="My Wiki 交互式知识宇宙和全局维护状态" src="https://raw.githubusercontent.com/NimaChu/my-wiki-skill/main/.github/assets/knowledge-universe.png" />
+<img width="1785" height="881" alt="My Wiki 交互式知识宇宙和全局维护状态" src="https://raw.githubusercontent.com/NimaChu/my-wiki/main/.github/assets/knowledge-universe.png" />
 
 可选的本地前端不只是把文件画成一团点：
 
