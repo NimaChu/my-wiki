@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BookOpen, Download, FileUp, Inbox, Link2, LoaderCircle, Orbit, Plus, Upload, X } from "lucide-react";
+import { BookOpen, Download, FileArchive, FileUp, FolderUp, Inbox, Link2, LoaderCircle, Orbit, Plus, Upload, X } from "lucide-react";
 import { InboxItem, Job, localApi, UniverseSummary, waitForJob } from "./api";
 
 type Language = "en" | "zh";
 type ActionView = "add" | "universes" | null;
-type AddTab = "link" | "file" | "inbox";
+type AddTab = "link" | "file" | "folder" | "zip" | "inbox";
 
 const labels = {
   en: {
@@ -15,6 +15,8 @@ const labels = {
     addDescription: "Capture evidence now. Your agent can distill and connect it later.",
     link: "Web link",
     file: "File upload",
+    folder: "Folder",
+    zip: "ZIP bundle",
     inbox: "Inbox",
     url: "Webpage URL",
     title: "Title",
@@ -23,12 +25,18 @@ const labels = {
     optionalCollection: "Optional provenance label",
     capture: "Add to Inbox",
     chooseFile: "Choose a file",
+    chooseFolder: "Choose a folder",
+    chooseZip: "Choose a ZIP bundle",
     dropHint: "PDF, Markdown, HTML, text, images, and office documents",
+    folderHint: "Upload all documents in one folder and its subfolders",
+    zipHint: "Markdown with relative image files",
     selectedFile: "Selected file",
+    failedFiles: "Failed files",
     noInbox: "Inbox is clear",
     refresh: "Refresh",
     close: "Close",
-    success: "Added to Inbox",
+    success: "Source captured",
+    status: "Status",
     addAnother: "Add another",
     universeTitle: "Knowledge galaxies",
     universeDescription: "Export one galaxy or preview a package before importing it.",
@@ -52,11 +60,13 @@ const labels = {
     pending: "Inbox items",
     source: "Source",
     snapshot: "Original",
-    pdfText: "PDF text",
-    pdfNeedsOcr: "No searchable text was extracted; OCR is required.",
+    pdfText: "Readable content",
+    pdfNeedsOcr: "No substantive readable content was extracted; follow-up is required.",
     noOriginal: "No local original",
     requiredUrl: "Enter a webpage URL.",
     requiredFile: "Choose a file first.",
+    requiredFolder: "Choose a folder first.",
+    requiredZip: "Choose a ZIP bundle first.",
     requiredPackage: "Choose a .mywiki package first."
   },
   zh: {
@@ -66,6 +76,8 @@ const labels = {
     addDescription: "先保存完整证据，之后再由 Agent 蒸馏并建立关系。",
     link: "网页链接",
     file: "上传文件",
+    folder: "文件夹",
+    zip: "ZIP 图文包",
     inbox: "Inbox",
     url: "网页链接",
     title: "标题",
@@ -74,12 +86,18 @@ const labels = {
     optionalCollection: "可选的来源标记",
     capture: "添加到 Inbox",
     chooseFile: "选择文件",
+    chooseFolder: "选择文件夹",
+    chooseZip: "选择 ZIP 图文包",
     dropHint: "支持 PDF、Markdown、HTML、文本、图片和 Office 文档",
+    folderHint: "批量上传文件夹及子文件夹中的文档",
+    zipHint: "包含 Markdown 和相对路径引用的图片",
     selectedFile: "已选择",
+    failedFiles: "失败文件",
     noInbox: "Inbox 当前为空",
     refresh: "刷新",
     close: "关闭",
-    success: "已添加到 Inbox",
+    success: "原始资料已保存",
+    status: "状态",
     addAnother: "继续添加",
     universeTitle: "知识星系",
     universeDescription: "导出单个星系，或在确认前预览知识包导入内容。",
@@ -103,11 +121,13 @@ const labels = {
     pending: "Inbox 条目",
     source: "来源",
     snapshot: "原件",
-    pdfText: "PDF 文本",
-    pdfNeedsOcr: "未提取到可搜索文本，需要 OCR。",
+    pdfText: "可读正文",
+    pdfNeedsOcr: "未提取到有效正文，已锁定为待跟进。",
     noOriginal: "没有本地原件",
     requiredUrl: "请输入网页链接。",
     requiredFile: "请先选择一个文件。",
+    requiredFolder: "请先选择一个文件夹。",
+    requiredZip: "请先选择一个 ZIP 图文包。",
     requiredPackage: "请先选择一个 .mywiki 知识包。"
   }
 } as const;
@@ -140,6 +160,8 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
   const [title, setTitle] = useState("");
   const [collection, setCollection] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [folderFiles, setFolderFiles] = useState<File[]>([]);
+  const [zipFile, setZipFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<Record<string, any> | null>(null);
@@ -147,6 +169,8 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
   const [collections, setCollections] = useState<string[]>([]);
   const [loadingInbox, setLoadingInbox] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const folderInput = useRef<HTMLInputElement>(null);
+  const zipInput = useRef<HTMLInputElement>(null);
 
   const loadInbox = async () => {
     setLoadingInbox(true);
@@ -172,11 +196,29 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
     setError("");
     if (tab === "link" && !url.trim()) return setError(l.requiredUrl);
     if (tab === "file" && !file) return setError(l.requiredFile);
+    if (tab === "folder" && folderFiles.length === 0) return setError(l.requiredFolder);
+    if (tab === "zip" && !zipFile) return setError(l.requiredZip);
     setBusy(true);
     try {
-      const captured = tab === "link"
-        ? await localApi.captureUrl({ url: url.trim(), title: title.trim(), collection: collection.trim() })
-        : await localApi.captureFile(file!, { title: title.trim(), collection: collection.trim() });
+      let captured: Record<string, any>;
+      if (tab === "link") {
+        captured = await localApi.captureUrl({ url: url.trim(), title: title.trim(), collection: collection.trim() });
+      } else if (tab === "folder") {
+        const items = [];
+        const failures = [];
+        for (const item of folderFiles) {
+          try {
+            items.push(await localApi.captureFile(item, { collection: collection.trim(), sourcePath: item.webkitRelativePath || item.name }));
+          } catch (nextError) {
+            failures.push({ path: item.webkitRelativePath || item.name, error: errorMessage(nextError) });
+          }
+        }
+        if (items.length === 0) throw new Error(failures[0]?.error || l.requiredFolder);
+        captured = { kind: "folder", count: items.length, total: folderFiles.length, items, failures };
+      } else {
+        const selected = tab === "zip" ? zipFile! : file!;
+        captured = await localApi.captureFile(selected, { title: title.trim(), collection: collection.trim() });
+      }
       setResult(captured);
       window.dispatchEvent(new Event("my-wiki:graph-updated"));
     } catch (nextError) {
@@ -191,15 +233,23 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
     setTitle("");
     setCollection("");
     setFile(null);
+    setFolderFiles([]);
+    setZipFile(null);
     setResult(null);
     setError("");
   };
+
+  const capturedItems = result ? (Array.isArray(result.items) && result.items.length ? result.items : [result]) : [];
+  const representative = capturedItems[0] || null;
+  const followupCount = capturedItems.filter((item) => item.status === "needs-followup").length;
 
   return (
     <Dialog title={l.addTitle} description={l.addDescription} onClose={onClose}>
       <div className="dialog-tabs" role="tablist">
         <TabButton active={tab === "link"} onClick={() => setTab("link")} icon={<Link2 size={15} />} label={l.link} />
         <TabButton active={tab === "file"} onClick={() => setTab("file")} icon={<FileUp size={15} />} label={l.file} />
+        <TabButton active={tab === "folder"} onClick={() => setTab("folder")} icon={<FolderUp size={15} />} label={l.folder} />
+        <TabButton active={tab === "zip"} onClick={() => setTab("zip")} icon={<FileArchive size={15} />} label={l.zip} />
         <TabButton active={tab === "inbox"} onClick={() => setTab("inbox")} icon={<Inbox size={15} />} label={l.inbox} />
       </div>
 
@@ -207,13 +257,15 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
         <div className="operation-success">
           <BookOpen size={28} aria-hidden="true" />
           <h3>{l.success}</h3>
-          <p>{String(result.vaultRelative || result.path || "")}</p>
+          <p>{result.count > 1 ? `${Number(result.count)} / ${Number(result.total || result.count)}` : String(representative?.vaultRelative || representative?.path || "")}</p>
           <dl>
-            <div><dt>{l.snapshot}</dt><dd>{String(result.snapshot || l.noOriginal)}</dd></div>
-            {result.textExtraction ? (
-              <div><dt>{l.pdfText}</dt><dd>{result.textExtraction === "complete" ? `${Number(result.extractedPages || 0)} ${language === "zh" ? "页" : "pages"} / ${Number(result.extractedCharacters || 0).toLocaleString()} ${language === "zh" ? "字符" : "characters"}` : l.pdfNeedsOcr}</dd></div>
+            <div><dt>{l.status}</dt><dd>{followupCount ? `${followupCount} needs-followup` : "inbox"}</dd></div>
+            <div><dt>{l.snapshot}</dt><dd>{String(representative?.snapshot || l.noOriginal)}</dd></div>
+            {(representative?.extractionStatus || representative?.textExtraction) ? (
+              <div><dt>{l.pdfText}</dt><dd>{(representative.extractionStatus || representative.textExtraction) === "complete" ? `${Number(representative.extractedPages || 0)} ${language === "zh" ? "页" : "pages"} / ${Number(representative.extractedCharacters || 0).toLocaleString()} ${language === "zh" ? "字符" : "characters"}` : String(representative.extractionMessage || l.pdfNeedsOcr)}</dd></div>
             ) : null}
-            <div><dt>{l.collection}</dt><dd>{String(result.collection || "-")}</dd></div>
+            <div><dt>{l.collection}</dt><dd>{String(representative?.collection || "-")}</dd></div>
+            {result.failures?.length ? <div><dt>{l.failedFiles}</dt><dd>{Number(result.failures.length)}</dd></div> : null}
           </dl>
           <div className="dialog-footer"><button type="button" onClick={reset}>{l.addAnother}</button><button className="primary-button" type="button" onClick={onClose}>{l.close}</button></div>
         </div>
@@ -242,16 +294,30 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
           <div className="dialog-form">
             {tab === "link" ? (
               <label className="field full"><span>{l.url}</span><input type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://example.com/article" autoFocus /></label>
-            ) : (
+            ) : tab === "file" ? (
               <button type="button" className="file-drop" onClick={() => fileInput.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setFile(event.dataTransfer.files?.[0] || null); }}>
                 <Upload size={24} aria-hidden="true" />
                 <strong>{file ? file.name : l.chooseFile}</strong>
                 <span>{file ? `${l.selectedFile}: ${formatBytes(file.size)}` : l.dropHint}</span>
                 <input ref={fileInput} type="file" hidden onChange={(event) => setFile(event.target.files?.[0] || null)} />
               </button>
+            ) : tab === "folder" ? (
+              <button type="button" className="file-drop" onClick={() => folderInput.current?.click()}>
+                <FolderUp size={24} aria-hidden="true" />
+                <strong>{folderFiles.length ? `${folderFiles.length} ${language === "zh" ? "个文件" : "files"}` : l.chooseFolder}</strong>
+                <span>{folderFiles.length ? formatBytes(folderFiles.reduce((sum, item) => sum + item.size, 0)) : l.folderHint}</span>
+                <input ref={folderInput} type="file" multiple hidden {...({ webkitdirectory: "", directory: "" } as any)} onChange={(event) => setFolderFiles(Array.from(event.target.files || []))} />
+              </button>
+            ) : (
+              <button type="button" className="file-drop" onClick={() => zipInput.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const dropped = event.dataTransfer.files?.[0] || null; setZipFile(dropped?.name.toLowerCase().endsWith(".zip") ? dropped : null); }}>
+                <FileArchive size={24} aria-hidden="true" />
+                <strong>{zipFile ? zipFile.name : l.chooseZip}</strong>
+                <span>{zipFile ? `${l.selectedFile}: ${formatBytes(zipFile.size)}` : l.zipHint}</span>
+                <input ref={zipInput} type="file" accept=".zip,application/zip" hidden onChange={(event) => setZipFile(event.target.files?.[0] || null)} />
+              </button>
             )}
-            <label className="field"><span>{l.title}</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={l.optionalTitle} /></label>
-            <label className="field"><span>{l.collection}</span><input list="my-wiki-collections" value={collection} onChange={(event) => setCollection(event.target.value)} placeholder={l.optionalCollection} /></label>
+            {tab !== "folder" && tab !== "zip" ? <label className="field"><span>{l.title}</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={l.optionalTitle} /></label> : null}
+            <label className={tab === "folder" || tab === "zip" ? "field full" : "field"}><span>{l.collection}</span><input list="my-wiki-collections" value={collection} onChange={(event) => setCollection(event.target.value)} placeholder={l.optionalCollection} /></label>
             <datalist id="my-wiki-collections">{collections.map((item) => <option key={item} value={item} />)}</datalist>
           </div>
           {error ? <p className="dialog-error">{error}</p> : null}

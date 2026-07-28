@@ -1569,8 +1569,8 @@ h3 {
 .viki {
   position: fixed;
   z-index: 180;
-  width: 48px;
-  height: 48px;
+  width: 80px;
+  height: 80px;
   pointer-events: none;
 }
 
@@ -1582,14 +1582,15 @@ h3 {
 
 .viki-launcher {
   display: grid;
-  width: 48px;
-  height: 48px;
+  width: 80px;
+  height: 80px;
   place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 50%;
-  background: #8da2ff;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.32);
-  color: #151718;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #d8deff;
+  outline: none;
   padding: 0;
   cursor: grab;
   touch-action: none;
@@ -1598,10 +1599,14 @@ h3 {
 
 .viki-launcher:hover,
 .viki-launcher:focus-visible {
-  border-color: rgba(141, 162, 255, 0.68);
-  background: #a8b6ff;
-  color: #151718;
+  background: transparent;
+  color: #f3f5ff;
   outline: none;
+}
+
+.viki-launcher:hover .viki-pet,
+.viki-launcher:focus-visible .viki-pet {
+  filter: brightness(1.08);
 }
 
 .viki.is-dragging .viki-launcher {
@@ -1610,19 +1615,35 @@ h3 {
 
 .viki-avatar {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 42px;
+  height: 44px;
   place-items: center;
   flex: 0 0 auto;
-  border: 1px solid rgba(141, 162, 255, 0.45);
-  border-radius: 50%;
-  background: #8da2ff;
-  color: #151718;
+  color: #d8deff;
 }
 
 .viki-avatar.large {
-  width: 48px;
-  height: 48px;
+  width: 66px;
+  height: 68px;
+}
+
+.viki-pet {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+
+.viki-pet img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  max-width: none;
+  image-rendering: pixelated;
+  pointer-events: none;
+  user-select: none;
 }
 
 .viki-panel {
@@ -1680,7 +1701,8 @@ h3 {
   background: #e0bd6f;
 }
 
-.viki-status button {
+.viki-status > button,
+.viki-pet-toggle {
   display: grid;
   width: 32px;
   height: 32px;
@@ -1692,11 +1714,62 @@ h3 {
   cursor: pointer;
 }
 
-.viki-status button:hover,
-.viki-status button:focus-visible {
+.viki-status > button:hover,
+.viki-status > button:focus-visible,
+.viki-pet-toggle:hover,
+.viki-pet-toggle:focus-visible {
   background: rgba(255, 255, 255, 0.07);
   color: #f3efe7;
   outline: none;
+}
+
+.viki-pet-picker {
+  position: relative;
+}
+
+.viki-pet-menu {
+  position: absolute;
+  z-index: 4;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  width: 176px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 7px;
+  background: #24282a;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38);
+  padding: 4px;
+}
+
+.viki-pet-menu > button {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 16px;
+  width: 100%;
+  min-height: 42px;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #d5dada;
+  padding: 4px 7px 4px 3px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.viki-pet-menu > button:hover,
+.viki-pet-menu > button:focus-visible,
+.viki-pet-menu > button[aria-checked="true"] {
+  background: rgba(255, 255, 255, 0.07);
+  color: #f3efe7;
+  outline: none;
+}
+
+.viki-pet-menu > button > span:not(.viki-pet) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .viki-provider-select {

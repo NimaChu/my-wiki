@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const DEFAULT_MAX_BYTES = 200 * 1024 * 1024;
 
@@ -10,37 +11,41 @@ export async function extractPdfMarkdown({ file, dependencyRoot, maxBytes = DEFA
     return extractionFailure("skipped-large", `PDF text extraction is limited to ${Math.round(maxBytes / 1024 / 1024)} MB.`);
   }
 
-  let pdfParse;
+  let document;
   try {
     const require = createRequire(path.resolve(dependencyRoot, "package.json"));
-    pdfParse = require("pdf-parse");
-  } catch (error) {
-    return extractionFailure("failed", `The local PDF parser is unavailable: ${cleanError(error)}`);
-  }
-
-  try {
-    let pageNumber = 0;
-    const data = await pdfParse(await fs.readFile(file), {
-      pagerender: async (page) => {
-        const pageText = await renderPageText(page);
-        pageNumber += 1;
-        return `### Page ${pageNumber}\n\n${pageText}`;
-      }
-    });
-    const text = normalizeExtractedText(data.text);
+    const canvasRuntime = require("@napi-rs/canvas");
+    globalThis.DOMMatrix ||= canvasRuntime.DOMMatrix;
+    globalThis.Path2D ||= canvasRuntime.Path2D;
+    globalThis.ImageData ||= canvasRuntime.ImageData;
+    const pdfjs = await import(pathToFileURL(require.resolve("pdfjs-dist/legacy/build/pdf.mjs")).href);
+    document = await pdfjs.getDocument({
+      data: new Uint8Array(await fs.readFile(file)),
+      disableWorker: true,
+      isEvalSupported: false,
+      useSystemFonts: true
+    }).promise;
+    const sections = [];
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      const page = await document.getPage(pageNumber);
+      sections.push(`### Page ${pageNumber}\n\n${await renderPageText(page)}`);
+    }
+    const text = normalizeExtractedText(sections.join("\n\n"));
     const characters = text.replace(/^### Page \d+\s*$/gm, "").trim().length;
     if (characters === 0) {
-      return extractionFailure("unavailable", "No extractable text was found. The PDF may require OCR.", Number(data.numpages || pageNumber));
+      return extractionFailure("unavailable", "No extractable text was found. The PDF may require OCR.", document.numPages);
     }
     return {
       status: "complete",
-      pages: Number(data.numpages || pageNumber),
+      pages: document.numPages,
       characters,
-      content: `> Extracted locally from ${Number(data.numpages || pageNumber)} PDF pages. The preserved PDF remains the layout reference.\n\n${text}`,
+      content: `> Extracted locally from ${document.numPages} PDF pages. The preserved PDF remains the layout reference.\n\n${text}`,
       message: ""
     };
   } catch (error) {
     return extractionFailure("failed", `PDF text extraction failed: ${cleanError(error)}`);
+  } finally {
+    await document?.destroy().catch(() => {});
   }
 }
 

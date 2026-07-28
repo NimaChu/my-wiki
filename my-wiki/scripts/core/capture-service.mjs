@@ -23,10 +23,21 @@ export async function captureSource({
   captureMethod = "",
   collection = "",
   snapshotFile = "",
+  snapshotReference = "",
   content = "",
   textExtraction = "",
+  extractionStatus = textExtraction,
+  extractionMethod = "",
   extractedPages = 0,
   extractedCharacters = 0,
+  extractedUnits = 0,
+  extractedUnitLabel = "items",
+  extractionConfidence = 0,
+  extractionWarnings = [],
+  originalFilename = "",
+  sourcePath = "",
+  initialStatus = "",
+  embeddedAssets = [],
   imageInputs = [],
   shouldSnapshot = true,
   requireSnapshot = false,
@@ -52,14 +63,15 @@ export async function captureSource({
   }
 
   const rawBase = path.basename(target, ".md");
-  const snapshot = await saveSnapshot({ vault, rawBase, url, snapshotFile, shouldSnapshot, fetchMaxBytes, validateUrl });
+  const snapshot = await saveSnapshot({ vault, rawBase, url, snapshotFile, snapshotReference, shouldSnapshot, fetchMaxBytes, validateUrl });
   if (requireSnapshot && !snapshot?.path) {
     throw new Error(snapshot?.method?.replace(/^snapshot-failed:/, "") || "The source could not be captured");
   }
   const capturedContent = content.trim() || contentFromSnapshot(snapshot, sourceType);
+  const embedded = await materializeEmbeddedAssets({ vault, notePath: target, rawBase, markdown: capturedContent, assets: embeddedAssets });
   const mirroredContent = shouldMirrorImages
-    ? await mirrorMarkdownImages({ vault, notePath: target, noteSlug: rawBase, markdown: capturedContent, fetchMaxBytes, validateUrl })
-    : { markdown: capturedContent, copied: 0, failures: [], replaced: [] };
+    ? await mirrorMarkdownImages({ vault, notePath: target, noteSlug: rawBase, markdown: embedded.markdown, fetchMaxBytes, validateUrl })
+    : { markdown: embedded.markdown, copied: 0, failures: [], replaced: [] };
 
   const explicitImages = await copyExplicitImages({
     vault,
@@ -73,26 +85,33 @@ export async function captureSource({
   const bodyContent = mirroredContent.markdown || originalFileNotice(snapshot?.path);
   const digestBasis = snapshot?.buffer || Buffer.from(bodyContent);
   const effectiveCaptureMethod = captureMethod || snapshot?.method || (content ? "agent-provided" : "manual");
+  const requiresFollowup = initialStatus === "needs-followup" || Boolean(extractionStatus && extractionStatus !== "complete");
+  const resolvedStatus = requiresFollowup ? "needs-followup" : "inbox";
   const tags = ["raw"];
   if (snapshot?.path) tags.push("snapshotted");
-  if (mirroredContent.copied > 0 || explicitImages.length > 0) tags.push("images");
-  const extractionFrontmatter = textExtraction
-    ? `text_extraction: ${yamlString(textExtraction)}\nextracted_pages: ${Number(extractedPages) || 0}\nextracted_characters: ${Number(extractedCharacters) || 0}\n`
+  if (mirroredContent.copied > 0 || explicitImages.length > 0 || embedded.copied > 0) tags.push("images");
+  if (requiresFollowup) tags.push("needs-followup");
+  const extractionFrontmatter = extractionStatus
+    ? `extraction_status: ${yamlString(extractionStatus)}\nextraction_method: ${yamlString(extractionMethod)}\ntext_extraction: ${yamlString(textExtraction || extractionStatus)}\nextracted_pages: ${Number(extractedPages) || 0}\nextracted_characters: ${Number(extractedCharacters) || 0}\nextracted_units: ${Number(extractedUnits) || 0}\nextracted_unit_label: ${yamlString(extractedUnitLabel)}\nextraction_confidence: ${Number(extractionConfidence) || 0}\n`
     : "";
-  const extractionNote = textExtraction
-    ? `- Text extraction: ${textExtraction} (${Number(extractedPages) || 0} pages, ${Number(extractedCharacters) || 0} characters)\n`
+  const extractionNote = extractionStatus
+    ? `- Content extraction: ${extractionStatus} via ${extractionMethod || "local-parser"} (${Number(extractedCharacters) || 0} characters)\n`
     : "";
+  const warningsNote = extractionWarnings.length ? `- Extraction warnings: ${extractionWarnings.join("; ")}\n` : "";
 
   const body = `---
 title: ${yamlString(title)}
 type: raw-source
 source_type: ${yamlString(sourceType)}
 collection: ${yamlString(resolvedCollection)}
-status: inbox
+status: ${resolvedStatus}
+needs_followup: ${requiresFollowup}
 author: ${yamlString(author)}
 published: ${yamlString(published)}
 captured: ${yamlString(capturedAt)}
 source_url: ${yamlString(url)}
+original_filename: ${yamlString(originalFilename)}
+source_path: ${yamlString(sourcePath)}
 snapshot_path: ${yamlString(snapshot?.path || "")}
 ${extractionFrontmatter}content_hash: ${yamlString(hashContent(digestBasis))}
 capture_method: ${yamlString(effectiveCaptureMethod)}
@@ -120,7 +139,7 @@ ${bodyContent}
 
 ## Images
 
-${explicitImages.length ? explicitImages.join("\n") : "- Inline markdown images are preserved in Capture. Additional explicit images were not provided."}
+${[...embedded.images, ...explicitImages].length ? [...embedded.images, ...explicitImages].join("\n") : "- Inline markdown images are preserved in Capture. Additional explicit images were not provided."}
 
 ## Extracted Claims
 
@@ -132,9 +151,10 @@ ${explicitImages.length ? explicitImages.join("\n") : "- Inline markdown images 
 
 ## Processing Notes
 
-- Status: inbox
+- Status: ${resolvedStatus}
 ${extractionNote}- Mirrored inline images: ${mirroredContent.copied}
-- Image mirror failures: ${mirroredContent.failures.length}
+- Embedded local assets: ${embedded.copied}
+${warningsNote}- Image mirror failures: ${mirroredContent.failures.length}
 - Next action: compile durable ideas into wiki pages, close core related links, then mark processed.
 `;
 
@@ -146,21 +166,40 @@ ${extractionNote}- Mirrored inline images: ${mirroredContent.copied}
     vaultRelative: path.relative(vault, target).replace(/\\/g, "/"),
     title,
     collection: resolvedCollection,
+    originalFilename,
+    sourcePath,
     snapshot: snapshot?.path || "",
     captureMethod: effectiveCaptureMethod,
     mirroredInlineImages: mirroredContent.copied,
     mirroredImageFailures: mirroredContent.failures,
     explicitImages: explicitImages.length,
-    textExtraction,
+    textExtraction: textExtraction || extractionStatus,
+    extractionStatus,
+    extractionMethod,
     extractedPages: Number(extractedPages) || 0,
     extractedCharacters: Number(extractedCharacters) || 0,
-    status: "inbox"
+    extractedUnits: Number(extractedUnits) || 0,
+    extractionConfidence: Number(extractionConfidence) || 0,
+    embeddedAssets: embedded.copied,
+    status: resolvedStatus
   };
 }
 
-async function saveSnapshot({ vault, rawBase, url, snapshotFile, shouldSnapshot, fetchMaxBytes, validateUrl }) {
+async function saveSnapshot({ vault, rawBase, url, snapshotFile, snapshotReference, shouldSnapshot, fetchMaxBytes, validateUrl }) {
   const snapshotsDir = path.join(vault, "raw", "snapshots");
   await fs.mkdir(snapshotsDir, { recursive: true });
+  if (snapshotReference) {
+    const target = path.resolve(vault, snapshotReference);
+    const relative = path.relative(snapshotsDir, target);
+    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) throw new Error(`Unsafe snapshot reference: ${snapshotReference}`);
+    const buffer = await fs.readFile(target);
+    return {
+      path: path.relative(vault, target).replace(/\\/g, "/"),
+      buffer,
+      contentType: contentTypeForExtension(path.extname(target)),
+      method: "shared-snapshot"
+    };
+  }
   if (snapshotFile) {
     const resolved = path.resolve(snapshotFile);
     const ext = path.extname(resolved) || ".bin";
@@ -230,6 +269,28 @@ async function copyExplicitImages({ vault, target, rawBase, imageInputs, shouldM
     explicitImages.push(`![${path.basename(resolved)}](${relative})`);
   }
   return explicitImages;
+}
+
+async function materializeEmbeddedAssets({ vault, notePath, rawBase, markdown, assets }) {
+  if (!assets.length) return { markdown, copied: 0, images: [] };
+  const assetDir = path.join(vault, "raw", "assets", rawBase);
+  await fs.mkdir(assetDir, { recursive: true });
+  const used = new Set();
+  const images = [];
+  let rewritten = markdown;
+  let copied = 0;
+  for (const [index, asset] of assets.entries()) {
+    if (!asset?.buffer) continue;
+    const basename = uniqueAssetName(safeAssetName(asset.name || `asset-${index + 1}.bin`), used);
+    const target = path.join(assetDir, basename);
+    await fs.writeFile(target, asset.buffer);
+    const relative = path.relative(path.dirname(notePath), target).replace(/\\/g, "/");
+    const referencedInCapture = Boolean(asset.reference && rewritten.includes(String(asset.reference)));
+    if (asset.reference) rewritten = rewritten.split(String(asset.reference)).join(relative);
+    if (!referencedInCapture) images.push(isImageFilename(basename) ? `![${basename}](${relative})` : `- [${basename}](${relative})`);
+    copied += 1;
+  }
+  return { markdown: rewritten, copied, images };
 }
 
 async function mirrorMarkdownImages({ vault, notePath, noteSlug, markdown, fetchMaxBytes, validateUrl }) {
@@ -356,6 +417,24 @@ function contentTypeForExtension(extension) {
   if (ext === ".xml") return "application/xml";
   if (ext === ".pdf") return "application/pdf";
   return "application/octet-stream";
+}
+
+function safeAssetName(value) {
+  return path.basename(String(value || "asset.bin")).replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").slice(0, 160) || "asset.bin";
+}
+
+function uniqueAssetName(value, used) {
+  const extension = path.extname(value);
+  const stem = path.basename(value, extension);
+  let candidate = value;
+  let index = 2;
+  while (used.has(candidate.toLowerCase())) candidate = `${stem}-${index++}${extension}`;
+  used.add(candidate.toLowerCase());
+  return candidate;
+}
+
+function isImageFilename(value) {
+  return /\.(?:png|jpe?g|gif|webp|bmp|tiff?|svg)$/i.test(value);
 }
 
 function originalFileNotice(snapshotPath = "") {

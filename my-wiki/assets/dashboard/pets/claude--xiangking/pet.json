@@ -1,0 +1,7 @@
+{
+  "id": "claude--xiangking",
+  "displayName": "Claude",
+  "description": "A tiny orange blocky digital pet with stubby side arms, short legs, and expressive pixel-art poses.",
+  "spritesheetPath": "spritesheet.webp",
+  "kind": "character"
+}

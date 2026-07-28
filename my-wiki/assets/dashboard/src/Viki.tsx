@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Bot, BookOpen, LoaderCircle, SendHorizontal, X } from "lucide-react";
-import { AgentAnswer, AgentInfo, localApi, waitForJob } from "./api";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { Bot, BookOpen, Check, LoaderCircle, PawPrint, SendHorizontal, X } from "lucide-react";
+import { AgentAnswer, AgentInfo, localApi, PetAppearance, waitForJob } from "./api";
 
 type Language = "en" | "zh";
 type VikiEdge = "top" | "right" | "bottom" | "left";
 type VikiPosition = { x: number; y: number; edge: VikiEdge };
+type PetAnimationState = "idle" | "running-right" | "running-left" | "waving" | "failed" | "waiting" | "working";
 type ChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -13,11 +14,12 @@ type ChatMessage = {
   images?: Array<{ path: string; caption: string; url: string }>;
 };
 
-const LAUNCHER_SIZE = 48;
+const LAUNCHER_SIZE = 80;
 const EDGE_GAP = 16;
 const PANEL_GAP = 10;
 const POSITION_KEY = "my-wiki-viki-position";
 const PROVIDER_KEY = "my-wiki-viki-provider";
+const PET_KEY = "my-wiki-viki-pet";
 
 const copy = {
   en: {
@@ -33,6 +35,7 @@ const copy = {
     ready: "Ready",
     busy: "Working",
     agentCli: "Agent CLI",
+    pet: "Viki pet",
     retry: "Please try again."
   },
   zh: {
@@ -48,6 +51,7 @@ const copy = {
     ready: "已就绪",
     busy: "工作中",
     agentCli: "Agent CLI",
+    pet: "Viki 宠物",
     retry: "请稍后重试。"
   }
 } as const;
@@ -56,6 +60,9 @@ export function Viki({ language }: { language: Language }) {
   const l = copy[language];
   const [open, setOpen] = useState(false);
   const [agent, setAgent] = useState<AgentInfo | null>(null);
+  const [pets, setPets] = useState<PetAppearance[]>([]);
+  const [petId, setPetId] = useState("");
+  const [petMenuOpen, setPetMenuOpen] = useState(false);
   const [provider, setProvider] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [question, setQuestion] = useState("");
@@ -64,7 +71,10 @@ export function Viki({ language }: { language: Language }) {
   const [viewport, setViewport] = useState(() => currentViewport());
   const [position, setPositionState] = useState<VikiPosition>(() => initialPosition());
   const [dragging, setDragging] = useState(false);
+  const [dragDirection, setDragDirection] = useState<"left" | "right">("right");
+  const [hovered, setHovered] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const petPickerRef = useRef<HTMLDivElement>(null);
   const positionRef = useRef(position);
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
   const suppressClickRef = useRef(false);
@@ -94,6 +104,25 @@ export function Viki({ language }: { language: Language }) {
       setProvider("");
     });
   }, [l.unavailable]);
+
+  useEffect(() => {
+    localApi.pets().then(({ pets: nextPets }) => {
+      setPets(nextPets);
+      setPetId(selectInitialPet(nextPets));
+    }).catch(() => {
+      setPets([]);
+      setPetId("");
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!petMenuOpen) return;
+    const closeMenu = (event: PointerEvent) => {
+      if (!petPickerRef.current?.contains(event.target as Node)) setPetMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", closeMenu);
+    return () => document.removeEventListener("pointerdown", closeMenu);
+  }, [petMenuOpen]);
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ block: "end" });
@@ -165,6 +194,7 @@ export function Viki({ language }: { language: Language }) {
     const dx = event.clientX - drag.startX;
     const dy = event.clientY - drag.startY;
     if (Math.hypot(dx, dy) > 3) drag.moved = true;
+    if (Math.abs(dx) > 0.5) setDragDirection(dx < 0 ? "left" : "right");
     setPosition({
       x: clamp(drag.originX + dx, EDGE_GAP, viewport.width - LAUNCHER_SIZE - EDGE_GAP),
       y: clamp(drag.originY + dy, EDGE_GAP, viewport.height - LAUNCHER_SIZE - EDGE_GAP),
@@ -192,6 +222,13 @@ export function Viki({ language }: { language: Language }) {
 
   const panelOffset = vikiPanelOffset(position, viewport);
   const providerLabel = agent?.providers.find((item) => item.provider === provider)?.label || agent?.label || "";
+  const pet = pets.find((item) => item.id === petId) || pets[0];
+  const petState: PetAnimationState = dragging
+    ? dragDirection === "left" ? "running-left" : "running-right"
+    : busy || agent?.busy ? "working"
+      : error ? "failed"
+        : agent?.available === false ? "waiting"
+          : hovered ? "waving" : "idle";
 
   return (
     <aside
@@ -203,10 +240,45 @@ export function Viki({ language }: { language: Language }) {
         <section className="viki-panel" aria-label="Viki" style={{ left: panelOffset.x, top: panelOffset.y }}>
           <header>
             <div className="viki-identity">
-              <span className="viki-avatar"><Bot size={20} aria-hidden="true" /></span>
+              <span className="viki-avatar"><VikiPet pet={pet} state={petState} size={36} fallbackSize={20} /></span>
               <div><strong>Viki</strong><span>{l.companion}</span></div>
             </div>
             <div className="viki-status">
+              {pets.length ? (
+                <div className="viki-pet-picker" ref={petPickerRef}>
+                  <button
+                    className="viki-pet-toggle"
+                    type="button"
+                    aria-label={l.pet}
+                    title={`${l.pet}: ${pet?.displayName || ""}`}
+                    aria-expanded={petMenuOpen}
+                    onClick={() => setPetMenuOpen((value) => !value)}
+                  >
+                    <PawPrint size={16} aria-hidden="true" />
+                  </button>
+                  {petMenuOpen ? (
+                    <div className="viki-pet-menu" role="menu" aria-label={l.pet}>
+                      {pets.map((item) => (
+                        <button
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={item.id === pet?.id}
+                          key={item.id}
+                          onClick={() => {
+                            setPetId(item.id);
+                            persistPet(item.id);
+                            setPetMenuOpen(false);
+                          }}
+                        >
+                          <VikiPet pet={item} state="idle" size={30} fallbackSize={16} />
+                          <span>{item.displayName}</span>
+                          {item.id === pet?.id ? <Check size={14} aria-hidden="true" /> : null}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {agent?.providers.length ? (
                 <select
                   className="viki-provider-select"
@@ -217,6 +289,7 @@ export function Viki({ language }: { language: Language }) {
                   onChange={(event) => {
                     const nextProvider = event.target.value;
                     setProvider(nextProvider);
+                    setError("");
                     persistProvider(nextProvider);
                   }}
                 >
@@ -231,7 +304,7 @@ export function Viki({ language }: { language: Language }) {
           <div className="viki-conversation">
             {messages.length === 0 ? (
               <div className="viki-welcome">
-                <span className="viki-avatar large"><Bot size={27} aria-hidden="true" /></span>
+                <span className="viki-avatar large"><VikiPet pet={pet} state={petState} size={62} fallbackSize={27} /></span>
                 <p>{agent?.available === false ? agent.message || l.unavailable : l.welcome}</p>
                 {providerLabel ? <small>{providerLabel}</small> : null}
               </div>
@@ -290,12 +363,77 @@ export function Viki({ language }: { language: Language }) {
         onPointerMove={moveDrag}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
+        onPointerEnter={() => setHovered(true)}
+        onPointerLeave={() => setHovered(false)}
         onClick={toggleOpen}
       >
-        <Bot size={23} aria-hidden="true" />
+        <VikiPet pet={pet} state={petState} size={72} fallbackSize={25} />
       </button>
     </aside>
   );
+}
+
+const petAnimations: Record<PetAnimationState, { row: number; durations: number[] }> = {
+  idle: { row: 0, durations: [280, 110, 110, 140, 140, 320] },
+  "running-right": { row: 1, durations: [120, 120, 120, 120, 120, 120, 120, 220] },
+  "running-left": { row: 2, durations: [120, 120, 120, 120, 120, 120, 120, 220] },
+  waving: { row: 3, durations: [140, 140, 140, 280] },
+  failed: { row: 5, durations: [140, 140, 140, 140, 140, 140, 140, 240] },
+  waiting: { row: 6, durations: [150, 150, 150, 150, 150, 260] },
+  working: { row: 7, durations: [120, 120, 120, 120, 120, 220] }
+};
+
+function VikiPet({ pet, state, size, fallbackSize }: {
+  pet?: PetAppearance;
+  state: PetAnimationState;
+  size: number;
+  fallbackSize: number;
+}) {
+  const animation = petAnimations[state];
+  const reducedMotion = useReducedMotion();
+  const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    setFrame(0);
+    if (!pet || reducedMotion) return;
+    let current = 0;
+    let timeout = window.setTimeout(tick, animation.durations[current]);
+    function tick() {
+      current = (current + 1) % animation.durations.length;
+      setFrame(current);
+      timeout = window.setTimeout(tick, animation.durations[current]);
+    }
+    return () => window.clearTimeout(timeout);
+  }, [animation, pet, reducedMotion]);
+
+  if (!pet) return <Bot size={fallbackSize} aria-hidden="true" />;
+  const scale = size / pet.cellWidth;
+  const frameHeight = pet.cellHeight * scale;
+  const style = {
+    width: size,
+    height: frameHeight
+  } as CSSProperties;
+  const imageStyle = {
+    width: pet.columns * pet.cellWidth * scale,
+    height: pet.rows * pet.cellHeight * scale,
+    transform: `translate3d(${-frame * pet.cellWidth * scale}px, ${-animation.row * pet.cellHeight * scale}px, 0)`
+  };
+  return (
+    <span className="viki-pet" style={style} aria-hidden="true">
+      <img src={pet.spritesheetUrl} alt="" draggable={false} style={imageStyle} />
+    </span>
+  );
+}
+
+function useReducedMotion() {
+  const [reduced, setReduced] = useState(() => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReduced(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return reduced;
 }
 
 function currentViewport() {
@@ -346,6 +484,29 @@ function persistProvider(provider: string) {
     window.localStorage.setItem(PROVIDER_KEY, provider);
   } catch {
     // Provider persistence is optional.
+  }
+}
+
+function selectInitialPet(pets: PetAppearance[]) {
+  const available = new Set(pets.map((item) => item.id));
+  const stored = readStoredPet();
+  if (stored && available.has(stored)) return stored;
+  return pets.find((item) => item.id === "codenono--dq02")?.id || pets[0]?.id || "";
+}
+
+function readStoredPet() {
+  try {
+    return String(window.localStorage.getItem(PET_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function persistPet(petId: string) {
+  try {
+    window.localStorage.setItem(PET_KEY, petId);
+  } catch {
+    // Pet persistence is optional.
   }
 }
 

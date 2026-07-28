@@ -30,9 +30,10 @@ The frontend reads that JSON and displays an Obsidian-like graph surface:
 - raw/wiki/link counts
 - inbox, processed, broken-link, and universe-level counts
 - webpage and local-file capture directly into Inbox
-- Inbox inspection without starting maintenance
+- Inbox and needs-followup inspection without starting maintenance
+- local PDF/image OCR, DOCX/PPTX/XLSX conversion, folder batches, and Markdown-plus-images ZIP bundles
 - knowledge-galaxy package export, download, import preview, and confirmed import
 - bounded maintenance-queue batches through an authenticated local agent
-- persistent Viki knowledge Q&A with a remembered local Agent CLI selector, validated evidence, and local images
+- persistent Viki knowledge Q&A with independent remembered Agent CLI and bundled pet selectors, validated evidence, and local images
 
-The local service binds only to `127.0.0.1`. Browser writes require a same-origin session token, URL capture rejects local/private networks, uploads are streamed with a size limit, and universe imports preserve the existing preview/checksum/conflict behavior. Web capture creates `status: inbox` evidence only. Text-based PDF uploads are extracted locally into page-marked raw Markdown while preserving the original PDF; image-only PDFs remain follow-up work until OCR is available. Agent work starts only from the maintenance button or a Viki question; query tasks are read-only, maintenance is restricted to the active vault, and only validated local image paths can be shown in the browser.
+The local service binds only to `127.0.0.1`. Browser writes require a same-origin session token, URL capture rejects local/private networks, uploads are streamed with a size limit, ZIP bundles reject unsafe paths and oversized expansion, and universe imports preserve the existing preview/checksum/conflict behavior. Web capture creates `status: inbox` evidence only. Local files use the same deterministic extraction pipeline as Agent CLI capture: text and scanned PDFs, images, DOCX, PPTX, XLSX, and plain text become raw Markdown while every original is preserved. Failed, unsupported, empty, partial, or low-confidence extraction is locked as `needs-followup` and cannot enter an automatic maintenance batch. Agent work starts only from the maintenance button or a Viki question; query tasks are read-only, maintenance is restricted to the active vault, and only validated local image paths can be shown in the browser. Viki serves only the pet packages bundled under `pets/`; changing pets never changes the selected Agent CLI. Keep [the pet asset notice](pets/NOTICE.md) with redistributed copies.

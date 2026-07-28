@@ -82,10 +82,11 @@ The optional local frontend is more than a folder graph:
 - enter the evidence layer to see every raw source supporting that wiki page;
 - search without permanently hiding the rest of the graph;
 - let the running watcher refresh the graph automatically as knowledge changes.
-- add a webpage link or upload a local file directly to Inbox;
+- add a webpage, file, folder batch, or Markdown-plus-images ZIP bundle;
+- locally convert PDFs, scans, images, DOCX, PPTX, and XLSX into maintainable Markdown, locking unreliable extraction for follow-up;
 - export a knowledge galaxy or preview and confirm a `.mywiki` import;
 - send one maintenance-queue batch to a local agent to distill Wiki pages and close evidence links;
-- ask the persistent Viki companion questions grounded in Wiki pages, raw evidence, and useful local images.
+- ask the persistent Viki companion questions grounded in Wiki pages, raw evidence, and useful local images; its bundled pet can be changed independently from the selected Agent CLI.
 
 The Dashboard stays off during ordinary agent capture and maintenance. It starts only when you ask to see the graph or frontend. Its local service listens only on `127.0.0.1`; browser capture preserves evidence as `status: inbox` and never silently starts AI maintenance. It calls an already authenticated local Codex, OpenCode, or Claude only after you click the batch action or submit a question to Viki.
 
@@ -153,7 +154,7 @@ You do not need to memorize the CLI. The Skill resolves the selected vault and r
 
 ### Capture without losing the source
 
-Store webpages, PDFs, transcripts, long notes, and external-platform exports in `raw/`. Preserve titles, URLs, dates, content hashes, snapshots, image order, and source quality instead of keeping only an AI summary.
+Store webpages, PDFs, scans, images, Office documents, folder batches, and ZIP bundles in `raw/`. Every original stays local. Text PDFs are extracted page by page, scanned PDFs and images use local OCR, and DOCX/PPTX/XLSX become structured Markdown. OCR needs no API key; free language data is downloaded once and cached locally. Only sources with substantive readable content enter Inbox. Failed, empty, low-confidence, or unsupported extraction is locked as `needs-followup`, so an agent cannot mistake an untouched binary for reviewed evidence.
 
 ### Let the wiki improve over time
 

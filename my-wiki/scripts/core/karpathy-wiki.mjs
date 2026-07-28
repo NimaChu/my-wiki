@@ -68,6 +68,8 @@ Usage:
   my-wiki refresh [--serve] [--build]
   my-wiki build-dashboard
   my-wiki capture --title "Title" --url "https://..." --type webpage
+  my-wiki capture --file /path/to/document.pdf [--collection "Research"]
+  my-wiki capture --directory /path/to/documents [--collection "Research"]
   my-wiki organize-raw [--apply]
   my-wiki images --source raw/sources/source-note.md
   my-wiki capture --title "Title" --url "https://..." --refresh-dashboard

@@ -363,22 +363,24 @@ export function processedRawIssues(scan) {
       );
       if (resolvedRelated.length > 0 && !hasWikiBacklink) issues.push({ source: node.id, reason: "missing-wiki-backlink" });
       if (String(node.frontmatter.needs_followup || "") === "true") issues.push({ source: node.id, reason: "explicit-followup" });
-      if (missingPdfText(node)) issues.push({ source: node.id, reason: "missing-pdf-text" });
+      if (!rawHasReadableContent(node)) issues.push({ source: node.id, reason: "missing-readable-content" });
       return issues;
     });
 }
 
-function missingPdfText(node) {
-  if (String(node.frontmatter.source_type || "").toLowerCase() !== "pdf") return false;
-  const extraction = String(node.frontmatter.text_extraction || "").toLowerCase();
-  if (extraction && extraction !== "complete") return true;
-  if (extraction === "complete" && Number(node.frontmatter.extracted_characters || 0) > 0) return false;
+export function rawHasReadableContent(node) {
+  const sourceType = String(node.frontmatter.source_type || "").toLowerCase();
+  const extraction = String(node.frontmatter.extraction_status || node.frontmatter.text_extraction || "").toLowerCase();
+  if (extraction && extraction !== "complete") return false;
+  if (extraction === "complete") return Number(node.frontmatter.extracted_characters || 0) > 0;
+  if (!["pdf", "image", "document", "file"].includes(sourceType)) return true;
   const capture = markdownSection(node.content, "Capture");
   const meaningful = capture
     .replace(/The original source file is preserved[^.]*\./gi, "")
     .replace(/Read the original during knowledge maintenance\./gi, "")
+    .replace(/Keep this source in needs-followup[^.]*\./gi, "")
     .replace(/[`>*#_\-\s]/g, "");
-  return meaningful.length < 200;
+  return meaningful.length >= (sourceType === "pdf" ? 200 : 24);
 }
 
 function markdownSection(content, heading) {

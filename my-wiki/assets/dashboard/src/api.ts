@@ -47,6 +47,17 @@ export type AgentInfo = {
   activeMaintenanceJob: Job | null;
 };
 
+export type PetAppearance = {
+  id: string;
+  displayName: string;
+  spriteVersionNumber: number;
+  columns: number;
+  rows: number;
+  cellWidth: number;
+  cellHeight: number;
+  spritesheetUrl: string;
+};
+
 export type AgentAnswer = {
   answerMarkdown: string;
   sources: Array<{ path: string; title: string }>;
@@ -129,6 +140,19 @@ export const localApi = {
     return response.json() as Promise<AgentInfo>;
   },
 
+  async pets() {
+    const response = await apiFetch("/api/v1/pets");
+    const payload = await response.json() as { pets: PetAppearance[] };
+    const current = await getSession();
+    return {
+      pets: payload.pets.map((pet) => {
+        const url = new URL(pet.spritesheetUrl, window.location.href);
+        url.searchParams.set("token", current.token);
+        return { ...pet, spritesheetUrl: url.href };
+      })
+    };
+  },
+
   async maintain(paths: string[], batchSize = 8, provider = "") {
     const response = await apiFetch("/api/v1/agent/maintenance", {
       method: "POST",
@@ -156,10 +180,11 @@ export const localApi = {
     return response.json() as Promise<Record<string, any>>;
   },
 
-  async captureFile(file: File, input: { title?: string; collection?: string }) {
+  async captureFile(file: File, input: { title?: string; collection?: string; sourcePath?: string }) {
     const params = new URLSearchParams({ filename: file.name });
     if (input.title) params.set("title", input.title);
     if (input.collection) params.set("collection", input.collection);
+    if (input.sourcePath) params.set("sourcePath", input.sourcePath);
     const response = await apiFetch(`/api/v1/inbox/file?${params}`, {
       method: "POST",
       headers: { "content-type": file.type || "application/octet-stream" },

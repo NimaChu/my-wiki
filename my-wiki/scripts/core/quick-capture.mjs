@@ -4,7 +4,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { captureSource } from "./capture-service.mjs";
+import { ingestDirectory, ingestLocalFile } from "./local-ingest.mjs";
 import { vaultPath } from "./wiki-lib.mjs";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const dashboardRoot = path.resolve(here, "..", "..", "assets", "dashboard");
 
 function arg(name, fallback = "") {
   const index = process.argv.indexOf(name);
@@ -32,28 +36,51 @@ async function stdin() {
 
 const vault = vaultPath();
 const url = arg("--url", "");
+const localFile = arg("--file", "");
+const directory = arg("--directory", "");
 const contentFile = arg("--content-file", "");
 const content = contentFile ? await fs.readFile(contentFile, "utf8") : await stdin();
-const result = await captureSource({
-  vault,
-  title: arg("--title", "Untitled Source"),
-  url,
-  sourceType: arg("--type", url ? "webpage" : "note"),
-  author: arg("--author", ""),
-  published: arg("--published", ""),
-  sourceQuality: arg("--source-quality", url ? "primary-url" : "captured"),
-  captureMethod: arg("--capture-method", ""),
-  collection: arg("--collection", ""),
-  snapshotFile: arg("--snapshot-file", ""),
-  content,
-  imageInputs: args("--image"),
-  shouldSnapshot: !has("--no-snapshot"),
-  shouldMirrorImages: !has("--no-mirror-images")
-});
+let result;
+if (directory) {
+  result = await ingestDirectory({
+    vault,
+    directory,
+    collection: arg("--collection", ""),
+    dependencyRoot: dashboardRoot,
+    captureMethod: arg("--capture-method", "agent-directory")
+  });
+} else if (localFile) {
+  result = await ingestLocalFile({
+    vault,
+    file: path.resolve(localFile),
+    filename: path.basename(localFile),
+    title: arg("--title", ""),
+    collection: arg("--collection", ""),
+    dependencyRoot: dashboardRoot,
+    captureMethod: arg("--capture-method", "agent-file")
+  });
+} else {
+  result = await captureSource({
+    vault,
+    title: arg("--title", "Untitled Source"),
+    url,
+    sourceType: arg("--type", url ? "webpage" : "note"),
+    author: arg("--author", ""),
+    published: arg("--published", ""),
+    sourceQuality: arg("--source-quality", url ? "primary-url" : "captured"),
+    captureMethod: arg("--capture-method", ""),
+    collection: arg("--collection", ""),
+    snapshotFile: arg("--snapshot-file", ""),
+    content,
+    imageInputs: args("--image"),
+    shouldSnapshot: !has("--no-snapshot"),
+    shouldMirrorImages: !has("--no-mirror-images")
+  });
+}
 
 let refresh = null;
 if (has("--refresh-dashboard") || has("--serve-dashboard")) {
-  const refreshScript = path.join(path.dirname(fileURLToPath(import.meta.url)), "refresh-dashboard.mjs");
+  const refreshScript = path.join(here, "refresh-dashboard.mjs");
   const refreshArgs = has("--serve-dashboard") ? ["--serve"] : [];
   const refreshed = spawnSync(process.execPath, [refreshScript, ...refreshArgs], {
     encoding: "utf8",

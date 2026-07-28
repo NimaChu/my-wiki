@@ -1,6 +1,6 @@
 ---
 name: my-wiki
-description: Manage local Markdown-first My Wiki knowledge vaults with an AI agent. Use for capturing webpages, PDFs, notes, and images; maintaining raw-to-wiki evidence links; searching or answering from a vault; checking or repairing vault health; switching among local vaults; and opening the My Wiki knowledge graph or dashboard.
+description: Manage local Markdown-first My Wiki knowledge vaults with an AI agent. Use for capturing webpages, PDFs, Office documents, notes, images, folders, and ZIP bundles; maintaining raw-to-wiki evidence links; searching or answering from a vault; checking or repairing vault health; switching among local vaults; and opening the My Wiki knowledge graph or dashboard.
 ---
 
 # My Wiki
@@ -24,6 +24,8 @@ node <skill-directory>/scripts/my-wiki.mjs init /path/to/vault --name personal -
 node <skill-directory>/scripts/my-wiki.mjs --vault personal status
 node <skill-directory>/scripts/my-wiki.mjs --vault personal search "query"
 node <skill-directory>/scripts/my-wiki.mjs --vault personal capture --title "Title" --url "https://example.com"
+node <skill-directory>/scripts/my-wiki.mjs --vault personal capture --file /path/to/document.pdf
+node <skill-directory>/scripts/my-wiki.mjs --vault personal capture --directory /path/to/documents
 node <skill-directory>/scripts/my-wiki.mjs --vault personal images --source raw/sources/source.md
 node <skill-directory>/scripts/my-wiki.mjs --vault personal organize-raw
 node <skill-directory>/scripts/my-wiki.mjs --vault personal lint
@@ -40,7 +42,7 @@ node <skill-directory>/scripts/my-wiki.mjs --vault personal open-dashboard
 
 `dashboard` starts the service silently in the background. `open-dashboard` also opens the selected installation's frontend in the browser.
 
-The Dashboard is a local knowledge workspace, not only a graph viewer. It may add a webpage URL or uploaded file directly to `status: inbox`, list pending raw notes, export a named universe, and preview then apply a `.mywiki` import. Text-based PDFs are extracted locally into page-marked Markdown while the original PDF remains in `raw/snapshots/`; PDFs without searchable text must stay `needs-followup` until OCR is available. Capture remains deterministic and never starts maintenance automatically. Explicit browser actions may ask Viki a read-only vault question or send one bounded maintenance-queue batch to an authenticated local agent.
+The Dashboard is a local knowledge workspace, not only a graph viewer. It may add a webpage, file, folder batch, or Markdown-plus-images ZIP bundle, list pending raw notes, export a named universe, and preview then apply a `.mywiki` import. Local extraction converts text PDFs, scanned PDFs, images, DOCX, PPTX, and XLSX into structured raw Markdown while preserving every original in `raw/snapshots/`. OCR runs locally without an API key; its free language data is downloaded once and cached in the vault. Any failed, partial, unsupported, empty, or low-confidence extraction must be created as `needs-followup` and excluded from automatic maintenance until readable evidence exists. Capture remains deterministic and never starts maintenance automatically. Explicit browser actions may ask Viki a read-only vault question or send one bounded maintenance-queue batch to an authenticated local agent. Viki includes independently selectable pet animations; pet choice and Agent CLI choice are separate persisted preferences. Preserve the bundled pet attribution and license notices.
 
 Read [workflows.md](references/workflows.md) when ingesting, querying, maintaining, sharing, or visualizing a vault.
 Read [dashboard-agent.md](references/dashboard-agent.md) when changing Dashboard Agent invocation, Viki, maintenance batches, permissions, or provider support.
@@ -78,6 +80,7 @@ Read [ima-local-import.md](references/ima-local-import.md) only when the user ex
 - Keep raw captures factual and preserve source metadata.
 - Keep wiki pages atomic, synthesized, linked, and evidence-backed.
 - Treat `processed` as an evidence-closure state, not a progress label.
+- Require `extraction_status: complete` and substantive `## Capture` content before maintaining any local PDF, image, Office document, or other binary source. Keep every other extraction state locked as `needs-followup`.
 - Keep vault data local. Do not commit or push it unless the user explicitly requests that exact action.
 - Do not start the Dashboard during ordinary ingest or maintenance. Open it only for graph/frontend requests.
 - Keep the local web service bound to `127.0.0.1`. Preserve its same-origin session token, upload limits, URL private-network checks, import preview, checksum validation, and no-overwrite behavior.

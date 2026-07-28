@@ -10,10 +10,21 @@
     "graph": "node scripts/generate-graph.mjs"
   },
   "dependencies": {
+    "@napi-rs/canvas": "0.1.80",
+    "fast-xml-parser": "5.10.1",
+    "jszip": "3.10.1",
     "lucide-react": "^0.468.0",
-    "pdf-parse": "1.1.1",
+    "mammoth": "1.12.0",
+    "pdfjs-dist": "4.2.67",
+    "read-excel-file": "9.3.4",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "tesseract.js": "6.0.1"
+  },
+  "overrides": {
+    "pdfjs-dist": {
+      "canvas": "npm:@napi-rs/canvas@0.1.80"
+    }
   },
   "devDependencies": {
     "@types/react": "^19.2.7",
