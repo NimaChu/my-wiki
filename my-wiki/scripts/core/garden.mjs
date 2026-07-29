@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { processedRawIssues, scanVault, statsFromScan } from "./wiki-lib.mjs";
+import { isWikiKnowledgeNode, processedRawIssues, scanVault, statsFromScan, wikiTopicPeerMap } from "./wiki-lib.mjs";
 import { universeAudit } from "./universe-audit-lib.mjs";
 
 const scan = await scanVault();
@@ -7,10 +7,10 @@ const stats = statsFromScan(scan);
 const inbox = scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "inbox");
 const imaPointers = scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "ima-pointer");
 const followup = scan.nodes.filter((node) => node.status === "needs-followup");
+const wikiTopicPeers = wikiTopicPeerMap(scan);
 const weakWiki = scan.nodes.filter((node) =>
-  node.id.startsWith("wiki/") &&
-  !["wiki/index", "wiki/log", "wiki/README"].includes(node.id) &&
-  (scan.incoming.get(node.id) || 0) + (scan.outgoing.get(node.id) || 0) <= 1
+  isWikiKnowledgeNode(node) &&
+  wikiTopicPeers.get(node.id).size <= 1
 );
 const universe = universeAudit(scan);
 
