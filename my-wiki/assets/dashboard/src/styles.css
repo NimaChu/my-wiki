@@ -1650,13 +1650,65 @@ h3 {
   position: absolute;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  width: min(420px, calc(100vw - 44px));
-  height: min(620px, calc(100vh - 120px));
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.13);
   border-radius: 8px;
   background: #1a1d1f;
   box-shadow: 0 22px 60px rgba(0, 0, 0, 0.48);
+}
+
+.viki-resize-handle {
+  position: absolute;
+  z-index: 6;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #aeb7b9;
+  opacity: 0.38;
+  padding: 0;
+  touch-action: none;
+}
+
+.viki-resize-handle:hover,
+.viki-resize-handle:focus-visible,
+.viki.is-resizing .viki-resize-handle {
+  color: #f3efe7;
+  opacity: 0.9;
+  outline: none;
+}
+
+.viki-resize-handle.is-top-left {
+  top: 2px;
+  left: 2px;
+  cursor: nwse-resize;
+  transform: rotate(90deg);
+}
+
+.viki-resize-handle.is-top-right {
+  top: 2px;
+  right: 2px;
+  cursor: nesw-resize;
+}
+
+.viki-resize-handle.is-bottom-right {
+  right: 2px;
+  bottom: 2px;
+  cursor: nwse-resize;
+  transform: rotate(90deg);
+}
+
+.viki-resize-handle.is-bottom-left {
+  bottom: 2px;
+  left: 2px;
+  cursor: nesw-resize;
+}
+
+.viki.is-resizing,
+.viki.is-resizing * {
+  user-select: none;
 }
 
 .viki-panel > header {
@@ -1667,6 +1719,22 @@ h3 {
   gap: 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.09);
   padding: 10px 12px;
+}
+
+.viki-panel.has-resize-top-left > header {
+  padding-left: 34px;
+}
+
+.viki-panel.has-resize-top-right > header {
+  padding-right: 34px;
+}
+
+.viki-panel.has-resize-bottom-left .viki-composer {
+  padding-left: 30px;
+}
+
+.viki-panel.has-resize-bottom-right .viki-composer {
+  padding-right: 30px;
 }
 
 .viki-identity,

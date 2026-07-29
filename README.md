@@ -9,92 +9,121 @@
 ![Node.js 18+](https://img.shields.io/badge/Node.js-18%2B-43853D?style=flat-square)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE.txt)
 
-**零成本、低门槛，让 AI Agent 帮你建立和维护真正属于自己的本地知识库。**
+**My Wiki 是一个本地优先、由 AI Agent 驱动的知识管理应用。它既可以作为 Agent Skill 在聊天中使用，也提供可视化知识宇宙、知识维护和 Viki 问答的网页前端。**
 
-[English](README.en.md) · [简体中文](README.md)
+[简体中文](README.md) · [English](README.en.md)
 
 <img width="1536" height="1024" alt="AI Agent 将本地资料整理成可追溯知识库" src="https://github.com/user-attachments/assets/bea713c3-8d37-427b-ab04-5f601123f252" />
 
-网页、PDF、截图、聊天记录、笔记和官方文档里有大量有用信息，但它们通常散落在不同地方。My Wiki 给本地 AI Agent 一个长期工作的知识空间，让 Agent 把这些资料变成你真正拥有、可以持续演化的关联 Wiki。
+网页、PDF、扫描件、图片、Office 文档、聊天记录和官方资料里有大量有价值的信息，但它们通常散落在不同位置，很难持续整理，更难在以后准确复用。
 
-安装一次 Agent Skill，把知识库放在电脑任意位置，然后直接用自然语言提出需求。Agent 会完成资料入库、原始证据与图片保存、原子 Wiki 蒸馏、关系维护、知识问答，并在你想探索时打开交互式知识图谱。
+My Wiki 让本地 AI Agent 负责知识的完整生命周期：保存原始资料，提取可读正文，蒸馏原子 Wiki，建立关系与证据链接，回答问题，维护知识健康，并通过网页把知识呈现为可以探索和操作的知识宇宙。
 
-默认不需要云数据库，不需要向量数据库，不要求安装 Obsidian，也不要求购买 API。
+默认不需要云数据库、向量数据库、Obsidian 或付费 API。知识以 Markdown、原始文件、快照和图片保存在你控制的本地文件夹中。
 
-## 为什么选择 My Wiki
+## 它不只是一个 Skill
 
-- **本地优先**：Markdown、网页快照和图片都保存在你控制的文件夹中。
-- **Agent 自动维护**：你只需说“把这篇文章入库”或“维护知识库”，Agent 负责完成后续流程。
-- **结论可追溯**：整理后的知识始终连接到原始证据，而不是只保留一段无法核实的 AI 摘要。
-- **理解图片证据**：示意图、截图、图表和界面状态可以被保存，并在回答问题时一起展示。
-- **内置知识图谱**：可以探索知识宇宙、知识星系、Wiki 星球，以及每个 Wiki 背后的原始资料。
-- **开放且可迁移**：知识就是普通文件，可以移动、备份、用任意 Markdown 编辑器打开，也可以以后接入 RAG。
-- **零成本起步**：先用 Node.js 和本地 AI Agent 得到可用知识库，不必先搭一整套基础设施。
+My Wiki 由两个相互配合的使用界面组成，共享同一个本地知识库：
 
-## My Wiki、RAG 和 LLM + Obsidian 有什么区别
+| | AI Agent Skill | 知识宇宙网页前端 |
+|---|---|---|
+| 适合场景 | 在 Codex、Claude Code、OpenCode 等客户端中直接聊天 | 浏览、比较、维护和可视化操作知识 |
+| 主要交互 | 用自然语言让 Agent 入库、维护、检索和回答 | 用鼠标探索图谱、上传资料、处理队列、询问 Viki |
+| 知识范围 | Wiki、raw 原始证据、图片、快照和本地文件 | 知识宇宙、知识星系、Wiki 星球与原文证据层 |
+| Agent 能力 | 使用当前 Agent 客户端执行完整工作流 | 调用已登录的本地 Codex、OpenCode 或 Claude CLI |
+| 数据位置 | 你指定的本地知识库目录 | 同一个本地知识库目录 |
 
-它们解决的是知识管理的不同环节。My Wiki 重点补上经常被忽略的中间层：在检索之前，先把原始资料变成可读、有关系、证据闭环的长期知识。
+你可以只使用其中一种，也可以在聊天和网页之间随时切换。两种方式读写的是同一套知识，不需要同步两份数据。
 
-| | My Wiki | 传统 RAG | LLM + Obsidian |
-|---|---|---|---|
-| 开始使用 | 安装一个 Skill，选择一个文件夹 | 搭建入库、切片、Embedding、召回和服务 | 安装编辑器和插件，再设计提示词与笔记规范 |
-| 主要存储 | Markdown、快照和本地图片 | 向量索引加外部原文存储 | Markdown Vault |
-| 谁来整理 | Agent 维护 raw 证据、原子 Wiki、关系和健康检查 | 流水线索引文本切片，可读知识需要另做 | 通常由用户整理，插件或聊天提供辅助 |
-| 可追溯性 | Wiki 结论回链 raw，双向证据关系可以检查 | 取决于检索元数据和应用设计 | 可以做到，但依赖用户的笔记习惯 |
-| 图片能力 | 图片作为证据保存，并可随答案输出 | 需要额外设计多模态入库与检索 | 图片保存方便，问答时选图仍需额外流程 |
-| 可视化 | 内置知识宇宙、知识星系、Wiki 星球和证据层 | 通常需要额外图数据库或可观测工具 | 笔记图谱优秀，主要服务于人工浏览 |
-| 更适合 | 个人和项目知识，需要可读、可查证、易维护 | 大规模语义检索和生产应用 | 人工写作、链接和浏览笔记 |
+## 两种使用方式
 
-My Wiki 并不排斥 RAG 或 Obsidian。你随时可以用 Obsidian 打开同一个知识库；当规模或生产检索真正需要时，也可以把干净的 Markdown 证据层交给 RAG，而不是推翻重来。
+### 1. 在 AI Agent 客户端中作为 Skill 使用
 
-## 从原始资料到长期知识
+安装后，在 Codex、Claude Code、OpenCode、OpenClaw、Hermes 等支持 Skill 的 Agent 中直接说人话：
 
 ```text
-网页 / PDF / 笔记 / 图片 / 外部知识平台
-                    |
-                    v
-                raw 证据层
-            原文、元数据、快照、图片
-                    |
-                AI Agent
-             蒸馏、关联、检查、修复
-                    |
-                    v
-              原子 Wiki 页面
-          概念、方法、API、实体、流程
-                    |
-          +---------+---------+
-          v                   v
-      有依据的问答          知识图谱
+在 D:\Knowledge\Personal 创建一个 My Wiki 知识库并设为默认。
+把这篇文章入库：https://example.com/article
+把这个 PDF 和其中的重要图片保存到知识库。
+维护知识库。
+根据本地知识回答这个问题，并展示相关证据图片。
 ```
 
-My Wiki 不是简单地给每份文档生成一篇摘要。一份有价值的资料可以更新多个长期 Wiki，一个 Wiki 也可以综合多份原始证据。只有主要 Wiki 已建立、raw 和 Wiki 双向关系闭合、后续事项清理完成，一份 raw 才会被视为真正处理完毕。
+Agent 会自动定位知识库，保存 raw 原始证据和附件，创建或更新原子 Wiki，维护双向关系，并优先用 Wiki 回答、再回到 raw 核实重要结论。你不需要记忆一套 CLI。
+
+### 2. 打开知识宇宙网页前端
+
+对 Agent 说：
+
+```text
+打开知识宇宙。
+打开 My Wiki 前端。
+打开知识图谱。
+```
+
+Agent 会启动本地网页应用。你可以：
+
+- 在知识宇宙中观察多个知识星系及其交会；
+- 进入知识星系，查看三维 Wiki 星球关系网络；
+- 打开 Wiki 页面，继续进入它背后的 raw 原文证据层；
+- 搜索 Wiki、关系和来源，而不破坏当前图谱层级；
+- 输入网页链接，或上传文件、文件夹和 Markdown + 图片 ZIP 图文包；
+- 查看 Inbox 与 `needs-followup`，并批量调用 Agent 蒸馏 Wiki、建立链接和完成维护；
+- 使用常驻知识伙伴 Viki 基于 Wiki、raw 证据和相关图片进行问答；
+- 在 Viki 中独立选择 Agent CLI 与宠物形态，并调整聊天窗口大小；
+- 导出一个知识星系，或预览并导入别人分享的 `.mywiki` 知识包。
+
+网页前端只监听 `127.0.0.1`。日常通过 Agent 入库或维护时不会自动启动它；只有你明确要求打开知识宇宙、前端或 Dashboard 时才会启动。
+
+## 从资料到可复用知识
+
+```text
+网页 / PDF / 扫描件 / 图片 / Office 文档 / 外部平台
+                         |
+                         v
+                    raw 证据层
+              原文、快照、原件、图片、元数据
+                         |
+                     AI Agent
+              蒸馏、关联、核实、维护、修复
+                         |
+                         v
+                   原子 Wiki 页面
+             概念、方法、API、实体、流程
+                         |
+          +--------------+--------------+
+          v                             v
+     有依据的知识问答               知识宇宙网页
+```
+
+My Wiki 不是给每份文档生成一段摘要。一份资料可以更新多个长期 Wiki，一个 Wiki 也可以综合多份原始证据。只有 Wiki 已建立、raw 与 Wiki 的双向证据关系闭合、后续事项处理完成，一份 raw 才会被标记为 `processed`。
+
+这种结构让知识可以被反复使用：今天保存的资料可以更新已有 Wiki，明天的新问题可以复用这些 Wiki，重要结论仍然能一路回到原文、图片或 PDF 核实。
 
 ## 探索知识宇宙
 
-<img width="1785" height="881" alt="My Wiki 交互式知识宇宙和全局维护状态" src="https://raw.githubusercontent.com/NimaChu/my-wiki/main/.github/assets/knowledge-universe.png" />
+<img width="1785" height="881" alt="My Wiki 交互式知识宇宙、知识星系和 Wiki 星球" src="https://raw.githubusercontent.com/NimaChu/my-wiki/main/.github/assets/knowledge-universe.png" />
 
-可选的本地前端不只是把文件画成一团点：
+- **知识宇宙**：整个知识库的全局视图，展示多个知识星系以及它们通过共同 Wiki 形成的联系。
+- **知识星系**：一组成体系、可以独立理解和复用的知识集合，例如 FlexSim、Agent 开发或项目经验。
+- **Wiki 星球**：一篇原子 Wiki，表达一个概念、方法、实体、流程或可长期复用的结论。
+- **原文证据层**：支撑某篇 Wiki 的网页、Markdown、PDF、图片和其他 raw 来源。
 
-- 最外层是整个知识宇宙，可以同时观察多个知识星系及其交会；
-- 进入一个知识星系，旋转和观察三维 Wiki 星球关系网络；
-- 选择 Wiki 星球，高亮真正相关的关系并阅读渲染后的 Wiki 页面；
-- 进入证据层，查看这个 Wiki 背后的全部 raw 来源；
-- 搜索目标知识，同时不永久破坏当前图谱视图；
-- 前端运行时，知识变化会自动刷新图谱数据。
-- 直接输入网页链接，或上传文件、文件夹和 Markdown + 图片 ZIP 图文包；
-- 在本地把 PDF、扫描件、图片、DOCX、PPTX、XLSX 转成可维护的 Markdown，解析不可靠时自动锁定为待跟进；
-- 导出知识星系，或先预览再确认导入 `.mywiki` 知识包；
-- 在维护队列里一键调用本地 Agent，批量蒸馏 Wiki、建立关系并完成入库；
-- 随时打开常驻知识伙伴 Viki，直接基于 Wiki、raw 证据和相关图片提问；内置宠物可通过独立按钮切换，不影响所选 Agent CLI。
+图谱不是额外维护的一套数据库。它直接从 Wiki 与 raw 的关系生成，知识发生变化时，运行中的前端会自动刷新。
 
-日常 Agent 入库和维护不会启动 Dashboard。只有当你说“打开知识图谱”“打开前端”或类似需求时，它才会按需运行。本地服务只监听 `127.0.0.1`；网页录入只会建立 `status: inbox` 的原始证据，不会悄悄启动 AI 维护。只有点击批量处理或向 Viki 发送问题时，Dashboard 才会调用你已经登录的本地 Codex、OpenCode 或 Claude。
+## 分享和复用知识星系
 
-## 分享一个知识星系
+知识星系可以导出为单个 `.mywiki` 知识包。它不是只有几篇摘要，而是一套带证据的知识集合，包含：
 
-一个知识宇宙可以包含多个以名称区分的知识星系，每个 Wiki 页面在图谱中是一颗 Wiki 星球。你可以让 Agent 把其中一个知识星系导出成单个 `.mywiki` 知识包，交给另一个 My Wiki 用户直接预览和导入。
+- 这个星系的 Wiki Markdown；
+- Wiki 关联的 raw Markdown；
+- 可用的来源 URL；
+- 相关图片与图像索引；
+- raw 明确引用的网页快照、PDF 和其他原始文件。
 
-知识包只携带这个星系的 Wiki Markdown、它们链接的 raw Markdown、可用的来源 URL、相关图片，以及 raw 明确引用的网页快照、PDF 和其他原始文件。因此即使 PDF 没有 URL，接收方仍然能得到完整原始证据。为了兼容现有知识库和知识包协议，底层仍使用 `universes` 元数据和 `export-universe` 命令；Dashboard 将每个命名值显示为知识星系。导入默认先预览重复项与冲突，确认后才写入；必要时可在导入时换一个星系名。
+接收方可以先预览重复项、重命名和冲突，再确认导入自己的知识宇宙。即使原始资料没有 URL，例如本地 PDF，知识包仍然可以保留完整证据。
+
+你既可以在网页中导入和导出，也可以直接告诉 Agent：
 
 ```text
 把“FlexSim”知识星系导出成知识包。
@@ -102,30 +131,59 @@ My Wiki 不是简单地给每份文档生成一篇摘要。一份有价值的资
 确认导入，并把星系名改成“仿真工程”。
 ```
 
+这使 My Wiki 不只是个人资料整理工具，也可以成为可传播、可验证、可继续维护的知识生态基础。
+
+## 为什么选择 My Wiki
+
+- **本地优先**：Markdown、原件、网页快照和图片都在你控制的目录中。
+- **Agent 自动维护**：短指令即可完成入库、蒸馏、链接、检查和修复。
+- **结论可追溯**：Wiki 结论回链 raw，重要信息可以核实到原文与图片。
+- **面向复用而非堆积**：资料被整理成原子 Wiki 和关系，而不是只进入一个搜索黑盒。
+- **网页应用可操作**：不仅看图谱，还能添加资料、处理维护队列、问 Viki、导入和导出知识星系。
+- **支持多种本地文档**：文本 PDF、扫描 PDF、图片、DOCX、PPTX、XLSX、文件夹批次和 ZIP 图文包。
+- **失败不会伪装成功**：空内容、低置信度或不完整解析会锁定为 `needs-followup`，不会被当成已读资料。
+- **开放且可迁移**：知识可以移动、备份、用任意 Markdown 编辑器打开，也可以以后接入 Obsidian 或 RAG。
+- **零成本起步**：只需要 Node.js 和一个已经可用的本地 Agent 客户端。
+
+## 与 RAG、LLM + Obsidian 的区别
+
+My Wiki 重点解决知识进入检索之前的整理层：把原始资料变成可读、有关系、能核实、可维护的长期知识。
+
+| | My Wiki | 传统 RAG | LLM + Obsidian |
+|---|---|---|---|
+| 开始使用 | 安装 Skill，同时获得 Agent 工作流与网页应用 | 搭建切片、Embedding、召回、存储和服务 | 安装编辑器和插件，再设计提示词与笔记规范 |
+| 主要存储 | Markdown、原始文件、快照和本地图片 | 向量索引加外部原文存储 | Markdown Vault |
+| 谁来整理 | Agent 维护 raw、原子 Wiki、关系和健康状态 | 流水线索引文本切片，可读知识通常另做 | 通常由用户手工整理，LLM 提供辅助 |
+| 可追溯性 | Wiki 与 raw 双向链接并可自动检查 | 取决于检索元数据和应用设计 | 可以做到，但依赖用户习惯 |
+| 网页能力 | 内置知识宇宙、录入、维护、Viki 和知识包交换 | 通常需要单独开发应用 | 主要是编辑器内的笔记浏览与插件能力 |
+| 分享单元 | 带 Wiki、raw、图片和原件的知识星系 | 索引或应用特定的数据包 | 文件夹或整个 Vault |
+| 更适合 | 个人、团队和项目知识的长期管理与复用 | 大规模语义检索和生产服务 | 人工写作、链接和浏览笔记 |
+
+My Wiki 不排斥 RAG 或 Obsidian。你可以用 Obsidian 打开同一个知识库，也可以在规模真正需要时，把已经整理干净的 Markdown 证据层交给 RAG。
+
 ## 快速开始
 
-需要 Node.js 18+ 和 npm。安装和更新使用同一条命令，重复运行即可原地更新：
+需要 Node.js 18+ 和 npm。安装和更新使用同一条命令：
 
 ```bash
 npx my-wiki-skill@latest
 ```
 
-国内网络可以使用 npmmirror：
+国内网络可以使用：
 
 ```bash
 npx --registry=https://registry.npmmirror.com my-wiki-skill@latest
 ```
 
-也可以直接让 AI Agent 安装：
+也可以直接让 Agent 安装：
 
 ```text
-帮我安装 My Wiki Skill：npx my-wiki-skill@latest
-国内镜像：npx --registry=https://registry.npmmirror.com my-wiki-skill@latest
+帮我安装 My Wiki：npx my-wiki-skill@latest
 ```
 
-安装器会自动探测常见的本地 Agent Skill 目录，并把干净的 `my-wiki` 安装到所有已发现位置：
+安装器会自动探测常见 Agent Skill 目录：
 
-| Agent 宿主 | 默认 Skill 目录 | 安装支持 |
+| Agent 客户端 | 默认 Skill 目录 | 安装支持 |
 |---|---|---|
 | Claude Code | `~/.claude/skills` | 自动探测或 `--target claude` |
 | Codex | `~/.codex/skills` | 自动探测或 `--target codex` |
@@ -134,66 +192,34 @@ npx --registry=https://registry.npmmirror.com my-wiki-skill@latest
 | Hermes Agent | `~/.hermes/skills` | 自动探测或 `--target hermes` |
 | 其他兼容 `SKILL.md` 的 Agent | 由宿主决定 | 使用 `--dir <Skill目录>` |
 
-默认命令会同时更新电脑上已探测到的宿主；需要指定某一个时，例如运行 `npx my-wiki-skill@latest --target openclaw`。安装或更新后，请新开 Agent 会话；OpenClaw 和 Hermes 也可在各自工具中刷新或重置会话后加载。使用 `--list` 可以只查看探测结果。
+安装完成后，新开或刷新 Agent 会话，然后创建知识库、开始入库，或直接说“打开知识宇宙”。
 
-npm 包不包含 Git 仓库元数据、本地知识库、测试、构建产物或运行日志。
+## 本地知识库结构
 
-安装后继续直接说人话：
-
-```text
-在 D:\Knowledge\Personal 创建一个 My Wiki 知识库并设为默认。
-把这篇文章入库：https://example.com/article
-维护知识库。
-根据本地知识回答这个问题，并展示相关证据图片。
-打开知识图谱。
-```
-
-你不需要记住一堆 CLI。Skill 会找到当前知识库，并替 Agent 执行入库、维护、检索、图片和可视化工作流。
-
-## 可以用它做什么
-
-### 入库时不丢掉原始资料
-
-把网页、PDF、扫描件、图片、Office 文档、文件夹批次和 ZIP 图文包保存到 `raw/`。原文件始终保留在本地；文本 PDF 会逐页提取，扫描 PDF 和图片会在本机 OCR，DOCX/PPTX/XLSX 会转成结构化 Markdown。OCR 不需要 API key，首次使用会免费下载中英文语言数据并在本地缓存。只有提取出有效正文的来源才进入 Inbox；失败、空内容、低置信度或暂不支持的格式会锁定为 `needs-followup`，不会被 Agent 误当成已经读完的材料。
-
-### 让知识库自己逐步变好
-
-对 Agent 说“维护知识库”即可。它会分批处理资料，创建或更新原子 Wiki、合并重复概念、修复证据链接、控制知识星系数量，并说明本次完成了什么、还剩下什么。
-
-### 得到有依据的答案
-
-Agent 优先搜索整理后的 Wiki，需要核实结论时再沿链接回到 raw。相关截图、示意图、图表或界面状态可以随答案一起展示，而不是被遗忘在附件文件夹里。
-
-### 同时管理多个独立知识库
-
-个人、工作、研究和项目知识库可以放在电脑的任意路径。Skill 只需安装一次，每个知识库可以用名称注册，知识内容与这个源码仓库完全分离。
-
-## 你的知识始终属于你
-
-每个知识库都是一个普通文件夹：
+知识库可以放在电脑任意位置，与 Skill 安装目录和源码仓库完全分离：
 
 ```text
 my-vault/
   raw/
-    sources/    平铺存放的原始证据
-    assets/     每篇来源一个目录的图片和图像索引
-    snapshots/  平铺存放的网页快照、PDF 和其他原件
-  wiki/         可长期复用的关联知识页
+    sources/    原始证据的 Markdown 转写
+    assets/     每篇来源独立保存的图片与图像索引
+    snapshots/  网页快照、PDF、Office 文档和其他原件
+  wiki/         可长期复用的原子 Wiki 页面
   templates/    当前知识库使用的 Markdown 模板
-  .my-wiki/     本地缓存和运行状态
+  .my-wiki/     本地缓存、运行状态、导入导出记录
 ```
 
-`sources/` 和 `snapshots/` 不再建立分类子目录；`assets/` 只保留“每篇来源一个目录”的必要层级，防止不同文章的插图混在一起。来源分类只是可选元数据，不影响 Wiki。Skill 也提供可预览、带本地备份的旧目录整理能力，并同步修复 Wiki、图片和快照引用。
+网页与 Agent 使用相同的本地解析质量门槛。文本 PDF 会逐页提取，扫描件和图片会本地 OCR，DOCX、PPTX、XLSX 会转换为结构化 Markdown；原文件始终保留在 `raw/snapshots/`。
 
-公开仓库只包含 Skill、模板和 Dashboard，不包含你的知识库、本地 MCP 凭据、工作区专用 Agent 规则或本地回归测试。知识库是否备份、同步、加密，或者始终只留在一台电脑上，都由你决定。
+公开仓库和 npm 包不包含你的知识库、本地 MCP 凭据、运行日志或工作区专用 Agent 规则。知识库是否备份、同步、加密或始终留在一台电脑上，由你决定。
 
-## 都是可选项，不是前置条件
+## 可选能力
 
-- **Obsidian**：可以作为同一套 Markdown 知识库的优秀人工编辑器，但 My Wiki 不依赖它。
-- **Firecrawl MCP**：用于增强动态或难抓取网页的入库能力；有受限的无 Key 托管入口，完整爬取需要 Firecrawl 认证。
-- **IMA 和其他外部平台**：把得到授权的资料优先下载成本地 raw，再走同一套证据维护流程。
-- **RAG**：未来需要 Embedding 和生产级检索时再增加，不必放弃已经可读、可追溯的 raw 与 Wiki。
+- **Obsidian**：可以作为同一套 Markdown 知识库的人工编辑器，但 My Wiki 不依赖它。
+- **Firecrawl MCP**：增强动态或难抓取网页的入库能力；完整托管爬取可能需要 Firecrawl 认证。
+- **IMA 和其他外部平台**：先把得到授权的资料迁移到本地 raw，再走同一套维护流程。
+- **RAG**：未来需要 Embedding 和生产级检索时再接入，不必放弃已有的 raw 与 Wiki。
 
 ## 开源许可证
 
-My Wiki 使用 [MIT License](LICENSE.txt) 开源。
+My Wiki 源码使用 [MIT License](LICENSE.txt)。Dashboard 内置宠物资源保留各自的作者和许可说明，详见 [宠物资源说明](my-wiki/assets/dashboard/pets/NOTICE.md)。

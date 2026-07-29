@@ -9,102 +9,161 @@
 ![Node.js 18+](https://img.shields.io/badge/Node.js-18%2B-43853D?style=flat-square)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE.txt)
 
-**A zero-cost, beginner-friendly local knowledge base that AI agents can build and maintain for you.**
+**My Wiki is a local-first knowledge application powered by AI agents. Use it as an Agent Skill through chat, or open its web frontend for an interactive knowledge universe, maintenance workflows, and grounded Viki Q&A.**
 
 [简体中文](README.md) · [English](README.en.md)
 
-<img width="1536" height="1024" alt="AI agent organizing local knowledge into an evidence-backed wiki" src="https://github.com/user-attachments/assets/bea713c3-8d37-427b-ab04-5f601123f252" />
+<img width="1536" height="1024" alt="An AI agent organizing local sources into an evidence-backed knowledge base" src="https://github.com/user-attachments/assets/bea713c3-8d37-427b-ab04-5f601123f252" />
 
-Your useful knowledge is scattered across webpages, PDFs, screenshots, chat history, notes, and documentation. My Wiki gives a local AI agent a durable place to turn those sources into a connected wiki you actually own.
+Useful knowledge is scattered across webpages, PDFs, scans, images, Office documents, conversations, and reference manuals. Saving those files is easy. Keeping them organized, connected, verifiable, and reusable over time is much harder.
 
-Install one Agent Skill, choose any folder for your knowledge, and speak naturally. The agent captures sources, preserves evidence and images, distills atomic wiki pages, repairs links, answers questions, and opens an interactive graph when you want to explore.
+My Wiki gives a local AI agent responsibility for the whole knowledge lifecycle: preserve sources, extract readable content, distill atomic Wiki pages, maintain relationships and evidence links, answer questions, repair the knowledge base, and present it through an interactive web application.
 
-No hosted database. No vector database. No required Obsidian setup. No paid API by default.
+No hosted database, vector database, Obsidian installation, or paid API is required by default. Knowledge stays in Markdown, snapshots, original files, and images inside folders you control.
 
-## Why My Wiki
+## More Than An Agent Skill
 
-- **Local first**: Markdown, source snapshots, and images stay in folders you control.
-- **Agent maintained**: ask for an article to be saved or the knowledge base to be maintained; the agent handles the workflow.
-- **Evidence backed**: synthesized knowledge remains linked to the raw material it came from.
-- **Image aware**: diagrams, screenshots, charts, and other useful visuals can be preserved and returned with answers.
-- **Knowledge graph included**: explore the knowledge universe, knowledge galaxies, Wiki planets, and the raw evidence behind a page.
-- **Portable by design**: use ordinary files, move the vault, open it with any Markdown editor, or index it with a future RAG system.
-- **Zero-cost starting point**: begin with Node.js and a local AI agent instead of a cloud service or infrastructure stack.
+My Wiki provides two interfaces over the same local knowledge vault:
 
-## My Wiki, RAG, Or LLM + Obsidian?
+| | AI Agent Skill | Knowledge Universe Web App |
+|---|---|---|
+| Best for | Conversational work inside Codex, Claude Code, OpenCode, and similar clients | Visual exploration, comparison, maintenance, and direct knowledge operations |
+| Main interaction | Ask the agent to capture, maintain, search, and answer | Browse graphs, upload sources, process the queue, and ask Viki |
+| Knowledge surface | Wiki pages, raw evidence, images, snapshots, and local files | Knowledge universe, galaxies, Wiki planets, and source-evidence views |
+| Agent execution | Uses the current Agent client and its tools | Calls an authenticated local Codex, OpenCode, or Claude CLI |
+| Data location | A local vault at any path you choose | The same local vault |
 
-They solve different parts of the knowledge problem. My Wiki focuses on the missing middle: turning source material into readable, linked, evidence-closed knowledge before retrieval.
+Use either interface on its own or move between chat and the browser whenever useful. There is no second database to synchronize.
 
-| | My Wiki | Traditional RAG | LLM + Obsidian |
-|---|---|---|---|
-| Getting started | Install one Skill and choose a folder | Build ingestion, chunking, embeddings, retrieval, and services | Install an editor, choose plugins, then design prompts and conventions |
-| Main storage | Markdown, snapshots, and local images | Vector index plus an external source store | Markdown vault |
-| Who organizes it | The agent maintains raw evidence, atomic wiki pages, links, and health checks | The pipeline indexes chunks; human-readable synthesis is separate | Usually the user, assisted by plugins or chat |
-| Traceability | Wiki claims link back to raw evidence and backlinks are checked | Depends on retrieval metadata and application design | Possible, but depends on the user's note discipline |
-| Images | Preserved as evidence and available for answers | Requires multimodal ingestion and retrieval design | Stored well, but answer-time selection needs extra workflow |
-| Visualization | Built-in universe, galaxy, Wiki-planet, and evidence views | Usually a separate observability or graph system | Excellent note graph, primarily for the vault itself |
-| Best fit | Personal and project knowledge that should stay readable, grounded, and easy to maintain | Large-scale semantic retrieval and production applications | Hands-on writing, linking, and browsing by a human |
+## Two Ways To Use My Wiki
 
-My Wiki does not oppose either approach. Open a My Wiki vault in Obsidian whenever you want its editor, and use the clean Markdown evidence layer as input to RAG when scale or production retrieval eventually requires it.
+### 1. Use It As A Skill In An AI Agent Client
 
-## From Sources To Durable Knowledge
+After installation, speak naturally in Codex, Claude Code, OpenCode, OpenClaw, Hermes, or another Skill-compatible agent:
 
 ```text
-Webpages / PDFs / notes / images / external platforms
-                         |
-                         v
-                 raw evidence layer
-             originals, metadata, images
-                         |
-                    AI agent
-             distill, link, check, repair
-                         |
-                         v
-                 atomic wiki pages
-           concepts, methods, APIs, entities
-                         |
-               +---------+---------+
-               v                   v
-        grounded answers     knowledge graph
+Create a My Wiki vault at D:\Knowledge\Personal and make it the default.
+Save this article to my knowledge base: https://example.com/article
+Capture this PDF and preserve its important images.
+Maintain the knowledge base.
+Answer this question from my local knowledge and show the relevant evidence images.
 ```
 
-My Wiki does not merely create one summary per document. A useful source can update many durable wiki pages, while one wiki page can draw evidence from many sources. A raw item is only considered processed after its wiki targets exist, the evidence links close in both directions, and follow-up flags are resolved.
+The agent resolves the active vault, preserves raw evidence and attachments, creates or updates atomic Wiki pages, maintains reciprocal links, and answers from Wiki knowledge while following evidence back to raw sources when verification matters. You do not need to memorize a separate CLI.
+
+### 2. Open The Knowledge Universe Web App
+
+Tell the agent:
+
+```text
+Open the knowledge universe.
+Open the My Wiki frontend.
+Open the knowledge graph.
+```
+
+The agent starts the local web application. From there you can:
+
+- see the full knowledge universe, its galaxies, and where they intersect;
+- enter one galaxy and inspect a three-dimensional network of Wiki planets;
+- read a Wiki page and drill into every raw source supporting it;
+- search Wiki pages, relationships, and sources without losing the current graph level;
+- enter a webpage URL or upload files, folders, and Markdown-plus-images ZIP bundles;
+- inspect Inbox and `needs-followup`, then ask an agent to distill Wiki pages and close evidence links in batches;
+- ask the persistent Viki companion questions grounded in Wiki pages, raw evidence, and useful images;
+- choose Viki's Agent CLI and pet independently, and resize the chat window;
+- export one knowledge galaxy or preview and import a shared `.mywiki` package.
+
+The frontend binds only to `127.0.0.1`. Routine capture and maintenance through an Agent do not start it. It opens only when you explicitly ask for the knowledge universe, frontend, graph, or Dashboard.
+
+## From Sources To Reusable Knowledge
+
+```text
+Webpages / PDFs / scans / images / Office files / external platforms
+                              |
+                              v
+                       raw evidence layer
+                originals, snapshots, images, metadata
+                              |
+                          AI agent
+                  distill, link, verify, repair
+                              |
+                              v
+                       atomic Wiki pages
+                 concepts, methods, APIs, entities
+                              |
+               +--------------+--------------+
+               v                             v
+         grounded answers            knowledge universe
+```
+
+My Wiki does not create one disposable summary per document. One source can update several durable Wiki pages, and one Wiki page can synthesize evidence from many sources. A raw item becomes `processed` only after useful Wiki targets exist, raw-to-Wiki evidence links close in both directions, and follow-up work is resolved.
+
+That structure makes knowledge reusable. A source captured today can improve an existing Wiki page, a question tomorrow can reuse that page, and important claims still lead back to the original text, image, or PDF.
 
 ## Explore The Knowledge Universe
 
-<img width="1785" height="881" alt="My Wiki knowledge universe with galaxies and Wiki planets" src="https://raw.githubusercontent.com/NimaChu/my-wiki/main/.github/assets/knowledge-universe.png" />
+<img width="1785" height="881" alt="My Wiki knowledge universe, knowledge galaxies, and Wiki planets" src="https://raw.githubusercontent.com/NimaChu/my-wiki/main/.github/assets/knowledge-universe.png" />
 
-The optional local frontend is more than a folder graph:
+- **Knowledge universe**: the global vault view, showing multiple galaxies and the shared Wiki pages that connect them.
+- **Knowledge galaxy**: a coherent body of knowledge that can be understood and reused as a unit, such as FlexSim, Agent Development, or project experience.
+- **Wiki planet**: one atomic Wiki page describing a concept, method, entity, process, or durable conclusion.
+- **Source-evidence layer**: the webpages, Markdown, PDFs, images, and other raw sources supporting a Wiki page.
 
-- zoom out to see the whole knowledge universe, its knowledge galaxies, and where they intersect;
-- enter one knowledge galaxy to rotate and inspect its three-dimensional network of Wiki planets;
-- select a Wiki planet to highlight meaningful relationships and read the rendered page;
-- enter the evidence layer to see every raw source supporting that wiki page;
-- search without permanently hiding the rest of the graph;
-- let the running watcher refresh the graph automatically as knowledge changes.
-- add a webpage, file, folder batch, or Markdown-plus-images ZIP bundle;
-- locally convert PDFs, scans, images, DOCX, PPTX, and XLSX into maintainable Markdown, locking unreliable extraction for follow-up;
-- export a knowledge galaxy or preview and confirm a `.mywiki` import;
-- send one maintenance-queue batch to a local agent to distill Wiki pages and close evidence links;
-- ask the persistent Viki companion questions grounded in Wiki pages, raw evidence, and useful local images; its bundled pet can be changed independently from the selected Agent CLI.
+The graph is not a second database. It is generated directly from Wiki and raw relationships, and a running frontend refreshes as the vault changes.
 
-The Dashboard stays off during ordinary agent capture and maintenance. It starts only when you ask to see the graph or frontend. Its local service listens only on `127.0.0.1`; browser capture preserves evidence as `status: inbox` and never silently starts AI maintenance. It calls an already authenticated local Codex, OpenCode, or Claude only after you click the batch action or submit a question to Viki.
+## Share And Reuse Knowledge Galaxies
 
-## Share A Knowledge Galaxy
+A knowledge galaxy can be exported as one `.mywiki` package. It is not merely a set of summaries. It is an evidence-backed knowledge collection containing:
 
-A knowledge universe can contain several human-named knowledge galaxies, with every Wiki page shown as a Wiki planet. Ask the agent to export one galaxy as a single `.mywiki` knowledge package, then give that file to another My Wiki user to preview and import.
+- the galaxy's Wiki Markdown;
+- raw Markdown linked by those Wiki pages;
+- available source URLs;
+- related images and image indexes;
+- webpage snapshots, PDFs, and other originals explicitly referenced by the raw notes.
 
-The package contains only that galaxy's Wiki Markdown, linked raw Markdown, available source URLs, related images, and the webpage snapshots, PDFs, or other originals explicitly referenced by those raw notes. This keeps evidence complete even when a local PDF has no URL. For compatibility, storage and CLI contracts retain the `universes` field and `export-universe` command; the Dashboard presents each named value as a knowledge galaxy. Import previews duplicates and conflicts before writing anything, and the recipient can rename the galaxy during import when useful.
+Recipients preview duplicates, renames, and conflicts before confirming an import into their own knowledge universe. Evidence remains complete even when an original source, such as a local PDF, has no URL.
+
+Import and export from the web app, or ask an agent:
 
 ```text
 Export the "FlexSim" knowledge galaxy as a knowledge package.
-Preview importing this flexsim.mywiki knowledge package.
+Preview importing this flexsim.mywiki package.
 Import it and rename the galaxy to "Simulation Engineering".
 ```
 
+This lets My Wiki support a broader knowledge ecosystem: coherent knowledge can be shared, inspected, verified, extended, and maintained by another user's agent.
+
+## Why My Wiki
+
+- **Local first**: Markdown, originals, webpage snapshots, and images stay in folders you control.
+- **Agent maintained**: short natural-language requests drive capture, distillation, linking, checks, and repairs.
+- **Evidence backed**: Wiki conclusions link to raw evidence, including useful images and original files.
+- **Designed for reuse**: sources become atomic Wiki knowledge and relationships instead of disappearing into a retrieval black box.
+- **An operational web app**: add sources, process maintenance queues, ask Viki, and exchange knowledge galaxies, not just view a graph.
+- **Broad local-document support**: text PDFs, scanned PDFs, images, DOCX, PPTX, XLSX, folder batches, and ZIP bundles.
+- **Failure stays visible**: empty, partial, unsupported, or low-confidence extraction is locked as `needs-followup` instead of pretending capture succeeded.
+- **Portable by design**: move or back up the vault, open it in any Markdown editor, or connect Obsidian and RAG later.
+- **Zero-cost starting point**: begin with Node.js and an available local Agent client rather than a cloud infrastructure stack.
+
+## My Wiki, RAG, Or LLM + Obsidian?
+
+My Wiki focuses on the organization layer before retrieval: turning source material into readable, connected, verifiable, and maintainable knowledge.
+
+| | My Wiki | Traditional RAG | LLM + Obsidian |
+|---|---|---|---|
+| Getting started | Install one Skill and gain both Agent workflows and a web app | Build chunking, embeddings, retrieval, storage, and services | Install an editor and plugins, then define prompts and note conventions |
+| Main storage | Markdown, originals, snapshots, and local images | Vector index plus an external source store | Markdown vault |
+| Who organizes it | The agent maintains raw evidence, atomic Wiki pages, links, and health | The pipeline indexes chunks; readable synthesis is usually separate | Usually the user, with LLM assistance |
+| Traceability | Wiki and raw links are reciprocal and automatically checkable | Depends on retrieval metadata and application design | Possible, but depends on user discipline |
+| Web experience | Built-in universe, capture, maintenance, Viki, and package exchange | Usually requires a separately developed application | Primarily editor-based browsing and plugins |
+| Shareable unit | A galaxy containing Wiki, raw, images, and originals | An index or application-specific dataset | A folder or whole vault |
+| Best fit | Long-term personal, team, and project knowledge management | Large-scale semantic retrieval and production services | Hands-on writing, linking, and note browsing |
+
+My Wiki does not oppose RAG or Obsidian. Open the same vault in Obsidian whenever useful, and feed the clean Markdown evidence layer into RAG when scale actually requires it.
+
 ## Quick Start
 
-Requires Node.js 18+ and npm. Installation and updates use the same command; run it again to update in place:
+Requires Node.js 18+ and npm. Installation and updates use the same command:
 
 ```bash
 npx my-wiki-skill@latest
@@ -116,16 +175,15 @@ For networks that use npmmirror:
 npx --registry=https://registry.npmmirror.com my-wiki-skill@latest
 ```
 
-Or give the command directly to your AI agent:
+You can also ask an agent to install it:
 
 ```text
-Install My Wiki Skill for me: npx my-wiki-skill@latest
-China mirror: npx --registry=https://registry.npmmirror.com my-wiki-skill@latest
+Install My Wiki for me: npx my-wiki-skill@latest
 ```
 
-The installer detects common local Agent Skill roots and installs the clean `my-wiki` Skill into every discovered location:
+The installer detects common Agent Skill roots:
 
-| Agent host | Default Skill root | Installer support |
+| Agent client | Default Skill root | Installer support |
 |---|---|---|
 | Claude Code | `~/.claude/skills` | Auto-detect or `--target claude` |
 | Codex | `~/.codex/skills` | Auto-detect or `--target codex` |
@@ -134,66 +192,34 @@ The installer detects common local Agent Skill roots and installs the clean `my-
 | Hermes Agent | `~/.hermes/skills` | Auto-detect or `--target hermes` |
 | Other `SKILL.md`-compatible agents | Host-defined | Use `--dir <skills-root>` |
 
-The default command updates every detected host. To select one explicitly, run a command such as `npx my-wiki-skill@latest --target openclaw`. Open a new agent session after installation or updating; OpenClaw and Hermes can also load it after their session refresh/reset flow. Use `--list` to inspect detected destinations.
+After installation, open or refresh the Agent session, create a vault, start capturing knowledge, or simply say "Open the knowledge universe."
 
-The npm package contains no Git metadata, personal vault, tests, build output, or runtime logs.
+## Local Vault Structure
 
-After installation, speak naturally:
-
-```text
-Create a My Wiki vault in D:\Knowledge\Personal and use it by default.
-Save this webpage to my knowledge base: https://example.com/article
-Maintain the knowledge base.
-Answer this question from my local knowledge and show the relevant evidence images.
-Open the knowledge graph.
-```
-
-You do not need to memorize the CLI. The Skill resolves the selected vault and runs the capture, maintenance, search, image, and visualization workflows for the agent.
-
-## What You Can Do
-
-### Capture without losing the source
-
-Store webpages, PDFs, scans, images, Office documents, folder batches, and ZIP bundles in `raw/`. Every original stays local. Text PDFs are extracted page by page, scanned PDFs and images use local OCR, and DOCX/PPTX/XLSX become structured Markdown. OCR needs no API key; free language data is downloaded once and cached locally. Only sources with substantive readable content enter Inbox. Failed, empty, low-confidence, or unsupported extraction is locked as `needs-followup`, so an agent cannot mistake an untouched binary for reviewed evidence.
-
-### Let the wiki improve over time
-
-Ask the agent to maintain the knowledge base. It processes a coherent batch, creates or updates atomic pages, merges duplicates, repairs evidence links, keeps the number of knowledge galaxies small, and reports what remains.
-
-### Ask grounded questions
-
-The agent searches synthesized wiki pages first and follows links back to raw evidence when a claim needs verification. Relevant screenshots, diagrams, charts, or UI states can accompany the answer instead of being forgotten in an attachment folder.
-
-### Keep several independent vaults
-
-Personal, work, research, and project vaults can live anywhere on the computer. Install the Skill once, register each vault by name, and keep their knowledge completely separate from this source repository.
-
-## Your Files Stay Yours
-
-Each vault is an ordinary folder:
+The vault can live anywhere on the computer and remains separate from both the installed Skill and this source repository:
 
 ```text
 my-vault/
   raw/
-    sources/    flat source-note storage
-    assets/     one image and index directory per source
-    snapshots/  flat webpage snapshot, PDF, and original storage
-  wiki/         durable, linked knowledge pages
+    sources/    Markdown transcriptions of source evidence
+    assets/     one image and image-index directory per source
+    snapshots/  webpage snapshots, PDFs, Office files, and other originals
+  wiki/         durable atomic Wiki pages
   templates/    Markdown templates copied into this vault
-  .my-wiki/     local cache and runtime state
+  .my-wiki/     local cache, runtime state, and package records
 ```
 
-`sources/` and `snapshots/` have no classification subdirectories. `assets/` keeps only the necessary one-directory-per-source level so images from different articles never mix. Source classification is optional metadata and does not affect the wiki. The Skill can preview and back up legacy layout migrations while updating wiki, image, and snapshot references together.
+The web app and Agent capture use the same extraction quality gate. Text PDFs are extracted page by page, scans and images use local OCR, and DOCX, PPTX, and XLSX become structured Markdown. Every original remains in `raw/snapshots/`.
 
-The public repository contains the Skill, templates, and Dashboard. It does not contain your vault, local MCP credentials, workspace-specific agent rules, or local regression tests. You decide whether a vault is backed up, synced, encrypted, or never leaves one computer.
+The public repository and npm package contain no personal vault, MCP credentials, runtime logs, or workspace-specific Agent rules. You decide whether a vault is backed up, synchronized, encrypted, or kept on one machine.
 
-## Optional, Not Required
+## Optional Capabilities
 
-- **Obsidian**: use it as an excellent human editor for the same Markdown vault; My Wiki does not depend on it.
-- **Firecrawl MCP**: improve capture for rendered or difficult webpages. A keyless hosted endpoint is available with limits; full crawling requires Firecrawl authentication.
-- **IMA and other external platforms**: import authorized material into local raw notes first, then maintain it through the same evidence workflow.
-- **RAG**: add embeddings and production retrieval later without throwing away the readable source and wiki layers.
+- **Obsidian**: use it as a human editor for the same Markdown vault; My Wiki does not depend on it.
+- **Firecrawl MCP**: improve capture for rendered or difficult webpages; full hosted crawling may require Firecrawl authentication.
+- **IMA and other external platforms**: migrate authorized material into local raw notes before using the same maintenance workflow.
+- **RAG**: add embeddings and production retrieval later without discarding the readable raw and Wiki layers.
 
 ## License
 
-My Wiki is released under the [MIT License](LICENSE.txt).
+My Wiki source code is released under the [MIT License](LICENSE.txt). Bundled Dashboard pet assets retain their own attribution and license terms; see the [pet asset notice](my-wiki/assets/dashboard/pets/NOTICE.md).

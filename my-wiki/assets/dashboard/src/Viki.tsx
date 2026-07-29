@@ -1,10 +1,11 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, BookOpen, Check, LoaderCircle, PawPrint, SendHorizontal, Square, X } from "lucide-react";
+import { Bot, BookOpen, Check, LoaderCircle, MoveDiagonal2, PawPrint, SendHorizontal, Square, X } from "lucide-react";
 import { AgentAnswer, AgentInfo, localApi, PetAppearance, waitForJob } from "./api";
 
 type Language = "en" | "zh";
 type VikiEdge = "top" | "right" | "bottom" | "left";
 type VikiPosition = { x: number; y: number; edge: VikiEdge };
+type VikiPanelSize = { width: number; height: number };
 type PetAnimationState = "idle" | "running-right" | "running-left" | "waving" | "failed" | "waiting" | "working";
 type ChatMessage = {
   id: string;
@@ -17,9 +18,12 @@ type ChatMessage = {
 const LAUNCHER_SIZE = 80;
 const EDGE_GAP = 16;
 const PANEL_GAP = 10;
+const DEFAULT_PANEL_SIZE = { width: 640, height: 480 };
+const MIN_PANEL_SIZE = { width: 480, height: 360 };
 const POSITION_KEY = "my-wiki-viki-position";
 const PROVIDER_KEY = "my-wiki-viki-provider";
 const PET_KEY = "my-wiki-viki-pet";
+const PANEL_SIZE_KEY = "my-wiki-viki-panel-size";
 
 const copy = {
   en: {
@@ -35,6 +39,7 @@ const copy = {
     ready: "Ready",
     busy: "Working",
     stop: "Stop current answer",
+    resize: "Resize Viki",
     agentCli: "Agent CLI",
     pet: "Viki pet",
     retry: "Please try again."
@@ -52,6 +57,7 @@ const copy = {
     ready: "已就绪",
     busy: "工作中",
     stop: "停止当前回答",
+    resize: "调整 Viki 窗口大小",
     agentCli: "Agent CLI",
     pet: "Viki 宠物",
     retry: "请稍后重试。"
@@ -72,19 +78,36 @@ export function Viki({ language }: { language: Language }) {
   const [error, setError] = useState("");
   const [viewport, setViewport] = useState(() => currentViewport());
   const [position, setPositionState] = useState<VikiPosition>(() => initialPosition());
+  const [panelSize, setPanelSizeState] = useState<VikiPanelSize>(() => initialPanelSize());
   const [dragging, setDragging] = useState(false);
+  const [resizing, setResizing] = useState(false);
   const [dragDirection, setDragDirection] = useState<"left" | "right">("right");
   const [hovered, setHovered] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const petPickerRef = useRef<HTMLDivElement>(null);
   const positionRef = useRef(position);
+  const panelSizeRef = useRef(panelSize);
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
+  const resizeRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startWidth: number;
+    startHeight: number;
+    xDirection: 1 | -1;
+    yDirection: 1 | -1;
+  } | null>(null);
   const suppressClickRef = useRef(false);
   const requestVersionRef = useRef(0);
 
   const setPosition = (value: VikiPosition) => {
     positionRef.current = value;
     setPositionState(value);
+  };
+
+  const setPanelSize = (value: VikiPanelSize) => {
+    panelSizeRef.current = value;
+    setPanelSizeState(value);
   };
 
   useEffect(() => {
@@ -135,6 +158,9 @@ export function Viki({ language }: { language: Language }) {
     const onResize = () => {
       const nextViewport = currentViewport();
       setViewport(nextViewport);
+      const nextPanelSize = clampPanelSize(panelSizeRef.current, nextViewport);
+      setPanelSize(nextPanelSize);
+      persistPanelSize(nextPanelSize);
       const next = positionOnEdge(positionRef.current, positionRef.current.edge, nextViewport);
       setPosition(next);
       persistPosition(next);
@@ -241,12 +267,48 @@ export function Viki({ language }: { language: Language }) {
     window.setTimeout(() => { suppressClickRef.current = false; }, 0);
   };
 
+  const startResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const directions = vikiPanelDirections(positionRef.current, viewport);
+    resizeRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth: panelSizeRef.current.width,
+      startHeight: panelSizeRef.current.height,
+      ...directions
+    };
+    setResizing(true);
+  };
+
+  const moveResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const resize = resizeRef.current;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    setPanelSize(clampPanelSize({
+      width: resize.startWidth + (event.clientX - resize.startX) * resize.xDirection,
+      height: resize.startHeight + (event.clientY - resize.startY) * resize.yDirection
+    }, viewport));
+  };
+
+  const endResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const resize = resizeRef.current;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    persistPanelSize(panelSizeRef.current);
+    resizeRef.current = null;
+    setResizing(false);
+  };
+
   const toggleOpen = () => {
     if (suppressClickRef.current) return;
     setOpen((value) => !value);
   };
 
-  const panelOffset = vikiPanelOffset(position, viewport);
+  const panelDirections = vikiPanelDirections(position, viewport);
+  const panelOffset = vikiPanelOffset(position, viewport, panelSize);
+  const resizeCorner = `${panelDirections.yDirection === 1 ? "bottom" : "top"}-${panelDirections.xDirection === 1 ? "right" : "left"}`;
   const providerLabel = agent?.providers.find((item) => item.provider === provider)?.label || agent?.label || "";
   const pet = pets.find((item) => item.id === petId) || pets[0];
   const petState: PetAnimationState = dragging
@@ -258,12 +320,16 @@ export function Viki({ language }: { language: Language }) {
 
   return (
     <aside
-      className={`viki ${open ? "is-open" : ""} ${dragging ? "is-dragging" : ""}`}
+      className={`viki ${open ? "is-open" : ""} ${dragging ? "is-dragging" : ""} ${resizing ? "is-resizing" : ""}`}
       aria-live="polite"
       style={{ left: position.x, top: position.y }}
     >
       {open ? (
-        <section className="viki-panel" aria-label="Viki" style={{ left: panelOffset.x, top: panelOffset.y }}>
+        <section
+          className={`viki-panel has-resize-${resizeCorner}`}
+          aria-label="Viki"
+          style={{ left: panelOffset.x, top: panelOffset.y, width: panelSize.width, height: panelSize.height }}
+        >
           <header>
             <div className="viki-identity">
               <span className="viki-avatar"><VikiPet pet={pet} state={petState} size={36} fallbackSize={20} /></span>
@@ -373,6 +439,18 @@ export function Viki({ language }: { language: Language }) {
               {busy ? <LoaderCircle className="spin" size={18} /> : <SendHorizontal size={18} />}
             </button>
           </div>
+          <button
+            className={`viki-resize-handle is-${resizeCorner}`}
+            type="button"
+            aria-label={l.resize}
+            title={l.resize}
+            onPointerDown={startResize}
+            onPointerMove={moveResize}
+            onPointerUp={endResize}
+            onPointerCancel={endResize}
+          >
+            <MoveDiagonal2 size={14} aria-hidden="true" />
+          </button>
         </section>
       ) : null}
 
@@ -477,11 +555,32 @@ function initialPosition(): VikiPosition {
   return { x: EDGE_GAP, y: viewport.height - LAUNCHER_SIZE - EDGE_GAP, edge: "bottom" };
 }
 
+function initialPanelSize(): VikiPanelSize {
+  const viewport = currentViewport();
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(PANEL_SIZE_KEY) || "null");
+    if (stored && Number.isFinite(Number(stored.width)) && Number.isFinite(Number(stored.height))) {
+      return clampPanelSize({ width: Number(stored.width), height: Number(stored.height) }, viewport);
+    }
+  } catch {
+    // Use the default 4:3 panel size.
+  }
+  return clampPanelSize(DEFAULT_PANEL_SIZE, viewport);
+}
+
 function persistPosition(position: VikiPosition) {
   try {
     window.localStorage.setItem(POSITION_KEY, JSON.stringify(position));
   } catch {
     // Position persistence is optional.
+  }
+}
+
+function persistPanelSize(size: VikiPanelSize) {
+  try {
+    window.localStorage.setItem(PANEL_SIZE_KEY, JSON.stringify(size));
+  } catch {
+    // Panel-size persistence is optional.
   }
 }
 
@@ -554,22 +653,41 @@ function positionOnEdge(position: VikiPosition, edge: VikiEdge, viewport: { widt
   };
 }
 
-function vikiPanelOffset(position: VikiPosition, viewport: { width: number; height: number }) {
-  const panelWidth = Math.min(420, viewport.width - 44);
-  const panelHeight = Math.min(620, viewport.height - 120);
+function vikiPanelDirections(position: VikiPosition, viewport: { width: number; height: number }) {
   const preferRight = position.x + LAUNCHER_SIZE / 2 <= viewport.width / 2;
   const preferBelow = position.y + LAUNCHER_SIZE / 2 <= viewport.height / 2;
+  return {
+    xDirection: (preferRight ? 1 : -1) as 1 | -1,
+    yDirection: (preferBelow ? 1 : -1) as 1 | -1
+  };
+}
+
+function vikiPanelOffset(position: VikiPosition, viewport: { width: number; height: number }, size: VikiPanelSize) {
+  const panelWidth = size.width;
+  const panelHeight = size.height;
+  const { xDirection, yDirection } = vikiPanelDirections(position, viewport);
   const globalX = clamp(
-    preferRight ? position.x : position.x + LAUNCHER_SIZE - panelWidth,
+    xDirection === 1 ? position.x : position.x + LAUNCHER_SIZE - panelWidth,
     EDGE_GAP,
     viewport.width - panelWidth - EDGE_GAP
   );
   const globalY = clamp(
-    preferBelow ? position.y + LAUNCHER_SIZE + PANEL_GAP : position.y - panelHeight - PANEL_GAP,
+    yDirection === 1 ? position.y + LAUNCHER_SIZE + PANEL_GAP : position.y - panelHeight - PANEL_GAP,
     EDGE_GAP,
     viewport.height - panelHeight - EDGE_GAP
   );
   return { x: globalX - position.x, y: globalY - position.y };
+}
+
+function clampPanelSize(size: VikiPanelSize, viewport: { width: number; height: number }): VikiPanelSize {
+  const maxWidth = Math.max(320, viewport.width - EDGE_GAP * 2);
+  const maxHeight = Math.max(260, viewport.height - EDGE_GAP * 2);
+  const minWidth = Math.min(MIN_PANEL_SIZE.width, maxWidth);
+  const minHeight = Math.min(MIN_PANEL_SIZE.height, maxHeight);
+  return {
+    width: Math.round(clamp(size.width, minWidth, maxWidth)),
+    height: Math.round(clamp(size.height, minHeight, maxHeight))
+  };
 }
 
 function clamp(value: number, minimum: number, maximum: number) {
