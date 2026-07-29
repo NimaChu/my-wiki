@@ -452,7 +452,7 @@ function localAttachmentTarget(value) {
   }
 }
 
-export async function rawAttachmentIssues(scan) {
+export async function rawAttachmentIssues(scan, { allLocalImages = false } = {}) {
   const issues = [];
   const seen = new Set();
   for (const node of scan.nodes.filter((candidate) => candidate.id.startsWith("raw/") || candidate.id.startsWith("wiki/"))) {
@@ -463,8 +463,8 @@ export async function rawAttachmentIssues(scan) {
         if (value) references.push({ key, value, rootStyle: true });
       }
     }
-    for (const match of node.content.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)) {
-      references.push({ key: "markdown-image", value: match[1], rootStyle: false });
+    for (const match of node.content.matchAll(/!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+["'][^"']*["'])?\s*\)/g)) {
+      references.push({ key: "markdown-image", value: match[1] || match[2], rootStyle: false });
     }
     for (const match of node.content.matchAll(/<img\b[^>]*\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi)) {
       references.push({ key: "html-image", value: match[1] || match[2] || match[3], rootStyle: false });
@@ -478,7 +478,7 @@ export async function rawAttachmentIssues(scan) {
       const resolvedRelative = path.relative(scan.vault, resolved).replace(/\\/g, "/");
       const managedSyntax = /(?:^|\/)(?:assets|snapshots)(?:\/|$)/.test(target);
       const managedLocation = /^(?:raw\/(?:assets|snapshots))(?:\/|$)/.test(resolvedRelative);
-      if (!reference.rootStyle && !managedSyntax && !managedLocation) continue;
+      if (!allLocalImages && !reference.rootStyle && !managedSyntax && !managedLocation) continue;
       const key = `${node.id}|${reference.key}|${resolved.toLowerCase()}`;
       if (seen.has(key)) continue;
       seen.add(key);

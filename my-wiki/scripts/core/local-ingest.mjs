@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { captureSource } from "./capture-service.mjs";
 import { extractLocalDocument, extractionFromText, sourceTypeForLocalFile } from "./document-extractor.mjs";
+import { exists, slugify } from "./wiki-lib.mjs";
 
 const ZIP_ENTRY_LIMIT = Number(process.env.MY_WIKI_ZIP_ENTRY_LIMIT || 2000);
 const ZIP_EXPANDED_LIMIT = Number(process.env.MY_WIKI_ZIP_EXPANDED_LIMIT_BYTES || 500 * 1024 * 1024);
@@ -22,18 +23,19 @@ export async function ingestLocalFile({
   if (path.extname(filename).toLowerCase() === ".zip") {
     return ingestZipBundle({ vault, file, filename, collection, dependencyRoot, captureMethod: captureMethod.replace(/file$/, "zip") });
   }
+  const snapshot = await preserveUploadedSnapshot({ vault, file, filename });
   const extracted = await extractLocalDocument({
-    file,
+    file: snapshot.file,
     filename,
     dependencyRoot,
     cacheRoot: path.join(vault, ".my-wiki", "ocr-cache")
-  });
+  }).catch((error) => failedExtraction("local-parser", cleanError(error)));
   const result = await captureSource({
     vault,
     title: title.trim() || path.basename(filename, path.extname(filename)) || "Uploaded Source",
     sourceType: sourceTypeForLocalFile(filename),
     collection,
-    snapshotFile: file,
+    snapshotReference: snapshot.relative,
     content: extracted.content,
     textExtraction: extracted.status,
     extractionStatus: extracted.status,
@@ -48,6 +50,7 @@ export async function ingestLocalFile({
     sourcePath,
     initialStatus: extracted.status === "complete" ? "inbox" : "needs-followup",
     embeddedAssets: extracted.assets,
+    requireLocalAttachments: true,
     captureMethod,
     shouldSnapshot: true,
     shouldMirrorImages: true
@@ -75,8 +78,35 @@ export async function ingestDirectory({ vault, directory, collection = "", depen
 }
 
 export async function ingestZipBundle({ vault, file, filename = path.basename(file), collection = "", dependencyRoot, captureMethod = "agent-zip" }) {
+  const snapshot = await preserveUploadedSnapshot({ vault, file, filename });
+  try {
+    return await ingestPreservedZipBundle({ vault, filename, collection, dependencyRoot, captureMethod, snapshot });
+  } catch (error) {
+    const message = cleanError(error);
+    const result = await captureSource({
+      vault,
+      title: path.basename(filename, path.extname(filename)) || "Uploaded ZIP",
+      sourceType: "file",
+      collection,
+      snapshotReference: snapshot.relative,
+      content: failedExtraction("zip-validation", message).content,
+      textExtraction: "failed",
+      extractionStatus: "failed",
+      extractionMethod: "zip-validation",
+      extractionWarnings: [message],
+      originalFilename: filename,
+      initialStatus: "needs-followup",
+      captureMethod,
+      shouldSnapshot: true,
+      shouldMirrorImages: false
+    });
+    return { kind: "zip", count: 1, items: [{ ...result, extractionMessage: message, extractionWarnings: [message] }], total: 0, failures: [{ path: filename, error: message }] };
+  }
+}
+
+async function ingestPreservedZipBundle({ vault, filename, collection, dependencyRoot, captureMethod, snapshot }) {
   const JSZip = createRequire(path.resolve(dependencyRoot, "package.json"))("jszip");
-  const zip = await JSZip.loadAsync(await fs.readFile(file), { checkCRC32: true, createFolders: false });
+  const zip = await JSZip.loadAsync(await fs.readFile(snapshot.file), { checkCRC32: true, createFolders: false });
   const entries = Object.values(zip.files).filter((entry) => !entry.dir && !isIgnoredArchiveEntry(entry.name));
   if (entries.length > ZIP_ENTRY_LIMIT) throw new Error(`ZIP contains ${entries.length} files; the limit is ${ZIP_ENTRY_LIMIT}.`);
   for (const entry of entries) validateArchivePath(entry.name);
@@ -106,11 +136,16 @@ export async function ingestZipBundle({ vault, file, filename = path.basename(fi
     const references = localMarkdownImageReferences(content);
     const assets = [];
     for (const reference of references) {
-      const archiveName = resolveArchiveReference(markdownEntry.name, reference);
+      const archiveName = resolveArchiveReference(markdownEntry.name, reference.path);
       const entry = entryByName.get(archiveName);
-      if (!entry || !IMAGE_EXTENSIONS.has(path.posix.extname(entry.name).toLowerCase()) || assets.some((asset) => asset.archiveName === entry.name)) continue;
+      if (!entry || !IMAGE_EXTENSIONS.has(path.posix.extname(entry.name).toLowerCase())) continue;
+      const existing = assets.find((asset) => asset.archiveName === entry.name);
+      if (existing) {
+        existing.references.push(reference.literal);
+        continue;
+      }
       assignedImages.add(entry.name);
-      assets.push({ archiveName: entry.name, reference, name: path.posix.basename(entry.name), buffer: await readEntry(entry) });
+      assets.push({ archiveName: entry.name, references: [reference.literal], name: path.posix.basename(entry.name), buffer: await readEntry(entry) });
     }
     plans.push({ markdownEntry, content, extracted, assets });
   }
@@ -120,20 +155,18 @@ export async function ingestZipBundle({ vault, file, filename = path.basename(fi
       .map((plan) => ({ plan, score: commonDirectoryDepth(plan.markdownEntry.name, entry.name) }))
       .sort((a, b) => b.score - a.score || a.plan.markdownEntry.name.localeCompare(b.plan.markdownEntry.name))[0]?.plan;
     if (owner) {
-      owner.assets.push({ archiveName: entry.name, reference: `my-wiki-asset:${entry.name}`, name: path.posix.basename(entry.name), buffer: await readEntry(entry) });
+      owner.assets.push({ archiveName: entry.name, references: [`my-wiki-asset:${entry.name}`], name: path.posix.basename(entry.name), buffer: await readEntry(entry) });
     }
   }
 
   const items = [];
-  let sharedSnapshot = "";
   for (const { markdownEntry, content, extracted, assets } of plans) {
     const result = await captureSource({
       vault,
       title: markdownTitle(content) || path.posix.basename(markdownEntry.name, path.posix.extname(markdownEntry.name)),
       sourceType: "note",
       collection,
-      snapshotFile: sharedSnapshot ? "" : file,
-      snapshotReference: sharedSnapshot,
+      snapshotReference: snapshot.relative,
       content: extracted.content,
       textExtraction: extracted.status,
       extractionStatus: extracted.status,
@@ -144,15 +177,51 @@ export async function ingestZipBundle({ vault, file, filename = path.basename(fi
       originalFilename: `${filename}#${markdownEntry.name}`,
       sourcePath: markdownEntry.name,
       initialStatus: extracted.status === "complete" ? "inbox" : "needs-followup",
-      embeddedAssets: assets.map(({ reference, name, buffer }) => ({ reference, name, buffer })),
+      embeddedAssets: assets.map(({ references, name, buffer }) => ({ references, name, buffer })),
+      requireLocalAttachments: true,
       captureMethod,
       shouldSnapshot: true,
       shouldMirrorImages: true
     });
-    sharedSnapshot ||= result.snapshot;
     items.push({ ...result, extractionMessage: extracted.message || "" });
   }
   return { kind: "zip", count: items.length, items, total: markdownEntries.length, failures: [] };
+}
+
+async function preserveUploadedSnapshot({ vault, file, filename }) {
+  const snapshotsDir = path.join(vault, "raw", "snapshots");
+  await fs.mkdir(snapshotsDir, { recursive: true });
+  const originalName = path.basename(filename || file || "uploaded-source.bin");
+  const originalExtension = path.extname(originalName);
+  const extension = /^\.[a-z0-9]{1,12}$/i.test(originalExtension) ? originalExtension.toLowerCase() : ".bin";
+  const base = `${new Date().toISOString().slice(0, 10)}--${slugify(path.basename(originalName, originalExtension) || "uploaded-source")}`;
+  let target = path.join(snapshotsDir, `${base}${extension}`);
+  let counter = 2;
+  while (await exists(target)) {
+    target = path.join(snapshotsDir, `${base}-${counter}${extension}`);
+    counter += 1;
+  }
+  await fs.copyFile(path.resolve(file), target);
+  return {
+    file: target,
+    relative: path.relative(vault, target).replace(/\\/g, "/")
+  };
+}
+
+function failedExtraction(method, message) {
+  return {
+    status: "failed",
+    method,
+    content: `> ${message} The original file is preserved. Keep this source in needs-followup until readable evidence is available.`,
+    pages: 0,
+    characters: 0,
+    units: 0,
+    unitLabel: "items",
+    confidence: 0,
+    assets: [],
+    warnings: [message],
+    message
+  };
 }
 
 function commonDirectoryDepth(left, right) {
@@ -179,12 +248,19 @@ async function listDirectoryFiles(root) {
 
 function localMarkdownImageReferences(markdown) {
   const values = [];
-  const pattern = /!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+["'][^"']*["'])?\s*\)/g;
-  for (const match of String(markdown).matchAll(pattern)) {
-    const reference = decodeURIComponentSafe(match[1] || match[2] || "").replace(/\\/g, "/");
-    if (reference && !/^(?:[a-z]+:|#|\/)/i.test(reference)) values.push(reference);
+  const add = (literalValue) => {
+    const literal = String(literalValue || "").trim();
+    const decoded = decodeURIComponentSafe(literal).replace(/\\/g, "/");
+    const referencePath = decoded.split("#")[0].split("?")[0];
+    if (referencePath && !/^(?:[a-z]+:|#|\/)/i.test(referencePath)) values.push({ literal, path: referencePath });
+  };
+  for (const match of String(markdown).matchAll(/!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+["'][^"']*["'])?\s*\)/g)) {
+    add(match[1] || match[2]);
   }
-  return [...new Set(values)];
+  for (const match of String(markdown).matchAll(/<img\b[^>]*\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi)) {
+    add(match[1] || match[2] || match[3]);
+  }
+  return [...new Map(values.map((value) => [value.literal, value])).values()];
 }
 
 function resolveArchiveReference(markdownName, reference) {

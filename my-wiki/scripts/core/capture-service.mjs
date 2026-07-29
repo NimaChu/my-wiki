@@ -38,6 +38,7 @@ export async function captureSource({
   sourcePath = "",
   initialStatus = "",
   embeddedAssets = [],
+  requireLocalAttachments = false,
   imageInputs = [],
   shouldSnapshot = true,
   requireSnapshot = false,
@@ -83,9 +84,16 @@ export async function captureSource({
     validateUrl
   });
   const bodyContent = mirroredContent.markdown || originalFileNotice(snapshot?.path);
+  const attachmentFailures = requireLocalAttachments
+    ? await localImageAttachmentFailures(target, bodyContent)
+    : [];
   const digestBasis = snapshot?.buffer || Buffer.from(bodyContent);
   const effectiveCaptureMethod = captureMethod || snapshot?.method || (content ? "agent-provided" : "manual");
-  const requiresFollowup = initialStatus === "needs-followup" || Boolean(extractionStatus && extractionStatus !== "complete");
+  const followupReasons = [];
+  if (extractionStatus && extractionStatus !== "complete") followupReasons.push(`extraction:${extractionStatus}`);
+  if (initialStatus === "needs-followup" && followupReasons.length === 0) followupReasons.push("capture:needs-followup");
+  for (const failure of attachmentFailures) followupReasons.push(`missing-attachment:${failure}`);
+  const requiresFollowup = followupReasons.length > 0;
   const resolvedStatus = requiresFollowup ? "needs-followup" : "inbox";
   const tags = ["raw"];
   if (snapshot?.path) tags.push("snapshotted");
@@ -98,6 +106,7 @@ export async function captureSource({
     ? `- Content extraction: ${extractionStatus} via ${extractionMethod || "local-parser"} (${Number(extractedCharacters) || 0} characters)\n`
     : "";
   const warningsNote = extractionWarnings.length ? `- Extraction warnings: ${extractionWarnings.join("; ")}\n` : "";
+  const attachmentNote = attachmentFailures.length ? `- Missing local attachments: ${attachmentFailures.join("; ")}\n` : "";
 
   const body = `---
 title: ${yamlString(title)}
@@ -106,6 +115,7 @@ source_type: ${yamlString(sourceType)}
 collection: ${yamlString(resolvedCollection)}
 status: ${resolvedStatus}
 needs_followup: ${requiresFollowup}
+followup_reasons:${followupReasons.length ? `\n${yamlList(followupReasons)}` : " []"}
 author: ${yamlString(author)}
 published: ${yamlString(published)}
 captured: ${yamlString(capturedAt)}
@@ -152,9 +162,10 @@ ${[...embedded.images, ...explicitImages].length ? [...embedded.images, ...expli
 ## Processing Notes
 
 - Status: ${resolvedStatus}
+- Follow-up reasons: ${followupReasons.length ? followupReasons.join("; ") : "none"}
 ${extractionNote}- Mirrored inline images: ${mirroredContent.copied}
 - Embedded local assets: ${embedded.copied}
-${warningsNote}- Image mirror failures: ${mirroredContent.failures.length}
+${warningsNote}${attachmentNote}- Image mirror failures: ${mirroredContent.failures.length}
 - Next action: compile durable ideas into wiki pages, close core related links, then mark processed.
 `;
 
@@ -181,6 +192,8 @@ ${warningsNote}- Image mirror failures: ${mirroredContent.failures.length}
     extractedUnits: Number(extractedUnits) || 0,
     extractionConfidence: Number(extractionConfidence) || 0,
     embeddedAssets: embedded.copied,
+    attachmentFailures,
+    followupReasons,
     status: resolvedStatus
   };
 }
@@ -246,7 +259,7 @@ async function copyExplicitImages({ vault, target, rawBase, imageInputs, shouldM
         const basename = `${slugify(path.basename(new URL(image).pathname) || "image")}${guessImageExtension(image, contentType)}`;
         const copied = path.join(assetDir, basename);
         await fs.writeFile(copied, buffer);
-        const relative = path.relative(path.dirname(target), copied).replace(/\\/g, "/");
+        const relative = portableAssetReference(path.relative(path.dirname(target), copied));
         explicitImages.push(`![${basename}](${relative})`);
         continue;
       } catch {
@@ -265,7 +278,7 @@ async function copyExplicitImages({ vault, target, rawBase, imageInputs, shouldM
     }
     const copied = path.join(assetDir, path.basename(resolved));
     await fs.copyFile(resolved, copied);
-    const relative = path.relative(path.dirname(target), copied).replace(/\\/g, "/");
+    const relative = portableAssetReference(path.relative(path.dirname(target), copied));
     explicitImages.push(`![${path.basename(resolved)}](${relative})`);
   }
   return explicitImages;
@@ -284,13 +297,51 @@ async function materializeEmbeddedAssets({ vault, notePath, rawBase, markdown, a
     const basename = uniqueAssetName(safeAssetName(asset.name || `asset-${index + 1}.bin`), used);
     const target = path.join(assetDir, basename);
     await fs.writeFile(target, asset.buffer);
-    const relative = path.relative(path.dirname(notePath), target).replace(/\\/g, "/");
-    const referencedInCapture = Boolean(asset.reference && rewritten.includes(String(asset.reference)));
-    if (asset.reference) rewritten = rewritten.split(String(asset.reference)).join(relative);
+    const relative = portableAssetReference(path.relative(path.dirname(notePath), target));
+    const references = [...new Set([asset.reference, ...(Array.isArray(asset.references) ? asset.references : [])].filter(Boolean).map(String))];
+    const referencedInCapture = references.some((reference) => rewritten.includes(reference));
+    for (const reference of references) rewritten = rewritten.split(reference).join(relative);
     if (!referencedInCapture) images.push(isImageFilename(basename) ? `![${basename}](${relative})` : `- [${basename}](${relative})`);
     copied += 1;
   }
   return { markdown: rewritten, copied, images };
+}
+
+async function localImageAttachmentFailures(notePath, markdown) {
+  const references = [];
+  for (const match of String(markdown).matchAll(/!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+["'][^"']*["'])?\s*\)/g)) {
+    references.push(match[1] || match[2] || "");
+  }
+  for (const match of String(markdown).matchAll(/<img\b[^>]*\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi)) {
+    references.push(match[1] || match[2] || match[3] || "");
+  }
+  const failures = [];
+  for (const value of [...new Set(references)]) {
+    const target = localAttachmentTarget(value);
+    if (!target) continue;
+    const resolved = path.resolve(path.dirname(notePath), target);
+    if (!(await exists(resolved))) failures.push(target);
+  }
+  return failures;
+}
+
+function localAttachmentTarget(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed || /^(?:https?:|data:|#|\/)/i.test(trimmed)) return "";
+  const withoutAnchor = trimmed.split("#")[0].split("?")[0];
+  try {
+    return decodeURIComponent(withoutAnchor).replace(/\\/g, "/");
+  } catch {
+    return withoutAnchor.replace(/\\/g, "/");
+  }
+}
+
+function portableAssetReference(value) {
+  return String(value || "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .map((segment) => segment === "." || segment === ".." ? segment : encodeURIComponent(segment))
+    .join("/");
 }
 
 async function mirrorMarkdownImages({ vault, notePath, noteSlug, markdown, fetchMaxBytes, validateUrl }) {
@@ -307,7 +358,7 @@ async function mirrorMarkdownImages({ vault, notePath, noteSlug, markdown, fetch
       const basename = `${String(index).padStart(2, "0")}-${slugify(alt || "image")}${guessImageExtension(url, contentType)}`;
       const target = path.join(assetDir, basename);
       await fs.writeFile(target, buffer);
-      const relative = path.relative(path.dirname(notePath), target).replace(/\\/g, "/");
+      const relative = portableAssetReference(path.relative(path.dirname(notePath), target));
       copied += 1;
       replaced.push(url);
       return `![${alt || basename}](${relative})`;

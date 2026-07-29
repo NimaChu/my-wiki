@@ -13,6 +13,7 @@ import { importUniverse } from "./import-universe.mjs";
 import {
   isWikiKnowledgeNode,
   processedRawIssues,
+  rawAttachmentIssues,
   rawHasReadableContent,
   scanVault,
   slugify,
@@ -177,9 +178,19 @@ export function createDashboardApi({ dashboardRoot, port, agentRunner = createLo
         const body = await readJson(req);
         const requestedProvider = String(body.provider || "").trim().toLowerCase();
         const info = await requireAgent(agentRunner, requestedProvider);
-        const scan = await scanVault(vault);
-        const sources = selectMaintenanceSources(scan, body.paths, body.batchSize);
+        let scan = await scanVault(vault);
+        const preflightIssues = await maintenancePreflightIssues(scan);
+        const blockedSourceIds = new Set(preflightIssues.keys());
+        const relevantBlockedIssues = requestedPreflightIssues(scan, body.paths, preflightIssues);
+        if (await lockBrokenMaintenanceSources(scan, preflightIssues)) {
+          await refreshDashboardGraph(dashboardRoot, vault);
+          scan = await scanVault(vault);
+        }
+        const sources = selectMaintenanceSources(scan, body.paths, body.batchSize, blockedSourceIds);
         const beforeWikiIds = new Set(scan.nodes.filter((node) => node.id.startsWith("wiki/")).map((node) => node.id));
+        if (sources.length === 0 && relevantBlockedIssues.size > 0) {
+          throw httpError(409, `Maintenance preflight failed: ${summarizePreflightIssues(relevantBlockedIssues)}`);
+        }
         if (sources.length === 0) throw httpError(409, "The maintenance queue has no processable raw notes");
         const job = createJob("agent-maintenance", {
           provider: info.provider,
@@ -598,7 +609,7 @@ function ensureAgentIdle(activeJobId, lane) {
   }
 }
 
-function selectMaintenanceSources(scan, requestedPaths, requestedBatchSize) {
+function selectMaintenanceSources(scan, requestedPaths, requestedBatchSize, blockedSourceIds = new Set()) {
   const batchSize = Math.max(1, Math.min(12, Number(requestedBatchSize) || 8));
   const raw = scan.nodes.filter((node) => node.id.startsWith("raw/sources/"));
   const byPath = new Map();
@@ -610,12 +621,87 @@ function selectMaintenanceSources(scan, requestedPaths, requestedBatchSize) {
     ? requestedPaths.map((value) => normalizeNoteReference(value)).filter(Boolean).slice(0, 12)
     : [];
   if (requested.length > 0) {
-    return [...new Set(requested.map((value) => byPath.get(value)).filter((node) => node && rawHasReadableContent(node)))].slice(0, batchSize);
+    return [...new Set(requested.map((value) => byPath.get(value)).filter((node) => node && ["inbox", "stale"].includes(node.status) && !blockedSourceIds.has(node.id) && rawHasReadableContent(node)))].slice(0, batchSize);
   }
   return raw
-    .filter((node) => ["inbox", "needs-followup"].includes(node.status) && rawHasReadableContent(node))
+    .filter((node) => ["inbox", "stale"].includes(node.status) && !blockedSourceIds.has(node.id) && rawHasReadableContent(node))
     .sort((a, b) => String(a.frontmatter.captured || "").localeCompare(String(b.frontmatter.captured || "")))
     .slice(0, batchSize);
+}
+
+async function maintenancePreflightIssues(scan) {
+  const issuesBySource = new Map();
+  const candidateIds = new Set(scan.nodes
+    .filter((node) => node.id.startsWith("raw/sources/") && ["inbox", "stale"].includes(node.status))
+    .map((node) => node.id));
+  const add = (source, reason) => {
+    if (!candidateIds.has(source)) return;
+    if (!issuesBySource.has(source)) issuesBySource.set(source, []);
+    if (!issuesBySource.get(source).includes(reason)) issuesBySource.get(source).push(reason);
+  };
+  for (const issue of await rawAttachmentIssues(scan, { allLocalImages: true })) {
+    add(issue.source, `missing-${issue.field}:${issue.target}`);
+  }
+  for (const node of scan.nodes.filter((candidate) => candidate.id.startsWith("raw/sources/") && ["inbox", "stale"].includes(candidate.status))) {
+    if (!rawHasReadableContent(node)) add(node.id, "missing-readable-content");
+    const extractionStatus = String(node.frontmatter.extraction_status || "").trim().toLowerCase();
+    if (extractionStatus && extractionStatus !== "complete") add(node.id, `extraction:${extractionStatus}`);
+    const captureMethod = String(node.frontmatter.capture_method || "").trim().toLowerCase();
+    const sourceType = String(node.frontmatter.source_type || "").trim().toLowerCase();
+    const requiresSnapshot = /(?:upload|file|zip|directory)/.test(captureMethod) || ["pdf", "image", "document", "file"].includes(sourceType);
+    if (requiresSnapshot && !String(node.frontmatter.snapshot_path || "").trim()) add(node.id, "missing-snapshot-reference");
+  }
+  return issuesBySource;
+}
+
+function requestedPreflightIssues(scan, requestedPaths, issuesBySource) {
+  const requested = Array.isArray(requestedPaths)
+    ? requestedPaths.map((value) => normalizeNoteReference(value)).filter(Boolean)
+    : [];
+  if (requested.length === 0) return issuesBySource;
+  const idsByReference = new Map();
+  for (const node of scan.nodes.filter((candidate) => candidate.id.startsWith("raw/sources/"))) {
+    idsByReference.set(normalizeNoteReference(node.id), node.id);
+    idsByReference.set(normalizeNoteReference(node.path), node.id);
+  }
+  return new Map(requested
+    .map((reference) => idsByReference.get(reference))
+    .filter((id) => id && issuesBySource.has(id))
+    .map((id) => [id, issuesBySource.get(id)]));
+}
+
+async function lockBrokenMaintenanceSources(scan, issuesBySource) {
+  let changed = 0;
+  for (const node of scan.nodes.filter((candidate) => issuesBySource.has(candidate.id) && ["inbox", "stale"].includes(candidate.status))) {
+    const reasons = issuesBySource.get(node.id);
+    const existingReasons = Array.isArray(node.frontmatter.followup_reasons) ? node.frontmatter.followup_reasons.map(String) : [];
+    let updated = upsertFrontmatterValues(node.content, {
+      status: "needs-followup",
+      needs_followup: true,
+      followup_reasons: [...new Set([...existingReasons, ...reasons])]
+    });
+    updated = recordMaintenancePreflight(updated, reasons);
+    if (updated === node.content) continue;
+    await fs.writeFile(node.file, updated, "utf8");
+    changed += 1;
+  }
+  return changed;
+}
+
+function recordMaintenancePreflight(content, reasons) {
+  const detail = reasons.join("; ");
+  let updated = content.replace(/^- Status: (?:inbox|stale|processed)\s*$/m, "- Status: needs-followup");
+  if (/^- Maintenance preflight:.*$/m.test(updated)) {
+    return updated.replace(/^- Maintenance preflight:.*$/m, `- Maintenance preflight: blocked (${detail})`);
+  }
+  return updated.replace(/^(## Processing Notes\s*)$/m, `$1\n- Maintenance preflight: blocked (${detail})`);
+}
+
+function summarizePreflightIssues(issuesBySource) {
+  return [...issuesBySource]
+    .slice(0, 3)
+    .map(([source, reasons]) => `${source} (${reasons.join("; ")})`)
+    .join(", ");
 }
 
 function maintenancePrompt(vault, sources) {
