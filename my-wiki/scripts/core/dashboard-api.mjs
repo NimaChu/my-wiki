@@ -187,6 +187,7 @@ export function createDashboardApi({ dashboardRoot, port, agentRunner = createLo
           count: sources.length,
           paths: sources.map((node) => node.path)
         });
+        job.abortController = new AbortController();
         activeAgentJobs.maintenance = job.id;
         runJob(job, async () => {
           try {
@@ -196,7 +197,9 @@ export function createDashboardApi({ dashboardRoot, port, agentRunner = createLo
               mode: "maintenance",
               prompt: maintenancePrompt(vault, sources),
               schema: maintenanceSchema,
-              timeoutMs: 20 * 60 * 1000
+              timeoutMs: 20 * 60 * 1000,
+              idleTimeoutMs: 5 * 60 * 1000,
+              signal: job.abortController.signal
             });
             let afterScan = await scanVault(vault);
             if (await revertUnsupportedProcessedSources(afterScan)) afterScan = await scanVault(vault);
@@ -225,6 +228,7 @@ export function createDashboardApi({ dashboardRoot, port, agentRunner = createLo
           providerLabel: info.label,
           question: question.slice(0, 180)
         });
+        job.abortController = new AbortController();
         activeAgentJobs.query = job.id;
         runJob(job, async () => {
           try {
@@ -234,7 +238,9 @@ export function createDashboardApi({ dashboardRoot, port, agentRunner = createLo
               mode: "query",
               prompt: answerPrompt(vault, question, history, language),
               schema: answerSchema,
-              timeoutMs: 8 * 60 * 1000
+              timeoutMs: 8 * 60 * 1000,
+              idleTimeoutMs: 90 * 1000,
+              signal: job.abortController.signal
             });
             return await normalizeAnswerResult(vault, result);
           } finally {
@@ -242,6 +248,18 @@ export function createDashboardApi({ dashboardRoot, port, agentRunner = createLo
           }
         });
         sendJson(res, 202, publicJob(job));
+        return true;
+      }
+      if (requestUrl.pathname === "/api/v1/agent/query" && req.method === "DELETE") {
+        const active = activeAgentJobs.query ? jobs.get(activeAgentJobs.query) : null;
+        if (!isActiveJob(active)) {
+          activeAgentJobs.query = "";
+          sendJson(res, 200, { cancelled: false, job: active ? publicJob(active) : null });
+          return true;
+        }
+        cancelJob(active, "Viki question was cancelled");
+        if (activeAgentJobs.query === active.id) activeAgentJobs.query = "";
+        sendJson(res, 200, { cancelled: true, job: publicJob(active) });
         return true;
       }
       if (requestUrl.pathname === "/api/v1/inbox/url" && req.method === "POST") {
@@ -505,17 +523,29 @@ function createJob(type, meta) {
 
 function runJob(job, work) {
   setTimeout(async () => {
+    if (job.status === "cancelled") return;
     job.status = "running";
     try {
       job.result = await work();
-      job.status = "complete";
+      if (job.status !== "cancelled") job.status = "complete";
     } catch (error) {
-      job.status = "failed";
-      job.error = error.message || String(error);
+      if (job.status !== "cancelled") {
+        job.status = "failed";
+        job.error = error.message || String(error);
+      }
     } finally {
-      job.completedAt = new Date().toISOString();
+      job.completedAt ||= new Date().toISOString();
     }
   }, 0);
+}
+
+function cancelJob(job, message) {
+  if (!isActiveJob(job)) return false;
+  job.status = "cancelled";
+  job.error = message;
+  job.completedAt = new Date().toISOString();
+  job.abortController?.abort();
+  return true;
 }
 
 function publicJob(job) {

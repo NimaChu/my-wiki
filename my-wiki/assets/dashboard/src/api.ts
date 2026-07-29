@@ -21,7 +21,7 @@ export type Job = {
   id: string;
   type: "export" | "import-preview" | "import-apply" | "agent-maintenance" | "agent-answer";
   meta: Record<string, any>;
-  status: "queued" | "running" | "complete" | "failed";
+  status: "queued" | "running" | "complete" | "failed" | "cancelled";
   createdAt: string;
   completedAt: string;
   result: Record<string, any> | null;
@@ -171,6 +171,11 @@ export const localApi = {
     return response.json() as Promise<Job>;
   },
 
+  async cancelQuery() {
+    const response = await apiFetch("/api/v1/agent/query", { method: "DELETE" });
+    return response.json() as Promise<{ cancelled: boolean; job: Job | null }>;
+  },
+
   async captureUrl(input: { url: string; title?: string; collection?: string }) {
     const response = await apiFetch("/api/v1/inbox/url", {
       method: "POST",
@@ -251,6 +256,8 @@ export async function waitForJob(initial: Job, onUpdate?: (job: Job) => void) {
     current = await localApi.job(current.id);
     onUpdate?.(current);
   }
-  if (current.status === "failed") throw new Error(current.error || "My Wiki job failed");
+  if (current.status === "failed" || current.status === "cancelled") {
+    throw new Error(current.error || (current.status === "cancelled" ? "My Wiki job was cancelled" : "My Wiki job failed"));
+  }
   return current;
 }

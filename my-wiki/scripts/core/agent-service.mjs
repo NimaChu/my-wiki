@@ -17,7 +17,7 @@ export function createLocalAgentRunner({ env = process.env } = {}) {
       return detected;
     },
 
-    async run({ provider, vault, mode, prompt, schema, timeoutMs = DEFAULT_TIMEOUT }) {
+    async run({ provider, vault, mode, prompt, schema, timeoutMs = DEFAULT_TIMEOUT, idleTimeoutMs = 0, signal }) {
       detected ??= detectProviders(env);
       if (!detected.available) throw new Error(detected.message);
       const selected = resolveProvider(detected, provider);
@@ -45,7 +45,9 @@ export function createLocalAgentRunner({ env = process.env } = {}) {
           cwd: vault,
           env: { ...env, ...(invocation.env || {}) },
           input: invocation.input,
-          timeoutMs
+          timeoutMs,
+          idleTimeoutMs,
+          signal
         });
         const raw = selected.provider === "codex"
           ? await fs.readFile(outputFile, "utf8").catch(() => result.stdout)
@@ -205,11 +207,16 @@ function openCodeConfig(mode) {
   };
 }
 
-function runProcess(command, args, { cwd, env, input, timeoutMs }) {
+function runProcess(command, args, { cwd, env, input, timeoutMs, idleTimeoutMs, signal }) {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("Local agent request was cancelled"));
+      return;
+    }
     const child = spawn(command, args, {
       cwd,
       env,
+      detached: process.platform !== "win32",
       windowsHide: true,
       shell: false,
       stdio: ["pipe", "pipe", "pipe"]
@@ -217,29 +224,93 @@ function runProcess(command, args, { cwd, env, input, timeoutMs }) {
     let stdout = "";
     let stderr = "";
     let settled = false;
-    const timer = setTimeout(() => {
+    let stopError = null;
+    let idleTimer = null;
+    let forceTimer = null;
+
+    const cleanup = () => {
+      clearTimeout(totalTimer);
+      clearTimeout(idleTimer);
+      clearTimeout(forceTimer);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const fail = (error) => {
       if (settled) return;
-      child.kill();
-      reject(new Error(`Local agent timed out after ${Math.round(timeoutMs / 60000)} minutes`));
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const stop = (error) => {
+      if (settled || stopError) return;
+      stopError = error;
+      terminateProcessTree(child, "SIGTERM");
+      forceTimer = setTimeout(() => {
+        terminateProcessTree(child, "SIGKILL");
+        fail(error);
+      }, 2000);
+      forceTimer.unref?.();
+    };
+    const resetIdleTimer = () => {
+      clearTimeout(idleTimer);
+      if (!(idleTimeoutMs > 0)) return;
+      idleTimer = setTimeout(() => {
+        stop(new Error(`Local agent stopped after ${Math.round(idleTimeoutMs / 1000)} seconds without output`));
+      }, idleTimeoutMs);
+      idleTimer.unref?.();
+    };
+    const onAbort = () => stop(new Error("Local agent request was cancelled"));
+    const totalTimer = setTimeout(() => {
+      stop(new Error(`Local agent timed out after ${Math.round(timeoutMs / 60000)} minutes`));
     }, timeoutMs);
+    totalTimer.unref?.();
+    signal?.addEventListener("abort", onAbort, { once: true });
+    resetIdleTimer();
 
     const append = (current, chunk) => `${current}${chunk}`.slice(-MAX_OUTPUT);
-    child.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); });
-    child.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); });
+    child.stdout.on("data", (chunk) => {
+      stdout = append(stdout, chunk);
+      resetIdleTimer();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr = append(stderr, chunk);
+      resetIdleTimer();
+    });
     child.on("error", (error) => {
-      settled = true;
-      clearTimeout(timer);
-      reject(error);
+      fail(stopError || error);
     });
     child.on("close", (code) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
-      if (code === 0) resolve({ stdout, stderr });
+      cleanup();
+      if (stopError) reject(stopError);
+      else if (code === 0) resolve({ stdout, stderr });
       else reject(new Error(cleanAgentError(stderr || stdout || `Local agent exited with code ${code}`)));
     });
+    child.stdin.on("error", () => {});
     child.stdin.end(input || "");
   });
+}
+
+function terminateProcessTree(child, signal) {
+  if (!child.pid) return;
+  if (process.platform === "win32") {
+    const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+      windowsHide: true,
+      shell: false,
+      stdio: "ignore"
+    });
+    killer.unref();
+    return;
+  }
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    try {
+      child.kill(signal);
+    } catch {
+      // The process has already exited.
+    }
+  }
 }
 
 function parseStructuredOutput(value) {

@@ -1,5 +1,5 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, BookOpen, Check, LoaderCircle, PawPrint, SendHorizontal, X } from "lucide-react";
+import { Bot, BookOpen, Check, LoaderCircle, PawPrint, SendHorizontal, Square, X } from "lucide-react";
 import { AgentAnswer, AgentInfo, localApi, PetAppearance, waitForJob } from "./api";
 
 type Language = "en" | "zh";
@@ -34,6 +34,7 @@ const copy = {
     sources: "Evidence",
     ready: "Ready",
     busy: "Working",
+    stop: "Stop current answer",
     agentCli: "Agent CLI",
     pet: "Viki pet",
     retry: "Please try again."
@@ -50,6 +51,7 @@ const copy = {
     sources: "参考证据",
     ready: "已就绪",
     busy: "工作中",
+    stop: "停止当前回答",
     agentCli: "Agent CLI",
     pet: "Viki 宠物",
     retry: "请稍后重试。"
@@ -78,6 +80,7 @@ export function Viki({ language }: { language: Language }) {
   const positionRef = useRef(position);
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
   const suppressClickRef = useRef(false);
+  const requestVersionRef = useRef(0);
 
   const setPosition = (value: VikiPosition) => {
     positionRef.current = value;
@@ -153,8 +156,10 @@ export function Viki({ language }: { language: Language }) {
     setQuestion("");
     setError("");
     setBusy(true);
+    const requestVersion = ++requestVersionRef.current;
     try {
       const complete = await waitForJob(await localApi.ask(value, history, language, provider));
+      if (requestVersionRef.current !== requestVersion) return;
       const answer = complete.result as AgentAnswer;
       const images = await Promise.all((answer.images || []).map(async (image) => ({
         ...image,
@@ -169,10 +174,31 @@ export function Viki({ language }: { language: Language }) {
       }]);
       setAgent(await localApi.agent());
     } catch (nextError) {
-      setError(`${errorMessage(nextError)} ${l.retry}`);
+      if (requestVersionRef.current === requestVersion) setError(`${errorMessage(nextError)} ${l.retry}`);
     } finally {
+      if (requestVersionRef.current === requestVersion) setBusy(false);
+    }
+  };
+
+  const cancelAnswer = async () => {
+    requestVersionRef.current += 1;
+    setError("");
+    try {
+      await localApi.cancelQuery();
+      const nextAgent = await localApi.agent();
+      setAgent(nextAgent);
+      setBusy(nextAgent.busy);
+    } catch (nextError) {
+      setError(`${errorMessage(nextError)} ${l.retry}`);
       setBusy(false);
     }
+  };
+
+  const changeProvider = async (nextProvider: string) => {
+    if (busy || agent?.busy) await cancelAnswer();
+    setProvider(nextProvider);
+    setError("");
+    persistProvider(nextProvider);
   };
 
   const startDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -285,18 +311,15 @@ export function Viki({ language }: { language: Language }) {
                   aria-label={l.agentCli}
                   title={l.agentCli}
                   value={provider}
-                  disabled={busy}
-                  onChange={(event) => {
-                    const nextProvider = event.target.value;
-                    setProvider(nextProvider);
-                    setError("");
-                    persistProvider(nextProvider);
-                  }}
+                  onChange={(event) => void changeProvider(event.target.value)}
                 >
                   {agent.providers.map((item) => <option key={item.provider} value={item.provider}>{item.label}</option>)}
                 </select>
               ) : null}
               <span className={busy || agent?.busy ? "is-busy" : ""}>{busy || agent?.busy ? l.busy : l.ready}</span>
+              {busy || agent?.busy ? (
+                <button type="button" aria-label={l.stop} title={l.stop} onClick={() => void cancelAnswer()}><Square size={15} /></button>
+              ) : null}
               <button type="button" aria-label={l.close} title={l.close} onClick={() => setOpen(false)}><X size={17} /></button>
             </div>
           </header>
