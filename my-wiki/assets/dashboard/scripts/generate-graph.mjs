@@ -1,7 +1,11 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { universeGraphGroup, wikiUniverseNames } from "../../../scripts/core/wiki-lib.mjs";
+import {
+  universeGraphGroup,
+  wikiTopicPeerMap,
+  wikiUniverseNames
+} from "../../../scripts/core/wiki-lib.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(here, "..");
@@ -312,6 +316,7 @@ async function main() {
 
   const inbox = nodes.filter((node) => node.id.startsWith("raw/") && node.status === "inbox").length;
   const needsFollowup = nodes.filter((node) => node.id.startsWith("raw/") && node.status === "needs-followup").length;
+  const wikiTopicPeers = wikiTopicPeerMap({ nodes, edges, typedRelations });
   const stats = {
     nodes: nodes.length,
     edges: edges.length,
@@ -323,7 +328,7 @@ async function main() {
     processed: nodes.filter((node) => node.id.startsWith("raw/") && node.status === "processed").length,
     needsFollowup,
     stale: nodes.filter((node) => node.id.startsWith("raw/") && node.status === "stale").length,
-    orphaned: nodes.filter((node) => node.id.startsWith("wiki/") && node.backlinks.length === 0 && node.out.length === 0).length,
+    orphaned: Array.from(wikiTopicPeers.values()).filter((peers) => peers.size === 0).length,
     unresolved: unresolved.length,
     invalidRelations: invalidRelations.length,
     processedIssues: processedIssues.length

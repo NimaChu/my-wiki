@@ -178,7 +178,27 @@ export function wikiUniverseNames(nodeOrFrontmatter = {}, title = "", tags = [])
 
 export function isWikiKnowledgeNode(nodeOrId) {
   const id = typeof nodeOrId === "string" ? nodeOrId : nodeOrId?.id || "";
-  return id.startsWith("wiki/") && !WIKI_UTILITY_IDS.has(id);
+  return id.startsWith("wiki/") && !id.endsWith("/README") && !WIKI_UTILITY_IDS.has(id);
+}
+
+export function wikiTopicPeerMap(scan) {
+  const topicIds = new Set((scan.nodes || []).filter(isWikiKnowledgeNode).map((node) => node.id));
+  const peers = new Map(Array.from(topicIds, (id) => [id, new Set()]));
+  const relations = [...(scan.edges || []), ...(scan.typedRelations || [])];
+
+  for (const relation of relations) {
+    if (
+      relation.source === relation.target ||
+      !topicIds.has(relation.source) ||
+      !topicIds.has(relation.target)
+    ) {
+      continue;
+    }
+    peers.get(relation.source).add(relation.target);
+    peers.get(relation.target).add(relation.source);
+  }
+
+  return peers;
 }
 
 export function universeGraphGroup(name) {
@@ -494,6 +514,7 @@ export function statsFromScan(scan) {
   const inbox = scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "inbox").length;
   const imaPointers = scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "ima-pointer").length;
   const needsFollowup = scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "needs-followup").length;
+  const wikiTopicPeers = wikiTopicPeerMap(scan);
   return {
     nodes: scan.nodes.length,
     edges: scan.edges.length,
@@ -509,12 +530,7 @@ export function statsFromScan(scan) {
     unresolved: scan.unresolved.length,
     invalidRelations: scan.invalidRelations.length,
     rawLayoutIssues: rawLayoutIssues(scan).length,
-    orphanedWiki: scan.nodes.filter((node) =>
-      node.id.startsWith("wiki/") &&
-      !["wiki/index", "wiki/log", "wiki/README"].includes(node.id) &&
-      (scan.incoming.get(node.id) || 0) === 0 &&
-      (scan.outgoing.get(node.id) || 0) === 0
-    ).length
+    orphanedWiki: Array.from(wikiTopicPeers.values()).filter((peers) => peers.size === 0).length
   };
 }
 

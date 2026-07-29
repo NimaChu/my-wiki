@@ -29,6 +29,8 @@ Treat short requests such as "维护知识库" or "maintain this vault" as compl
 5. Repair links and update the index/log.
 6. Run `lint` and report completed and remaining work.
 
+Connectivity health counts unique Wiki-to-Wiki topic peers. Raw evidence, index/log/README pages, and other excluded utility pages do not prevent a Wiki page from being reported as orphaned or weakly connected.
+
 Do not use Git as part of routine maintenance.
 
 ## Share A Galaxy
