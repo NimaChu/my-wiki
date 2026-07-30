@@ -9,7 +9,7 @@
     "my-wiki": "my-wiki/scripts/my-wiki.mjs"
   },
   "scripts": {
-    "test": "node --test my-wiki/tests/*.test.mjs",
+    "test": "node --test",
     "npm:pack-check": "node npm-dist/publish-npm-skill.mjs --dry-run",
     "npm:publish": "node npm-dist/publish-npm-skill.mjs",
     "skill:install": "node my-wiki/scripts/install.mjs",
