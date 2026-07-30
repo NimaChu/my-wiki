@@ -1,0 +1,9 @@
+{
+  "id": "qoderwork--my-wiki",
+  "displayName": "QoderWork",
+  "description": "A mint-green QoderWork-inspired knowledge companion with expressive eyes, a curled antenna, small arms, and a long trailing tail.",
+  "spritesheetPath": "spritesheet.webp",
+  "spriteVersionNumber": 2,
+  "imageRendering": "smooth",
+  "kind": "character"
+}

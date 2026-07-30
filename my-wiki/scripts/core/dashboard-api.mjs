@@ -30,7 +30,7 @@ const MARKDOWN_BODY_LIMIT = 6 * 1024 * 1024;
 const FILE_LIMIT = Number(process.env.MY_WIKI_UPLOAD_LIMIT_BYTES || 1024 * 1024 * 1024);
 const sessionToken = randomBytes(32).toString("hex");
 const jobs = new Map();
-const BUNDLED_PET_IDS = ["codenono--dq02", "claude--xiangking"];
+const BUNDLED_PET_IDS = ["qoderwork--my-wiki", "codenono--dq02", "claude--xiangking"];
 
 const maintenanceSchema = {
   type: "object",
@@ -219,7 +219,7 @@ export function createDashboardApi({
               prompt: maintenancePrompt(vault, sources),
               schema: maintenanceSchema,
               timeoutMs: 20 * 60 * 1000,
-              idleTimeoutMs: 5 * 60 * 1000,
+              idleTimeoutMs: 0,
               signal: job.abortController.signal
             });
             let afterScan = await scanVault(vault);
@@ -510,6 +510,7 @@ async function resolvePetAppearance(dashboardRoot, petIdValue) {
     rows: spriteVersionNumber === 2 ? 11 : 9,
     cellWidth: 192,
     cellHeight: 208,
+    imageRendering: manifest.imageRendering === "smooth" ? "smooth" : "pixelated",
     spritesheetFile,
     contentType: extension === ".png" ? "image/png" : "image/webp"
   };
@@ -524,6 +525,7 @@ function publicPetAppearance(pet) {
     rows: pet.rows,
     cellWidth: pet.cellWidth,
     cellHeight: pet.cellHeight,
+    imageRendering: pet.imageRendering,
     spritesheetUrl: `/api/v1/pets/${pet.id}/spritesheet`
   };
 }

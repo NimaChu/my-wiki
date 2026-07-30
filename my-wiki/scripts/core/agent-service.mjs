@@ -6,7 +6,7 @@ import path from "node:path";
 
 const DEFAULT_TIMEOUT = 15 * 60 * 1000;
 const MAX_OUTPUT = 2 * 1024 * 1024;
-const PROVIDER_ORDER = ["opencode", "codex", "claude"];
+const PROVIDER_ORDER = ["opencode", "qoder", "codex", "claude"];
 
 export function createLocalAgentRunner({ env = process.env } = {}) {
   let detected;
@@ -26,8 +26,10 @@ export function createLocalAgentRunner({ env = process.env } = {}) {
       const outputFile = path.join(temporary, `${randomUUID()}.json`);
       const schemaFile = path.join(temporary, "response.schema.json");
       const providerConfigFile = path.join(temporary, "opencode.json");
-      const primaryModel = String(env.MY_WIKI_OPENCODE_MODEL || "").trim();
-      const fallbackModels = openCodeFallbackModels(env, primaryModel);
+      const primaryModel = providerModel(selected.provider, env);
+      const fallbackModels = selected.provider === "opencode"
+        ? openCodeFallbackModels(env, primaryModel)
+        : [];
       await fs.writeFile(schemaFile, `${JSON.stringify(schema, null, 2)}\n`, "utf8");
       await fs.writeFile(
         providerConfigFile,
@@ -115,7 +117,7 @@ function detectProviders(env) {
       ? [customCommand]
       : providerCandidates(provider, env);
     for (const command of candidates) {
-      if (commandAvailable(command)) {
+      if (commandAvailable(command) && providerAuthenticated(provider, command, env)) {
         discovered.push({ provider, command, label: providerLabel(provider) });
         break;
       }
@@ -146,7 +148,7 @@ function detectProviders(env) {
     providers: [],
     message: preferred
       ? `Configured local agent is unavailable: ${preferred}`
-      : "No supported local agent was found. Install and sign in to Codex, OpenCode, or Claude."
+      : "No supported local agent was found. Install and sign in to Codex, OpenCode, Qoder, or Claude."
   };
 }
 
@@ -158,7 +160,10 @@ function resolveProvider(info, requestedProvider) {
 }
 
 function providerLabel(provider) {
-  return provider === "codex" ? "Codex" : provider === "opencode" ? "OpenCode" : "Claude";
+  if (provider === "codex") return "Codex";
+  if (provider === "opencode") return "OpenCode";
+  if (provider === "qoder") return "Qoder";
+  return "Claude";
 }
 
 function inferCommandProvider(command, preferred) {
@@ -169,10 +174,17 @@ function inferCommandProvider(command, preferred) {
 
 function providerCandidates(provider, env) {
   const candidates = [provider];
+  if (provider === "qoder") candidates[0] = "qodercli";
   if (process.platform !== "win32") return candidates;
   const local = env.LOCALAPPDATA || "";
+  const appData = env.APPDATA || "";
+  const profile = env.USERPROFILE || "";
   if (provider === "codex" && local) candidates.unshift(path.join(local, "Programs", "OpenAI", "Codex", "bin", "codex.exe"));
   if (provider === "opencode" && local) candidates.unshift(path.join(local, "Programs", "opencode", "node_modules", "opencode-ai", "bin", "opencode.exe"));
+  if (provider === "qoder" && appData) {
+    candidates.unshift(path.join(appData, "npm", "node_modules", "@qoder-ai", "qodercli", "bundle", "qodercli.js"));
+  }
+  if (provider === "qoder" && profile) candidates.unshift(path.join(profile, ".local", "bin", "qodercli.exe"));
   return candidates;
 }
 
@@ -186,6 +198,22 @@ function commandAvailable(command) {
     shell: false
   });
   return !result.error && result.status === 0;
+}
+
+function providerAuthenticated(provider, command, env) {
+  if (provider !== "qoder") return true;
+  if (String(env.QODER_PERSONAL_ACCESS_TOKEN || "").trim()) return true;
+  const invocation = executableInvocation(command, ["status"]);
+  const result = spawnSync(invocation.command, invocation.args, {
+    encoding: "utf8",
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 8000,
+    windowsHide: true,
+    shell: false
+  });
+  const output = `${result.stdout || ""}\n${result.stderr || ""}`;
+  return !result.error && result.status === 0 && /(?:Username|Email):\s*\S+/i.test(output);
 }
 
 function executableInvocation(command, args) {
@@ -233,6 +261,28 @@ function providerInvocation({ provider, command, vault, mode, prompt, schema, ou
     };
   }
 
+  if (provider === "qoder") {
+    const tools = mode === "maintenance"
+      ? ["Read", "Grep", "Glob", "Edit", "Write"]
+      : ["Read", "Grep", "Glob"];
+    return {
+      command,
+      args: [
+        "--print",
+        "--output-format", "text",
+        "--no-session-persistence",
+        "--cwd", vault,
+        "--permission-mode", mode === "maintenance" ? "accept_edits" : "dont_ask",
+        ...(model ? ["--model", model] : []),
+        "--tools", ...tools,
+        "--",
+        promptWithSchema(prompt, schema)
+      ],
+      input: "",
+      env: {}
+    };
+  }
+
   return {
     command,
     args: [
@@ -244,6 +294,12 @@ function providerInvocation({ provider, command, vault, mode, prompt, schema, ou
     input: "",
     env: {}
   };
+}
+
+function providerModel(provider, env) {
+  if (provider === "opencode") return String(env.MY_WIKI_OPENCODE_MODEL || "").trim();
+  if (provider === "qoder") return String(env.MY_WIKI_QODER_MODEL || "").trim();
+  return "";
 }
 
 function promptWithSchema(prompt, schema) {

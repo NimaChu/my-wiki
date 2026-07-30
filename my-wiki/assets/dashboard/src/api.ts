@@ -57,6 +57,7 @@ export type PetAppearance = {
   rows: number;
   cellWidth: number;
   cellHeight: number;
+  imageRendering: "smooth" | "pixelated";
   spritesheetUrl: string;
 };
 

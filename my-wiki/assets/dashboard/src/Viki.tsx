@@ -34,7 +34,7 @@ const copy = {
     placeholder: "Ask your knowledge vault...",
     send: "Send",
     thinking: "Searching your vault",
-    unavailable: "Connect a signed-in Codex, OpenCode, or Claude CLI to use Viki.",
+    unavailable: "Connect a signed-in Codex, OpenCode, Qoder, or Claude CLI to use Viki.",
     sources: "Evidence",
     ready: "Ready",
     busy: "Working",
@@ -52,7 +52,7 @@ const copy = {
     placeholder: "向你的知识库提问...",
     send: "发送",
     thinking: "正在检索知识库",
-    unavailable: "请先安装并登录 Codex、OpenCode 或 Claude CLI，再使用 Viki。",
+    unavailable: "请先安装并登录 Codex、OpenCode、Qoder 或 Claude CLI，再使用 Viki。",
     sources: "参考证据",
     ready: "已就绪",
     busy: "工作中",
@@ -517,8 +517,9 @@ function VikiPet({ pet, state, size, fallbackSize }: {
   const imageStyle = {
     width: pet.columns * pet.cellWidth * scale,
     height: pet.rows * pet.cellHeight * scale,
+    imageRendering: pet.imageRendering === "smooth" ? "auto" : "pixelated",
     transform: `translate3d(${-frame * pet.cellWidth * scale}px, ${-animation.row * pet.cellHeight * scale}px, 0)`
-  };
+  } as CSSProperties;
   return (
     <span className="viki-pet" style={style} aria-hidden="true">
       <img src={pet.spritesheetUrl} alt="" draggable={false} style={imageStyle} />
@@ -613,7 +614,7 @@ function selectInitialPet(pets: PetAppearance[]) {
   const available = new Set(pets.map((item) => item.id));
   const stored = readStoredPet();
   if (stored && available.has(stored)) return stored;
-  return pets.find((item) => item.id === "codenono--dq02")?.id || pets[0]?.id || "";
+  return pets.find((item) => item.id === "qoderwork--my-wiki")?.id || pets[0]?.id || "";
 }
 
 function readStoredPet() {

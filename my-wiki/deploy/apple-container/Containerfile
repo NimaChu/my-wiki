@@ -1,8 +1,11 @@
 FROM node:20-bookworm-slim
 
 ARG OPENCODE_VERSION=1.18.9
+ARG QODERCLI_VERSION=1.1.9
 
-RUN npm install --global "opencode-ai@${OPENCODE_VERSION}" \
+RUN npm install --global \
+    "opencode-ai@${OPENCODE_VERSION}" \
+    "@qoder-ai/qodercli@${QODERCLI_VERSION}" \
   && npm cache clean --force
 
 WORKDIR /opt/my-wiki

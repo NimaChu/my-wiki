@@ -1,9 +1,9 @@
 # Apple Container public sandbox
 
 This deployment keeps the public writable demo separate from every personal
-vault. The image contains only the My Wiki application and OpenCode CLI. A named
-Apple Container volume stores all captures, Wiki edits, imports, exports, and
-Viki maintenance results.
+vault. The image contains only the My Wiki application plus OpenCode and Qoder
+CLIs. A named Apple Container volume stores all captures, Wiki edits, imports,
+exports, and Viki maintenance results.
 
 ## Start
 
@@ -57,3 +57,12 @@ single-value `MY_WIKI_OPENCODE_FALLBACK_MODEL` remains supported and is appended
 after the list. Explicit cancellation and timeout failures do not retry.
 Authentication failures also stop immediately because all models share the same
 OpenCode credential.
+
+Qoder is optional. Add a dedicated `QODER_PERSONAL_ACCESS_TOKEN` to the same
+private environment file to expose it in Viki's Agent CLI selector. Without a
+token, the preinstalled but unsigned-in Qoder CLI stays hidden. Set
+`MY_WIKI_QODER_MODEL` only when a specific Qoder model or tier is required;
+otherwise Qoder uses the account default. Viki invokes Qoder in non-interactive,
+non-persistent mode: questions receive read/search tools only, while maintenance
+also receives edits inside the mounted vault. Bash, web, MCP, and subagent tools
+are not exposed by this integration.
