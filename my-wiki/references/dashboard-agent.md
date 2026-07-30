@@ -1,6 +1,6 @@
 # Dashboard Agent
 
-The Dashboard may call a supported, already authenticated local agent only after an explicit browser action. It discovers OpenCode, Codex, and Claude, exposes only available providers, and uses OpenCode by default. Set `MY_WIKI_AGENT_PROVIDER=opencode|codex|claude` to override that default, or pair it with `MY_WIKI_AGENT_COMMAND` when the executable is not discoverable.
+The Dashboard may call a supported, already authenticated local agent only after an explicit browser action. It discovers OpenCode, Codex, and Claude, exposes only available providers, and uses OpenCode by default. Set `MY_WIKI_AGENT_PROVIDER=opencode|codex|claude` to override that default, or pair it with `MY_WIKI_AGENT_COMMAND` when the executable is not discoverable. For OpenCode, `MY_WIKI_OPENCODE_MODEL` selects the primary model and `MY_WIKI_OPENCODE_FALLBACK_MODELS` selects an ordered, comma-separated retry list. The legacy single-value `MY_WIKI_OPENCODE_FALLBACK_MODEL` remains supported and is appended after the list. Explicit provider errors, including rate limits, stop the current OpenCode process immediately and may advance to the next fallback model. Authentication errors, cancellation, total timeout, and idle timeout stop immediately. Diagnostic stderr output does not extend the idle timeout.
 
 ## Maintenance Batch
 
@@ -16,7 +16,9 @@ Answers use structured output containing Markdown, evidence paths, and up to thr
 
 ## Safety Boundary
 
-- Keep the service on `127.0.0.1` with its existing origin and session-token checks.
+- Keep normal installations on `127.0.0.1` with their existing origin and
+  session-token checks. A public sandbox must use an isolated disposable vault
+  and explicitly configured origins; never mount a personal vault into it.
 - Query tasks use a read-only agent sandbox; maintenance tasks use a workspace-write sandbox rooted at the active vault.
 - Keep separate query and maintenance lanes. One Viki query and one maintenance batch may run concurrently, while duplicate tasks within either lane remain serialized.
 - Preserve task timeouts, bounded output, structured schemas, path validation, and private local image serving.

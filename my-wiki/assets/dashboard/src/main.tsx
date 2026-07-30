@@ -1,7 +1,24 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { LoaderCircle, Sparkles } from "lucide-react";
-import { AgentInfo, localApi, MaintenanceResult, waitForJob } from "./api";
+import {
+  ArrowLeft,
+  Bold,
+  Check,
+  Code2,
+  Edit3,
+  Eye,
+  Heading2,
+  Image as ImageIcon,
+  Italic,
+  Link as LinkIcon,
+  LoaderCircle,
+  Save,
+  Sparkles,
+  X
+} from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { AgentInfo, localApi, MaintenanceResult, MarkdownDocument, waitForJob } from "./api";
 import { Viki } from "./Viki";
 import { WorkspaceActions } from "./WorkspaceActions";
 import "./styles.css";
@@ -145,23 +162,41 @@ const copy = {
     raw: "Raw",
     tags: "Tags",
     statuses: "Statuses",
-    pending: "Pending",
+    pending: "Awaiting maintenance",
     inbox: "Inbox",
-    processed: "Processed",
+    processed: "Maintained",
     broken: "Broken",
     centralWikiPages: "Central Wiki Planets",
     linkStatus: "{count} links / {status}",
     vaultOverview: "Vault Overview",
     graphHealth: "Global graph health and maintenance state",
     maintenanceQueue: "Maintenance Queue",
-    noPendingRaw: "No pending raw items",
-    processBatch: "Process batch",
-    processItem: "Process this item",
-    processingBatch: "Processing",
+    noPendingRaw: "No raw items awaiting maintenance",
+    processBatch: "Maintain batch",
+    processItem: "Maintain this item",
+    processingBatch: "Maintaining",
     maintenanceComplete: "Batch maintenance complete",
     maintenanceFailed: "Maintenance failed",
     agentUnavailable: "Local agent unavailable",
-    lintRemaining: "{count} vault health issues remain"
+    lintRemaining: "{count} vault health issues remain",
+    backToGraph: "Back to graph",
+    readingMode: "Read",
+    editingMode: "Edit",
+    editDocument: "Edit document",
+    saveDocument: "Save document",
+    cancelEditing: "Cancel editing",
+    loadingDocument: "Loading document",
+    retry: "Retry",
+    savingDocument: "Saving",
+    documentSaved: "Saved",
+    unsavedChanges: "You have unsaved changes. Close this document?",
+    insertHeading: "Heading",
+    insertBold: "Bold",
+    insertItalic: "Italic",
+    insertCode: "Inline code",
+    insertLink: "Link",
+    insertImage: "Image",
+    imageUnavailable: "Local image unavailable"
   },
   zh: {
     graphUnavailable: "知识图谱不可用",
@@ -194,7 +229,7 @@ const copy = {
     noWikiText: "暂无 Wiki 正文",
     attention: "需要注意",
     brokenPrefix: "断裂链接",
-    gatePrefix: "处理门槛",
+    gatePrefix: "维护门槛",
     evidenceLinks: "证据链接",
     connectedPages: "关联页面",
     noConnectedPages: "暂无关联页面",
@@ -204,23 +239,41 @@ const copy = {
     raw: "原始资料",
     tags: "标签",
     statuses: "状态类型",
-    pending: "待处理",
+    pending: "待维护",
     inbox: "收件箱",
-    processed: "已处理",
+    processed: "已维护",
     broken: "断裂链接",
     centralWikiPages: "核心 Wiki 星球",
     linkStatus: "{count} 条链接 / {status}",
     vaultOverview: "知识库概览",
     graphHealth: "全局图谱健康与维护状态",
     maintenanceQueue: "维护队列",
-    noPendingRaw: "没有待处理的原始资料",
-    processBatch: "批量处理",
-    processItem: "处理此条知识",
-    processingBatch: "正在处理",
+    noPendingRaw: "没有待维护的原始资料",
+    processBatch: "批量维护",
+    processItem: "维护此条知识",
+    processingBatch: "正在维护",
     maintenanceComplete: "本批维护完成",
     maintenanceFailed: "维护失败",
     agentUnavailable: "本地 Agent 不可用",
-    lintRemaining: "仍有 {count} 个知识库健康问题"
+    lintRemaining: "仍有 {count} 个知识库健康问题",
+    backToGraph: "返回图谱",
+    readingMode: "阅读",
+    editingMode: "编辑",
+    editDocument: "编辑文档",
+    saveDocument: "保存文档",
+    cancelEditing: "取消编辑",
+    loadingDocument: "正在加载文档",
+    retry: "重试",
+    savingDocument: "正在保存",
+    documentSaved: "已保存",
+    unsavedChanges: "文档还有未保存的修改，确定关闭吗？",
+    insertHeading: "标题",
+    insertBold: "粗体",
+    insertItalic: "斜体",
+    insertCode: "行内代码",
+    insertLink: "链接",
+    insertImage: "图片",
+    imageUnavailable: "本地图片不可用"
   }
 } as const;
 
@@ -258,8 +311,8 @@ function localizedStatus(value: string, language: Language) {
   if (language === "en") return value;
   const statuses: Record<string, string> = {
     active: "有效",
-    inbox: "待处理",
-    processed: "已处理",
+    inbox: "待维护",
+    processed: "已维护",
     "needs-followup": "待跟进",
     stale: "已过期",
     unknown: "未知"
@@ -301,6 +354,7 @@ function App() {
   const [rotation, setRotation] = useState(initialRotation);
   const [rightPanelWidth, setRightPanelWidth] = useState(560);
   const [isResizingPanel, setIsResizingPanel] = useState(false);
+  const [markdownPath, setMarkdownPath] = useState<string | null>(null);
   const hasLoadedGraph = useRef(false);
   const t = useMemo(() => translatorFor(language), [language]);
   const i18n = useMemo(() => ({ language, t }), [language, t]);
@@ -451,6 +505,10 @@ function App() {
     setRotation(initialRotation);
   };
 
+  const openMarkdown = (node: WikiNode) => {
+    setMarkdownPath(node.path);
+  };
+
   const backToKnowledge = () => {
     const returnView = evidenceReturnView;
     setGraphMode("knowledge");
@@ -580,6 +638,7 @@ function App() {
 
   return (
     <I18nContext.Provider value={i18n}>
+      <>
       <main
         className={`app-shell ${isResizingPanel ? "is-resizing-panel" : ""}`}
         style={{ "--right-panel-width": `${rightPanelWidth}px` } as React.CSSProperties}
@@ -655,6 +714,7 @@ function App() {
           onSelect={setSelectedId}
           onClearSelection={() => setSelectedId(null)}
           onOpenEvidence={openEvidence}
+          onOpenMarkdown={openMarkdown}
           onOpenGroup={openGroup}
           onHover={setHoveredId}
           onWheelZoom={zoomByWheel}
@@ -691,8 +751,283 @@ function App() {
       </aside>
       <Viki language={language} />
       </main>
+      {markdownPath && <MarkdownWorkspace path={markdownPath} onClose={() => setMarkdownPath(null)} />}
+      </>
     </I18nContext.Provider>
   );
+}
+
+function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => void }) {
+  const { t } = useI18n();
+  const [document, setDocument] = useState<MarkdownDocument | null>(null);
+  const [draft, setDraft] = useState("");
+  const [savedBody, setSavedBody] = useState("");
+  const [mode, setMode] = useState<"read" | "edit">("read");
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+  const [loadError, setLoadError] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  const dirty = draft !== savedBody;
+
+  useEffect(() => {
+    window.document.body.classList.add("has-markdown-workspace");
+    return () => window.document.body.classList.remove("has-markdown-workspace");
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDocument(null);
+    setLoadError("");
+    setSaveError("");
+    setSaved(false);
+    setMode("read");
+    void localApi.markdown(path)
+      .then((next) => {
+        if (cancelled) return;
+        setDocument(next);
+        setDraft(next.body);
+        setSavedBody(next.body);
+      })
+      .catch((error) => {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadAttempt, path]);
+
+  useEffect(() => {
+    if (!document) return;
+    let cancelled = false;
+    const sources = extractMarkdownImageSources(draft).filter(isLocalMarkdownImageSource);
+    void Promise.all(sources.map(async (source) => [source, await localApi.markdownImageUrl(document.path, source)] as const))
+      .then((entries) => {
+        if (cancelled) return;
+        const urls: Record<string, string> = {};
+        for (const [source, url] of entries) {
+          urls[source] = url;
+          try {
+            urls[encodeURI(source)] = url;
+          } catch {
+            // The original source remains available as a lookup key.
+          }
+        }
+        setImageUrls(urls);
+      })
+      .catch(() => {
+        if (!cancelled) setImageUrls({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [document?.path, draft]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const preventUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", preventUnload);
+    return () => window.removeEventListener("beforeunload", preventUnload);
+  }, [dirty]);
+
+  const closeWorkspace = () => {
+    if (dirty && !window.confirm(t("unsavedChanges"))) return;
+    onClose();
+  };
+
+  const cancelEditing = () => {
+    if (dirty && !window.confirm(t("unsavedChanges"))) return;
+    setDraft(savedBody);
+    setSaveError("");
+    setMode("read");
+  };
+
+  const saveDocument = async () => {
+    if (!document || saving || !dirty) return;
+    setSaving(true);
+    setSaveError("");
+    setSaved(false);
+    try {
+      const next = await localApi.saveMarkdown(document.path, draft, document.version);
+      setDocument(next);
+      setDraft(next.body);
+      setSavedBody(next.body);
+      setSaved(true);
+      setMode("read");
+      window.dispatchEvent(new Event("my-wiki:graph-updated"));
+      window.setTimeout(() => setSaved(false), 1800);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const insertMarkup = (before: string, after = before, placeholder = "") => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const start = editor.selectionStart;
+    const end = editor.selectionEnd;
+    const selected = draft.slice(start, end) || placeholder;
+    const next = `${draft.slice(0, start)}${before}${selected}${after}${draft.slice(end)}`;
+    setDraft(next);
+    window.requestAnimationFrame(() => {
+      editor.focus();
+      editor.setSelectionRange(start + before.length, start + before.length + selected.length);
+    });
+  };
+
+  const handleEditorKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+      event.preventDefault();
+      void saveDocument();
+    }
+  };
+
+  return (
+    <section className="markdown-workspace" role="dialog" aria-modal="true" aria-label={document?.title ?? path}>
+      <header className="markdown-workspace-header">
+        <button className="document-icon-button" type="button" onClick={closeWorkspace} title={t("backToGraph")} aria-label={t("backToGraph")}>
+          <ArrowLeft size={18} />
+        </button>
+        <div className="document-breadcrumb">
+          <strong>{document?.title ?? t("loadingDocument")}</strong>
+          <span>{document?.path ?? path}</span>
+        </div>
+        {document && (
+          <>
+            <div className="document-mode-switch" role="group" aria-label={t("editingMode")}>
+              <button type="button" className={mode === "read" ? "is-active" : ""} onClick={() => setMode("read")} title={t("readingMode")}>
+                <Eye size={16} />
+                <span>{t("readingMode")}</span>
+              </button>
+              <button type="button" className={mode === "edit" ? "is-active" : ""} onClick={() => setMode("edit")} title={t("editDocument")}>
+                <Edit3 size={16} />
+                <span>{t("editingMode")}</span>
+              </button>
+            </div>
+            <div className="document-save-state" aria-live="polite">
+              {saving && <><LoaderCircle className="spin" size={15} /> {t("savingDocument")}</>}
+              {saved && <><Check size={15} /> {t("documentSaved")}</>}
+            </div>
+            {mode === "edit" && (
+              <div className="document-header-actions">
+                <button className="document-icon-button" type="button" onClick={cancelEditing} title={t("cancelEditing")} aria-label={t("cancelEditing")}>
+                  <X size={18} />
+                </button>
+                <button className="document-save-button" type="button" onClick={() => void saveDocument()} disabled={!dirty || saving}>
+                  {saving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}
+                  <span>{t("saveDocument")}</span>
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </header>
+
+      <main className={`markdown-workspace-main is-${mode}`}>
+        {!document && !loadError && (
+          <div className="document-state">
+            <LoaderCircle className="spin" size={24} />
+            <p>{t("loadingDocument")}</p>
+          </div>
+        )}
+        {loadError && (
+          <div className="document-state is-error">
+            <p>{loadError}</p>
+            <button type="button" onClick={() => setLoadAttempt((value) => value + 1)}>{t("retry")}</button>
+          </div>
+        )}
+        {document && mode === "read" && (
+          <article className="document-page">
+            <RichMarkdown content={draft} imageUrls={imageUrls} imageFallback={t("imageUnavailable")} />
+          </article>
+        )}
+        {document && mode === "edit" && (
+          <section className="document-editor">
+            <div className="document-format-toolbar" role="toolbar" aria-label={t("editingMode")}>
+              <button type="button" onClick={() => insertMarkup("## ", "", t("insertHeading"))} title={t("insertHeading")} aria-label={t("insertHeading")}><Heading2 size={17} /></button>
+              <button type="button" onClick={() => insertMarkup("**", "**", t("insertBold"))} title={t("insertBold")} aria-label={t("insertBold")}><Bold size={17} /></button>
+              <button type="button" onClick={() => insertMarkup("*", "*", t("insertItalic"))} title={t("insertItalic")} aria-label={t("insertItalic")}><Italic size={17} /></button>
+              <button type="button" onClick={() => insertMarkup("`", "`", t("insertCode"))} title={t("insertCode")} aria-label={t("insertCode")}><Code2 size={17} /></button>
+              <button type="button" onClick={() => insertMarkup("[", "](https://)", t("insertLink"))} title={t("insertLink")} aria-label={t("insertLink")}><LinkIcon size={17} /></button>
+              <button type="button" onClick={() => insertMarkup("![", "](../assets/)", t("insertImage"))} title={t("insertImage")} aria-label={t("insertImage")}><ImageIcon size={17} /></button>
+            </div>
+            <textarea
+              ref={editorRef}
+              value={draft}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setSaved(false);
+              }}
+              onKeyDown={handleEditorKeyDown}
+              spellCheck
+              aria-label={document.title}
+            />
+            {saveError && <p className="document-save-error" role="alert">{saveError}</p>}
+          </section>
+        )}
+      </main>
+    </section>
+  );
+}
+
+function RichMarkdown({
+  content,
+  imageUrls,
+  imageFallback
+}: {
+  content: string;
+  imageUrls: Record<string, string>;
+  imageFallback: string;
+}) {
+  const normalized = useMemo(
+    () => content.replace(/\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]/g, (_match, target, label) => label || target),
+    [content]
+  );
+  return (
+    <div className="document-markdown">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
+          table: ({ children }) => <div className="document-table-scroll"><table>{children}</table></div>,
+          img: ({ src, alt }) => {
+            if (!src) return null;
+            const resolved = imageUrls[src] ?? (isLocalMarkdownImageSource(src) ? "" : src);
+            if (!resolved) return <span className="document-image-error">{imageFallback}: {alt || src}</span>;
+            return <img src={resolved} alt={alt ?? ""} loading="lazy" />;
+          }
+        }}
+      >
+        {normalized}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+function extractMarkdownImageSources(content: string) {
+  const sources = new Set<string>();
+  const inlinePattern = /!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+["'][^"']*["'])?\s*\)/g;
+  const definitionPattern = /^\s*\[[^\]]+\]:\s*(?:<([^>]+)>|(\S+))/gm;
+  for (const pattern of [inlinePattern, definitionPattern]) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(content))) {
+      const source = (match[1] || match[2] || "").trim();
+      if (source) sources.add(source);
+    }
+  }
+  return [...sources];
+}
+
+function isLocalMarkdownImageSource(source: string) {
+  const value = source.trim();
+  return Boolean(value) && !value.startsWith("#") && !value.startsWith("//") && !/^[a-z][a-z0-9+.-]*:/i.test(value);
 }
 
 function GraphView({
@@ -711,6 +1046,7 @@ function GraphView({
   onSelect,
   onClearSelection,
   onOpenEvidence,
+  onOpenMarkdown,
   onOpenGroup,
   onHover,
   onWheelZoom,
@@ -732,6 +1068,7 @@ function GraphView({
   onSelect: (id: string) => void;
   onClearSelection: () => void;
   onOpenEvidence: (id: string) => void;
+  onOpenMarkdown: (node: WikiNode) => void;
   onOpenGroup: (group: string) => void;
   onHover: (id: string | null) => void;
   onWheelZoom: (deltaY: number) => void;
@@ -994,7 +1331,8 @@ function GraphView({
               onDoubleClick={(event) => {
                 event.stopPropagation();
                 if (draggedRef.current) return;
-                onOpenEvidence(node.id);
+                if (graphMode === "evidence") onOpenMarkdown(node);
+                else onOpenEvidence(node.id);
               }}
               onMouseEnter={() => onHover(node.id)}
               onMouseLeave={() => onHover(null)}

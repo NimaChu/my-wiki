@@ -1,0 +1,59 @@
+# Apple Container public sandbox
+
+This deployment keeps the public writable demo separate from every personal
+vault. The image contains only the My Wiki application and OpenCode CLI. A named
+Apple Container volume stores all captures, Wiki edits, imports, exports, and
+Viki maintenance results.
+
+## Start
+
+```bash
+mkdir -p ~/.my-wiki-demo
+cp deploy/apple-container/opencode.env.example ~/.my-wiki-demo/opencode.env
+chmod 600 ~/.my-wiki-demo/opencode.env
+./deploy/apple-container/start.sh
+```
+
+The host publishes only `127.0.0.1:8787`. Put Cloudflare Tunnel in front of that
+loopback address instead of opening a router or macOS firewall port.
+
+When macOS uses a localhost HTTP proxy, `start.sh` automatically rewrites that
+address to the Apple Container VM gateway for image builds, web capture, and
+OpenCode requests. Override detection with `MY_WIKI_CONTAINER_PROXY`.
+The script stages only application files under
+`~/Library/Caches/my-wiki-container/build-context` before building, because
+Apple Container cannot reliably send a BuildKit context from macOS temporary
+directories.
+
+An optional seed vault may be placed at `~/.my-wiki-demo/seed`. It is copied into
+the named volume only on first boot. Keep real vault content and credentials out
+of the repository and image.
+
+To rebuild the container without losing the demo vault, run `start.sh` again. To
+discard every public edit and return to a fresh volume:
+
+```bash
+./deploy/apple-container/reset-vault.sh
+./deploy/apple-container/start.sh
+```
+
+Install the login-time container watchdog after the first successful start:
+
+```bash
+./deploy/apple-container/install-launch-agent.sh
+```
+
+It starts the Apple Container system, starts `my-wiki-demo` when needed, and
+waits for the container so launchd can recover it after an exit. It never rebuilds
+the image or deletes the named vault volume.
+
+The normal local Dashboard remains loopback-only. Public hosts and HTTPS origins
+are enabled solely through deployment environment variables.
+
+OpenCode uses `MY_WIKI_OPENCODE_MODEL` as its primary model. When that model
+returns a provider error or invalid structured response, Viki advances through
+the comma-separated `MY_WIKI_OPENCODE_FALLBACK_MODELS` list. The legacy
+single-value `MY_WIKI_OPENCODE_FALLBACK_MODEL` remains supported and is appended
+after the list. Explicit cancellation and timeout failures do not retry.
+Authentication failures also stop immediately because all models share the same
+OpenCode credential.

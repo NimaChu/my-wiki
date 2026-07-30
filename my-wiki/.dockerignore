@@ -1,0 +1,8 @@
+assets/dashboard/.dashboard-server.pid
+assets/dashboard/.my-wiki-runtime.json
+assets/dashboard/dist
+assets/dashboard/node_modules
+assets/dashboard/public/wiki-graph.json
+*.log
+*.pid
+tests

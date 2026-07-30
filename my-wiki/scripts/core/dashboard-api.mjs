@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { promises as dns } from "node:dns";
 import { promises as fs, createReadStream } from "node:fs";
@@ -12,6 +12,7 @@ import { exportUniverse } from "./export-universe.mjs";
 import { importUniverse } from "./import-universe.mjs";
 import {
   isWikiKnowledgeNode,
+  parseFrontmatter,
   processedRawIssues,
   rawAttachmentIssues,
   rawHasReadableContent,
@@ -24,6 +25,8 @@ import {
 } from "./wiki-lib.mjs";
 
 const JSON_LIMIT = 128 * 1024;
+const MARKDOWN_JSON_LIMIT = 8 * 1024 * 1024;
+const MARKDOWN_BODY_LIMIT = 6 * 1024 * 1024;
 const FILE_LIMIT = Number(process.env.MY_WIKI_UPLOAD_LIMIT_BYTES || 1024 * 1024 * 1024);
 const sessionToken = randomBytes(32).toString("hex");
 const jobs = new Map();
@@ -69,7 +72,13 @@ const answerSchema = {
   }
 };
 
-export function createDashboardApi({ dashboardRoot, port, agentRunner = createLocalAgentRunner() }) {
+export function createDashboardApi({
+  dashboardRoot,
+  port,
+  agentRunner = createLocalAgentRunner(),
+  allowedOrigins = dashboardAllowedOrigins(port),
+  localFileIngestor = ingestLocalFile
+}) {
   const runtimeFile = path.join(dashboardRoot, ".my-wiki-runtime.json");
   const activeAgentJobs = { query: "", maintenance: "" };
 
@@ -84,13 +93,13 @@ export function createDashboardApi({ dashboardRoot, port, agentRunner = createLo
         return true;
       }
       if (requestUrl.pathname === "/api/v1/session" && req.method === "GET") {
-        enforceOrigin(req, port);
+        enforceOrigin(req, allowedOrigins);
         const vault = await activeVault(runtimeFile);
         sendJson(res, 200, { token: sessionToken, vault });
         return true;
       }
 
-      enforceOrigin(req, port);
+      enforceOrigin(req, allowedOrigins);
       enforceToken(req, requestUrl);
 
       if (requestUrl.pathname === "/api/v1/pets" && req.method === "GET") {
@@ -138,7 +147,7 @@ export function createDashboardApi({ dashboardRoot, port, agentRunner = createLo
       }
       if (requestUrl.pathname === "/api/v1/inbox" && req.method === "GET") {
         const scan = await scanVault(vault);
-        const items = scan.nodes
+        const capturedItems = scan.nodes
           .filter((node) => node.id.startsWith("raw/sources/") && ["inbox", "needs-followup"].includes(node.status))
           .sort((a, b) => String(b.frontmatter.captured || "").localeCompare(String(a.frontmatter.captured || "")))
           .map((node) => ({
@@ -153,6 +162,7 @@ export function createDashboardApi({ dashboardRoot, port, agentRunner = createLo
             captured: String(node.frontmatter.captured || ""),
             preview: textPreview(node.content, 280)
           }));
+        const items = [...captureQueueItems(vault), ...capturedItems];
         sendJson(res, 200, { items });
         return true;
       }
@@ -299,25 +309,34 @@ export function createDashboardApi({ dashboardRoot, port, agentRunner = createLo
         const collection = String(requestUrl.searchParams.get("collection") || "");
         const sourcePath = String(requestUrl.searchParams.get("sourcePath") || "").replace(/\\/g, "/").slice(0, 1000);
         const temporary = await receiveUpload(req, vault, filename);
-        try {
-          const batch = await ingestLocalFile({
-            vault,
-            title,
-            file: temporary,
-            filename,
-            collection,
-            sourcePath,
-            dependencyRoot: dashboardRoot,
-            captureMethod: "dashboard-upload",
-          });
-          const graphRefreshed = await refreshDashboardGraph(dashboardRoot, vault).catch(() => false);
-          const result = batch.kind === "file"
-            ? { ...batch.items[0], kind: batch.kind, count: batch.count, total: batch.count, items: batch.items }
-            : batch;
-          sendJson(res, 201, { ...result, graphRefreshed });
-        } finally {
-          await fs.rm(temporary, { force: true });
-        }
+        const job = createJob("capture-file", {
+          filename,
+          title,
+          collection,
+          sourcePath,
+          sourceType: sourceTypeFromFilename(filename)
+        }, vault);
+        runJob(job, async () => {
+          try {
+            const batch = await localFileIngestor({
+              vault,
+              title,
+              file: temporary,
+              filename,
+              collection,
+              sourcePath,
+              dependencyRoot: dashboardRoot,
+              captureMethod: "dashboard-upload",
+            });
+            const graphRefreshed = await refreshDashboardGraph(dashboardRoot, vault).catch(() => false);
+            return batch.kind === "file"
+              ? { ...batch.items[0], kind: batch.kind, count: batch.count, total: batch.count, items: batch.items, graphRefreshed }
+              : { ...batch, graphRefreshed };
+          } finally {
+            await fs.rm(temporary, { force: true });
+          }
+        });
+        sendJson(res, 202, publicJob(job));
         return true;
       }
       if (requestUrl.pathname === "/api/v1/universes/export" && req.method === "POST") {
@@ -373,6 +392,39 @@ export function createDashboardApi({ dashboardRoot, port, agentRunner = createLo
           "content-type": contentTypeForFile(file),
           "content-length": stat.size,
           "cache-control": "private, max-age=300"
+        });
+        createReadStream(file).pipe(res);
+        return true;
+      }
+
+      if (requestUrl.pathname === "/api/v1/markdown" && req.method === "GET") {
+        const document = await readMarkdownDocument(vault, String(requestUrl.searchParams.get("path") || ""));
+        sendJson(res, 200, document);
+        return true;
+      }
+
+      if (requestUrl.pathname === "/api/v1/markdown" && req.method === "PUT") {
+        const body = await readJson(req, MARKDOWN_JSON_LIMIT);
+        if (typeof body.body !== "string") throw httpError(400, "Markdown body is required");
+        if (Buffer.byteLength(body.body, "utf8") > MARKDOWN_BODY_LIMIT) throw httpError(413, "Markdown document is too large");
+        const document = await saveMarkdownDocument(vault, String(body.path || ""), body.body, String(body.expectedVersion || ""));
+        const graphRefreshed = await refreshDashboardGraph(dashboardRoot, vault).catch(() => false);
+        sendJson(res, 200, { ...document, graphRefreshed });
+        return true;
+      }
+
+      if (requestUrl.pathname === "/api/v1/markdown-image" && req.method === "GET") {
+        const file = await resolveMarkdownImageFile(
+          vault,
+          String(requestUrl.searchParams.get("note") || ""),
+          String(requestUrl.searchParams.get("src") || "")
+        );
+        const stat = await fs.stat(file);
+        res.writeHead(200, {
+          "content-type": contentTypeForFile(file),
+          "content-length": stat.size,
+          "cache-control": "private, max-age=300",
+          "x-content-type-options": "nosniff"
         });
         createReadStream(file).pipe(res);
         return true;
@@ -515,11 +567,12 @@ async function universeSummaries(vault) {
     .sort((a, b) => b.wiki - a.wiki || a.name.localeCompare(b.name));
 }
 
-function createJob(type, meta) {
+function createJob(type, meta, vault = "") {
   const job = {
     id: randomUUID(),
     type,
     meta,
+    vault,
     status: "queued",
     createdAt: new Date().toISOString(),
     completedAt: "",
@@ -530,6 +583,32 @@ function createJob(type, meta) {
   };
   jobs.set(job.id, job);
   return job;
+}
+
+function captureQueueItems(vault) {
+  return [...jobs.values()]
+    .filter((job) => job.type === "capture-file"
+      && job.vault === vault
+      && !["complete", "cancelled"].includes(job.status))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    .map((job) => ({
+      id: `job:${job.id}`,
+      jobId: job.id,
+      jobStatus: job.status,
+      path: "",
+      title: String(job.meta.title || job.meta.filename || "Uploaded Source"),
+      status: job.status === "failed" ? "failed" : "processing",
+      sourceType: String(job.meta.sourceType || "file"),
+      sourceUrl: "",
+      snapshotPath: "",
+      collection: String(job.meta.collection || ""),
+      captured: job.createdAt,
+      preview: job.status === "failed"
+        ? job.error
+        : job.status === "queued"
+          ? "Upload received. Waiting for local extraction."
+          : "Extracting readable evidence in the background."
+    }));
 }
 
 function runJob(job, work) {
@@ -847,6 +926,110 @@ async function resolvePublicVaultFile(vault, requested) {
   return resolved;
 }
 
+export async function resolveMarkdownVaultFile(vault, requested) {
+  const relative = normalizeVaultRelative(requested);
+  if (!relative || !/^(?:wiki|raw\/sources)\/.+\.md$/i.test(relative)) {
+    throw httpError(400, "Only Wiki and raw source Markdown files can be opened");
+  }
+  const root = await fs.realpath(vault);
+  const resolved = path.resolve(vault, relative);
+  if (!isWithin(vault, resolved)) throw httpError(400, "Invalid Markdown file path");
+  const file = await fs.realpath(resolved).catch(() => "");
+  if (!file || !isWithin(root, file)) throw httpError(400, "Invalid Markdown file path");
+  const stat = await fs.stat(file).catch(() => null);
+  if (!stat?.isFile()) throw httpError(404, "Markdown file not found");
+  return file;
+}
+
+export async function resolveMarkdownImageFile(vault, notePath, source) {
+  const noteFile = await resolveMarkdownVaultFile(vault, notePath);
+  const decoded = decodeMarkdownImageSource(source);
+  if (!decoded) throw httpError(400, "Only local Markdown images can be displayed");
+  const root = await fs.realpath(vault);
+  const candidate = decoded.startsWith("/")
+    ? path.resolve(root, decoded.replace(/^\/+/, ""))
+    : path.resolve(path.dirname(noteFile), decoded);
+  if (!isWithin(root, candidate)) throw httpError(400, "Invalid Markdown image path");
+  const file = await fs.realpath(candidate).catch(() => "");
+  if (!file || !isWithin(root, file)) throw httpError(400, "Invalid Markdown image path");
+  const relative = slash(path.relative(root, file));
+  if (!/^raw\/assets\//i.test(relative) || !isImagePath(relative)) {
+    throw httpError(400, "Only local vault images can be displayed");
+  }
+  const stat = await fs.stat(file).catch(() => null);
+  if (!stat?.isFile()) throw httpError(404, "Markdown image not found");
+  return file;
+}
+
+export async function readMarkdownDocument(vault, requested) {
+  const file = await resolveMarkdownVaultFile(vault, requested);
+  const content = await fs.readFile(file, "utf8");
+  return publicMarkdownDocument(vault, file, content);
+}
+
+export async function saveMarkdownDocument(vault, requested, body, expectedVersion) {
+  const file = await resolveMarkdownVaultFile(vault, requested);
+  const current = await fs.readFile(file, "utf8");
+  if (!expectedVersion || expectedVersion !== markdownVersion(current)) {
+    throw httpError(409, "This Markdown file changed after it was opened. Reload it before saving.");
+  }
+  const next = replaceMarkdownBody(current, body);
+  const temporary = path.join(path.dirname(file), `.${path.basename(file)}.${randomUUID()}.tmp`);
+  try {
+    await fs.writeFile(temporary, next, { encoding: "utf8", flag: "wx" });
+    await fs.rename(temporary, file);
+  } finally {
+    await fs.rm(temporary, { force: true });
+  }
+  return publicMarkdownDocument(vault, file, next);
+}
+
+function publicMarkdownDocument(vault, file, content) {
+  const frontmatter = parseFrontmatter(content);
+  const body = splitMarkdownDocument(content).body;
+  const heading = body.match(/^\s*#\s+(.+?)\s*$/m)?.[1] || "";
+  return {
+    path: slash(path.relative(vault, file)),
+    title: String(frontmatter.title || heading || path.basename(file, ".md")),
+    body,
+    version: markdownVersion(content)
+  };
+}
+
+function markdownVersion(content) {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+function replaceMarkdownBody(content, body) {
+  const { prefix } = splitMarkdownDocument(content);
+  const newline = content.includes("\r\n") ? "\r\n" : "\n";
+  const normalizedBody = String(body).replace(/\r?\n/g, newline).replace(/\s+$/u, "");
+  return `${prefix}${normalizedBody}${newline}`;
+}
+
+function splitMarkdownDocument(content) {
+  const offset = content.charCodeAt(0) === 0xfeff ? 1 : 0;
+  const match = content.slice(offset).match(/^---\r?\n[\s\S]*?\r?\n---(?=\r?\n|$)/);
+  if (!match) return { prefix: content.slice(0, offset), body: content.slice(offset) };
+  const blockEnd = offset + match[0].length;
+  const separator = content.slice(blockEnd).match(/^\r?\n/)?.[0] || "";
+  const bodyStart = blockEnd + separator.length;
+  return { prefix: content.slice(0, bodyStart), body: content.slice(bodyStart) };
+}
+
+function decodeMarkdownImageSource(value) {
+  let source = String(value || "").trim().replace(/^<|>$/g, "");
+  if (!source || source.startsWith("#") || source.startsWith("//") || /^[a-z][a-z0-9+.-]*:/i.test(source)) return "";
+  source = source.split("#", 1)[0].split("?", 1)[0];
+  try {
+    source = decodeURIComponent(source);
+  } catch {
+    return "";
+  }
+  if (!source || source.includes("\0") || source.includes("\\")) return "";
+  return source;
+}
+
 function isWithin(root, candidate) {
   const relative = path.relative(path.resolve(root), path.resolve(candidate));
   return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
@@ -967,12 +1150,12 @@ async function revertUnsupportedProcessedSources(scan) {
   return invalidIds.size;
 }
 
-async function readJson(req) {
+async function readJson(req, limit = JSON_LIMIT) {
   let bytes = 0;
   const chunks = [];
   for await (const chunk of req) {
     bytes += chunk.length;
-    if (bytes > JSON_LIMIT) throw httpError(413, "JSON request is too large");
+    if (bytes > limit) throw httpError(413, "JSON request is too large");
     chunks.push(chunk);
   }
   if (!chunks.length) return {};
@@ -1018,11 +1201,21 @@ function isPrivateAddress(address) {
   return true;
 }
 
-function enforceOrigin(req, port) {
+export function dashboardAllowedOrigins(port, configured = process.env.MY_WIKI_DASHBOARD_ORIGINS) {
+  return new Set([
+    `http://127.0.0.1:${port}`,
+    `http://localhost:${port}`,
+    ...String(configured || "")
+      .split(",")
+      .map((origin) => origin.trim().replace(/\/+$/, ""))
+      .filter(Boolean)
+  ]);
+}
+
+function enforceOrigin(req, allowedOrigins) {
   const origin = req.headers.origin;
   if (!origin) return;
-  const allowed = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
-  if (!allowed.has(origin)) throw httpError(403, "Dashboard origin is not allowed");
+  if (!allowedOrigins.has(origin)) throw httpError(403, "Dashboard origin is not allowed");
 }
 
 function enforceToken(req, requestUrl) {
@@ -1038,6 +1231,15 @@ function titleFromUrl(value) {
 
 function safeFilename(value) {
   return path.basename(String(value || "upload.bin")).replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").slice(0, 180) || "upload.bin";
+}
+
+function sourceTypeFromFilename(filename) {
+  const extension = path.extname(filename).toLowerCase();
+  if (extension === ".pdf") return "pdf";
+  if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"].includes(extension)) return "image";
+  if (extension === ".zip") return "file";
+  if ([".docx", ".pptx", ".xlsx", ".doc", ".ppt", ".xls"].includes(extension)) return "document";
+  return "file";
 }
 
 function timestamp() {

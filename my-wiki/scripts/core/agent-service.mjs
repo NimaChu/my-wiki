@@ -26,33 +26,77 @@ export function createLocalAgentRunner({ env = process.env } = {}) {
       const outputFile = path.join(temporary, `${randomUUID()}.json`);
       const schemaFile = path.join(temporary, "response.schema.json");
       const providerConfigFile = path.join(temporary, "opencode.json");
+      const primaryModel = String(env.MY_WIKI_OPENCODE_MODEL || "").trim();
+      const fallbackModels = openCodeFallbackModels(env, primaryModel);
       await fs.writeFile(schemaFile, `${JSON.stringify(schema, null, 2)}\n`, "utf8");
-      await fs.writeFile(providerConfigFile, `${JSON.stringify(openCodeConfig(mode), null, 2)}\n`, "utf8");
+      await fs.writeFile(
+        providerConfigFile,
+        `${JSON.stringify(openCodeConfig(mode), null, 2)}\n`,
+        "utf8"
+      );
 
       try {
-        const invocation = providerInvocation({
-          provider: selected.provider,
-          command: selected.command,
-          vault,
-          mode,
-          prompt,
-          schema,
-          outputFile,
-          schemaFile,
-          providerConfigFile
-        });
-        const result = await runProcess(invocation.command, invocation.args, {
-          cwd: vault,
-          env: { ...env, ...(invocation.env || {}) },
-          input: invocation.input,
-          timeoutMs,
-          idleTimeoutMs,
-          signal
-        });
-        const raw = selected.provider === "codex"
-          ? await fs.readFile(outputFile, "utf8").catch(() => result.stdout)
-          : result.stdout;
-        return parseStructuredOutput(raw);
+        const runAttempt = async (model = "") => {
+          const invocation = providerInvocation({
+            provider: selected.provider,
+            command: selected.command,
+            vault,
+            mode,
+            prompt,
+            schema,
+            outputFile,
+            schemaFile,
+            providerConfigFile,
+            model
+          });
+          let result;
+          try {
+            result = await runProcess(invocation.command, invocation.args, {
+              cwd: vault,
+              env: { ...env, ...(invocation.env || {}) },
+              input: invocation.input,
+              timeoutMs,
+              idleTimeoutMs,
+              signal,
+              stopOnStderr: selected.provider === "opencode" ? openCodeProviderError : undefined
+            });
+          } catch (error) {
+            const providerError = selected.provider === "opencode"
+              ? openCodeProviderError(error?.message)
+              : "";
+            if (providerError) throw new Error(providerError);
+            throw error;
+          }
+          const raw = selected.provider === "codex"
+            ? await fs.readFile(outputFile, "utf8").catch(() => result.stdout)
+            : result.stdout;
+          try {
+            return parseStructuredOutput(raw);
+          } catch (error) {
+            const providerError = selected.provider === "opencode"
+              ? openCodeProviderError(result.stderr)
+              : "";
+            if (providerError) throw new Error(providerError);
+            throw error;
+          }
+        };
+
+        const models = selected.provider === "opencode"
+          ? [primaryModel, ...fallbackModels]
+          : [primaryModel];
+        let lastError;
+        for (let index = 0; index < models.length; index += 1) {
+          try {
+            return await runAttempt(models[index]);
+          } catch (error) {
+            lastError = error;
+            const canFallback = selected.provider === "opencode"
+              && index < models.length - 1
+              && isOpenCodeFallbackEligible(error, signal);
+            if (!canFallback) throw error;
+          }
+        }
+        throw lastError;
       } finally {
         await fs.rm(temporary, { recursive: true, force: true });
       }
@@ -133,7 +177,8 @@ function providerCandidates(provider, env) {
 }
 
 function commandAvailable(command) {
-  const result = spawnSync(command, ["--version"], {
+  const invocation = executableInvocation(command, ["--version"]);
+  const result = spawnSync(invocation.command, invocation.args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     timeout: 5000,
@@ -143,7 +188,15 @@ function commandAvailable(command) {
   return !result.error && result.status === 0;
 }
 
-function providerInvocation({ provider, command, vault, mode, prompt, schema, outputFile, schemaFile, providerConfigFile }) {
+function executableInvocation(command, args) {
+  const extension = path.extname(command).toLowerCase();
+  if ([".js", ".cjs", ".mjs"].includes(extension)) {
+    return { command: process.execPath, args: [command, ...args] };
+  }
+  return { command, args };
+}
+
+function providerInvocation({ provider, command, vault, mode, prompt, schema, outputFile, schemaFile, providerConfigFile, model }) {
   if (provider === "codex") {
     return {
       command,
@@ -166,7 +219,15 @@ function providerInvocation({ provider, command, vault, mode, prompt, schema, ou
   if (provider === "opencode") {
     return {
       command,
-      args: ["run", "--format", "default", "--dir", vault, promptWithSchema(prompt, schema)],
+      args: [
+        "run",
+        "--print-logs",
+        "--log-level", "ERROR",
+        "--format", "default",
+        ...(model ? ["--model", model] : []),
+        "--dir", vault,
+        promptWithSchema(prompt, schema)
+      ],
       input: "",
       env: { OPENCODE_CONFIG: providerConfigFile }
     };
@@ -207,13 +268,48 @@ function openCodeConfig(mode) {
   };
 }
 
-function runProcess(command, args, { cwd, env, input, timeoutMs, idleTimeoutMs, signal }) {
+function openCodeFallbackModels(env, primaryModel) {
+  const configured = [
+    ...String(env.MY_WIKI_OPENCODE_FALLBACK_MODELS || "").split(","),
+    String(env.MY_WIKI_OPENCODE_FALLBACK_MODEL || "")
+  ]
+    .map((model) => model.trim())
+    .filter(Boolean);
+  return [...new Set(configured)].filter((model) => model !== primaryModel);
+}
+
+function isOpenCodeFallbackEligible(error, signal) {
+  if (signal?.aborted) return false;
+  const message = String(error?.message || error || "");
+  return !message.includes("Local agent request was cancelled")
+    && !message.includes("Local agent timed out")
+    && !message.includes("Local agent stopped after")
+    && !/invalid api key|authentication|unauthorized|forbidden|\b401\b/i.test(message);
+}
+
+function openCodeProviderError(stderr) {
+  const value = stripAnsi(String(stderr || ""));
+  const known = [
+    /Invalid API key\.?/i,
+    /authentication (?:failed|required)\.?/i,
+    /unauthorized\.?/i,
+    /forbidden\.?/i,
+    /rate limit(?:ed| exceeded)?\.?/i,
+    /insufficient (?:credits|quota)\.?/i,
+    /model [^\n"]+ (?:not found|unavailable)\.?/i,
+    /ProviderModelNotFoundError/i
+  ].map((pattern) => value.match(pattern)?.[0]).find(Boolean);
+  return known ? `OpenCode provider request failed: ${known}` : "";
+}
+
+function runProcess(command, args, { cwd, env, input, timeoutMs, idleTimeoutMs, signal, stopOnStderr }) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(new Error("Local agent request was cancelled"));
       return;
     }
-    const child = spawn(command, args, {
+    const invocation = executableInvocation(command, args);
+    const child = spawn(invocation.command, invocation.args, {
       cwd,
       env,
       detached: process.platform !== "win32",
@@ -273,7 +369,8 @@ function runProcess(command, args, { cwd, env, input, timeoutMs, idleTimeoutMs, 
     });
     child.stderr.on("data", (chunk) => {
       stderr = append(stderr, chunk);
-      resetIdleTimer();
+      const providerError = stopOnStderr?.(stderr);
+      if (providerError) stop(new Error(providerError));
     });
     child.on("error", (error) => {
       fail(stopError || error);

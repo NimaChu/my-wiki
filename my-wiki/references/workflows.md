@@ -61,7 +61,7 @@ Treat requests to view the graph, frontend, or Dashboard as permission to run `o
 The local Dashboard can perform deterministic vault operations without calling an agent:
 
 - Add a public HTTP/HTTPS URL to `raw/sources/` as `status: inbox`, with a local snapshot and mirrored inline images when available.
-- Upload a local file by first persisting the untouched original in `raw/snapshots/`, then parsing that durable copy and creating its corresponding raw note. Convert text PDFs, scanned PDFs, images, DOCX, PPTX, XLSX, and plain-text formats into structured `## Capture` Markdown with extraction metadata.
+- Upload a local file into the visible Inbox processing queue as soon as transfer completes. Continue extraction in the background, persist the untouched original in `raw/snapshots/`, then parse that durable copy and create its corresponding raw note. Processing queue entries must not be treated as maintainable raw notes. Convert text PDFs, scanned PDFs, images, DOCX, PPTX, XLSX, and plain-text formats into structured `## Capture` Markdown with extraction metadata.
 - Upload a folder as a batch of independent documents. Preserve each browser-relative path as provenance while keeping raw storage flat.
 - Upload a ZIP bundle containing one or more Markdown files and their relative images. Create one raw note per Markdown file, preserve literal Markdown/HTML references while resolving decoded archive paths, rewrite every occurrence into that raw note's asset directory with portable URL encoding, preserve the ZIP snapshot, reject unsafe archive paths, and enforce entry and expanded-size limits.
 - List inbox, follow-up, and stale raw notes.

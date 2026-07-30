@@ -1,0 +1,29 @@
+FROM node:20-bookworm-slim
+
+ARG OPENCODE_VERSION=1.18.9
+
+RUN npm install --global "opencode-ai@${OPENCODE_VERSION}" \
+  && npm cache clean --force
+
+WORKDIR /opt/my-wiki
+
+WORKDIR /opt/my-wiki/assets/dashboard
+COPY assets/dashboard/package.json assets/dashboard/package-lock.json ./
+RUN npm ci
+
+WORKDIR /opt/my-wiki
+COPY . .
+
+WORKDIR /opt/my-wiki/assets/dashboard
+RUN npm run build
+
+ENV NODE_ENV=production \
+  MY_WIKI_VAULT=/vault \
+  MY_WIKI_CONFIG_PATH=/runtime/config.json \
+  MY_WIKI_DASHBOARD_HOST=0.0.0.0 \
+  MY_WIKI_DASHBOARD_PORT=5173 \
+  MY_WIKI_AGENT_PROVIDER=opencode
+
+EXPOSE 5173
+
+ENTRYPOINT ["/opt/my-wiki/deploy/apple-container/entrypoint.sh"]

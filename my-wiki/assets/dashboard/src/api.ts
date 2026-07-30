@@ -1,5 +1,7 @@
 export type InboxItem = {
   id: string;
+  jobId?: string;
+  jobStatus?: "queued" | "running" | "failed";
   path: string;
   title: string;
   status: string;
@@ -19,7 +21,7 @@ export type UniverseSummary = {
 
 export type Job = {
   id: string;
-  type: "export" | "import-preview" | "import-apply" | "agent-maintenance" | "agent-answer";
+  type: "capture-file" | "export" | "import-preview" | "import-apply" | "agent-maintenance" | "agent-answer";
   meta: Record<string, any>;
   status: "queued" | "running" | "complete" | "failed" | "cancelled";
   createdAt: string;
@@ -73,6 +75,13 @@ export type MaintenanceResult = {
   lintIssues: number;
 };
 
+export type MarkdownDocument = {
+  path: string;
+  title: string;
+  body: string;
+  version: string;
+};
+
 let session: Promise<{ token: string; vault: string }> | null = null;
 
 async function getSession() {
@@ -97,12 +106,29 @@ async function getSession() {
 }
 
 async function apiFetch(path: string, init: RequestInit = {}) {
-  const current = await getSession();
-  const headers = new Headers(init.headers);
-  headers.set("x-my-wiki-token", current.token);
-  const response = await fetch(path, { ...init, headers, cache: "no-store" });
-  if (!response.ok) throw new Error(await responseError(response));
-  return response;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const current = await getSession();
+    const headers = new Headers(init.headers);
+    headers.set("x-my-wiki-token", current.token);
+    const response = await fetch(path, { ...init, headers, cache: "no-store" });
+    if (response.ok) return response;
+    if (attempt === 0 && await hasInvalidSessionToken(response)) {
+      session = null;
+      continue;
+    }
+    throw new Error(await responseError(response));
+  }
+  throw new Error("Dashboard session could not be refreshed");
+}
+
+async function hasInvalidSessionToken(response: Response) {
+  if (response.status !== 403) return false;
+  try {
+    const body = await response.clone().json() as { error?: unknown };
+    return body.error === "Dashboard session token is missing or invalid";
+  } catch {
+    return false;
+  }
 }
 
 async function responseError(response: Response) {
@@ -195,7 +221,7 @@ export const localApi = {
       headers: { "content-type": file.type || "application/octet-stream" },
       body: file
     });
-    return response.json() as Promise<Record<string, any>>;
+    return response.json() as Promise<Job>;
   },
 
   async exportUniverse(universe: string) {
@@ -243,6 +269,30 @@ export const localApi = {
     const current = await getSession();
     const url = new URL("/api/v1/vault-file", window.location.href);
     url.searchParams.set("path", path);
+    url.searchParams.set("token", current.token);
+    return url.href;
+  },
+
+  async markdown(path: string) {
+    const params = new URLSearchParams({ path });
+    const response = await apiFetch(`/api/v1/markdown?${params}`);
+    return response.json() as Promise<MarkdownDocument>;
+  },
+
+  async saveMarkdown(path: string, body: string, expectedVersion: string) {
+    const response = await apiFetch("/api/v1/markdown", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path, body, expectedVersion })
+    });
+    return response.json() as Promise<MarkdownDocument & { graphRefreshed: boolean }>;
+  },
+
+  async markdownImageUrl(note: string, source: string) {
+    const current = await getSession();
+    const url = new URL("/api/v1/markdown-image", window.location.href);
+    url.searchParams.set("note", note);
+    url.searchParams.set("src", source);
     url.searchParams.set("token", current.token);
     return url.href;
   }

@@ -1,0 +1,29 @@
+name: Cross-platform checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: my-wiki/assets/dashboard/package-lock.json
+      - name: Install Dashboard dependencies
+        working-directory: my-wiki/assets/dashboard
+        run: npm ci
+      - name: Run tests
+        run: npm test
+      - name: Build Dashboard
+        working-directory: my-wiki/assets/dashboard
+        run: npm run build

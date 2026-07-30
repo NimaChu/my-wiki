@@ -16,10 +16,13 @@
     "lucide-react": "^0.468.0",
     "mammoth": "1.12.0",
     "pdfjs-dist": "4.2.67",
-    "read-excel-file": "9.3.4",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
-    "tesseract.js": "6.0.1"
+    "react-markdown": "^10.1.0",
+    "read-excel-file": "9.3.4",
+    "remark-gfm": "^4.0.1",
+    "tesseract.js": "6.0.1",
+    "undici": "^6.27.0"
   },
   "overrides": {
     "pdfjs-dist": {

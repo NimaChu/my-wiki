@@ -57,6 +57,9 @@ const labels = {
     importing: "Importing",
     imported: "Knowledge galaxy imported",
     loading: "Loading",
+    queued: "Queued",
+    extracting: "Extracting",
+    failed: "Failed",
     pending: "Inbox items",
     source: "Source",
     snapshot: "Original",
@@ -118,6 +121,9 @@ const labels = {
     importing: "正在导入",
     imported: "知识星系已导入",
     loading: "正在加载",
+    queued: "排队中",
+    extracting: "正在提取",
+    failed: "处理失败",
     pending: "Inbox 条目",
     source: "来源",
     snapshot: "原件",
@@ -172,15 +178,15 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
   const folderInput = useRef<HTMLInputElement>(null);
   const zipInput = useRef<HTMLInputElement>(null);
 
-  const loadInbox = async () => {
-    setLoadingInbox(true);
+  const loadInbox = async (quiet = false) => {
+    if (!quiet) setLoadingInbox(true);
     setError("");
     try {
       setInbox((await localApi.inbox()).items);
     } catch (nextError) {
       setError(errorMessage(nextError));
     } finally {
-      setLoadingInbox(false);
+      if (!quiet) setLoadingInbox(false);
     }
   };
 
@@ -191,6 +197,12 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
   useEffect(() => {
     if (tab === "inbox") void loadInbox();
   }, [tab]);
+
+  useEffect(() => {
+    if (tab !== "inbox" || !inbox.some((item) => item.jobStatus === "queued" || item.jobStatus === "running")) return;
+    const timer = window.setInterval(() => void loadInbox(true), 1500);
+    return () => window.clearInterval(timer);
+  }, [tab, inbox]);
 
   const submit = async () => {
     setError("");
@@ -204,7 +216,7 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
       if (tab === "link") {
         captured = await localApi.captureUrl({ url: url.trim(), title: title.trim(), collection: collection.trim() });
       } else if (tab === "folder") {
-        const items = [];
+        const items: Job[] = [];
         const failures = [];
         for (const item of folderFiles) {
           try {
@@ -214,10 +226,19 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
           }
         }
         if (items.length === 0) throw new Error(failures[0]?.error || l.requiredFolder);
-        captured = { kind: "folder", count: items.length, total: folderFiles.length, items, failures };
+        setFolderFiles([]);
+        setTab("inbox");
+        await loadInbox();
+        return;
       } else {
         const selected = tab === "zip" ? zipFile! : file!;
-        captured = await localApi.captureFile(selected, { title: title.trim(), collection: collection.trim() });
+        await localApi.captureFile(selected, { title: title.trim(), collection: collection.trim() });
+        setFile(null);
+        setZipFile(null);
+        setTitle("");
+        setTab("inbox");
+        await loadInbox();
+        return;
       }
       setResult(captured);
       window.dispatchEvent(new Event("my-wiki:graph-updated"));
@@ -273,7 +294,7 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
         <div className="inbox-view">
           <div className="section-command-row">
             <span>{inbox.length} {l.pending}</span>
-            <button type="button" onClick={loadInbox} disabled={loadingInbox}>{loadingInbox ? <LoaderCircle className="spin" size={15} /> : null}{l.refresh}</button>
+            <button type="button" onClick={() => void loadInbox()} disabled={loadingInbox}>{loadingInbox ? <LoaderCircle className="spin" size={15} /> : null}{l.refresh}</button>
           </div>
           {loadingInbox && inbox.length === 0 ? <p className="dialog-empty">{l.loading}</p> : null}
           {!loadingInbox && inbox.length === 0 ? <p className="dialog-empty">{l.noInbox}</p> : null}
@@ -282,6 +303,13 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
               <article key={item.id} className="inbox-row">
                 <div><strong>{item.title}</strong><p>{item.preview}</p></div>
                 <dl>
+                  <div>
+                    <dt>{l.status}</dt>
+                    <dd className={`inbox-status ${item.jobStatus || item.status}`}>
+                      {item.jobStatus === "queued" || item.jobStatus === "running" ? <LoaderCircle className="spin" size={12} /> : null}
+                      {item.jobStatus === "queued" ? l.queued : item.jobStatus === "running" ? l.extracting : item.jobStatus === "failed" ? l.failed : item.status}
+                    </dd>
+                  </div>
                   <div><dt>{l.source}</dt><dd>{item.sourceType || "-"}</dd></div>
                   <div><dt>{l.collection}</dt><dd>{item.collection || "-"}</dd></div>
                 </dl>
