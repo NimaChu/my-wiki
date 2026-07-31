@@ -13,10 +13,16 @@
 
 ## Query
 
-1. Read `wiki/index.md`.
-2. Search `wiki/` before `raw/`.
-3. Inspect linked raw evidence for grounding.
-4. Include one to three useful local images when visual evidence materially improves the answer.
+Treat ordinary questions about concepts, people, products, methods, events, companies, or named projects as vault queries unless the user explicitly asks about My Wiki's implementation. Do not inspect the application source tree as a proxy for the vault.
+
+1. Resolve the selected vault, then read `wiki/index.md` for its current knowledge map.
+2. Search the user's exact wording. When wording may cross Chinese and English, abbreviations, aliases, or translations, search the likely variants as well.
+3. Search and read `wiki/` before `raw/`. Prefer the highest-ranking relevant atomic Wiki page and follow useful Wiki links.
+4. Inspect linked `raw/sources/` evidence when a claim needs verification, provenance, recency, or more detail.
+5. Answer from the vault and separate supported knowledge from clearly labeled general background. Say that the vault has no relevant knowledge only after searching; then ask for context or offer a general answer.
+6. Include one to three useful local images when visual evidence materially improves the answer.
+
+Never substitute model memory for an existing vault page. For example, a question such as `Loop 工程是什么` should retrieve the `Loop Engineering` Wiki page and its evidence rather than infer from the term or search the My Wiki repository.
 
 ## Maintain
 

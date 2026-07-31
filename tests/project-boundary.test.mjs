@@ -29,6 +29,23 @@ test("runnable application lives at the project root, outside the Skill", async 
   }
 });
 
+test("project instructions stay a concise router to the canonical Skill", async () => {
+  const instructions = await fs.readFile(path.join(root, "AGENTS.md"), "utf8");
+  assert.match(instructions, /canonical Agent playbook/);
+  assert.match(instructions, /read `my-wiki-skill\/SKILL\.md` first/);
+  assert.match(instructions, /Ordinary questions about concepts/);
+  assert.match(instructions, /Enter setup only when/);
+  assert.match(instructions, /Do not duplicate operational workflows in this file/);
+  assert.doesNotMatch(instructions, /npm run wiki -- search/);
+  assert.ok(instructions.split(/\s+/).length < 500, "AGENTS.md should remain a quick project router");
+
+  const workflows = await fs.readFile(path.join(root, "my-wiki-skill", "references", "workflows.md"), "utf8");
+  assert.match(workflows, /Search the user's exact wording/);
+  assert.match(workflows, /Chinese and English, abbreviations, aliases, or translations/);
+  assert.match(workflows, /Never substitute model memory for an existing vault page/);
+  assert.match(workflows, /Loop 工程是什么/);
+});
+
 test("project setup registers the checkout without creating a vault", async (context) => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-project-"));
   context.after(() => fs.rm(temp, { recursive: true, force: true }));

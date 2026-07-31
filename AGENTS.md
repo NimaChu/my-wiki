@@ -1,32 +1,32 @@
 # My Wiki Agent Project
 
-This repository is the runnable My Wiki application, not a knowledge vault and not merely an Agent Skill.
+This repository is the runnable My Wiki application. It is neither a knowledge vault nor merely an installed Agent Skill.
 
-## First Run
+## Project Map
 
-1. Run `npm run setup` to register this checkout as the installed My Wiki project.
-2. Run `npm run wiki -- where` to inspect the active vault.
-3. If no vault exists, ask the user where their local knowledge should live, then run `npm run wiki -- init /path/to/vault --name personal --use`.
-4. Keep vault content outside this repository. Never commit or push a user's `raw/`, `wiki/`, snapshots, assets, exports, or local credentials.
+- `scripts/` contains the CLI and knowledge-maintenance implementation.
+- `assets/dashboard/` contains the web application and local service.
+- `deploy/` contains standalone deployment options.
+- `tests/` covers application and workflow contracts.
+- `my-wiki-skill/SKILL.md` is the canonical Agent playbook for capture, query, maintenance, evidence, galaxies, sharing, and Dashboard operations.
+- The user's vault is external to this repository and owns its `raw/`, `wiki/`, templates, assets, snapshots, and runtime state.
 
-The optional adapter Skill lives in `my-wiki-skill/`. Install it with `npm run skill:install`, or register the project and install the Skill together with `npm run setup:all`. The project itself runs directly through `npm run wiki -- <command>` and does not require the Skill.
+The project can run directly with `npm run wiki -- <command>` and does not require a globally installed Skill. The adapter under `my-wiki-skill/` is optional for Agents working from other workspaces.
 
-## Core Commands
+## Route Requests
 
-```bash
-npm run wiki -- status
-npm run wiki -- capture --url "https://example.com" --title "Example"
-npm run wiki -- search "query"
-npm run wiki -- lint
-npm run wiki -- garden
-npm run dashboard:open
-```
+Classify the request before acting:
 
-Use an explicit vault with `--vault <name-or-path>`. Read `my-wiki-skill/SKILL.md` and its references for ingestion, maintenance, evidence, universe, and Dashboard behavior.
+1. **Knowledge operation:** For capturing sources, answering knowledge questions, searching the vault, maintaining knowledge, inspecting evidence, managing galaxies, importing/exporting, or opening the Dashboard, read `my-wiki-skill/SKILL.md` first and follow the relevant reference it names. Ordinary questions about concepts, people, products, methods, events, companies, or named projects belong to this route unless the user explicitly asks about repository code.
+2. **Project development:** For implementation, architecture, tests, bugs, CLI behavior, frontend behavior, or deployment code, work from this repository and preserve its existing engineering patterns.
+3. **Installation or bootstrap:** Enter setup only when the user asks to install/configure My Wiki or when the operational playbook reports that the project registration or vault is missing. Follow the README and Skill guidance; do not repeat initialization during normal use.
+4. **Repository publishing:** Code may be committed and pushed when requested. Vault knowledge, originals, exports, credentials, and local runtime state must never enter this repository.
 
-## Development
+Do not use the application source tree as a substitute for searching the vault. Do not duplicate operational workflows in this file; keep their single source of truth in `my-wiki-skill/`.
+
+## Development Checks
 
 - Run `npm test` after backend or workflow changes.
 - Run `npm run dashboard:build` after frontend changes.
-- The Apple Container deployment is under `deploy/apple-container/` and must use the repository root as its build context.
 - Preserve cross-platform Node paths and the Windows dashboard launchers.
+- Build Apple Container deployments from the repository root.
