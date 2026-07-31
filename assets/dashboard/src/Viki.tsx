@@ -1,6 +1,6 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, BookOpen, Check, LoaderCircle, MoveDiagonal2, PawPrint, SendHorizontal, Square, X } from "lucide-react";
-import { AgentAnswer, AgentInfo, localApi, PetAppearance, waitForJob } from "./api";
+import { Bot, BookOpen, Check, CirclePause, History, LoaderCircle, MessageSquarePlus, MoveDiagonal2, PawPrint, SendHorizontal, Trash2, X } from "lucide-react";
+import { AgentAnswer, AgentInfo, Job, localApi, PetAppearance, waitForJob } from "./api";
 
 type Language = "en" | "zh";
 type VikiEdge = "top" | "right" | "bottom" | "left";
@@ -12,8 +12,18 @@ type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   sources?: AgentAnswer["sources"];
-  images?: Array<{ path: string; caption: string; url: string }>;
+  images?: AgentAnswer["images"];
+  contextExcluded?: boolean;
 };
+type VikiConversation = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: ChatMessage[];
+};
+type VikiChatState = { activeId: string; conversations: VikiConversation[] };
+type ActiveRequest = { jobId: string; conversationId: string; provider: string };
 
 const LAUNCHER_SIZE = 80;
 const EDGE_GAP = 16;
@@ -24,6 +34,9 @@ const POSITION_KEY = "my-wiki-viki-position";
 const PROVIDER_KEY = "my-wiki-viki-provider";
 const PET_KEY = "my-wiki-viki-pet";
 const PANEL_SIZE_KEY = "my-wiki-viki-panel-size";
+const CHAT_STATE_KEY = "my-wiki-viki-chat-state-v1";
+const MAX_CONVERSATIONS = 30;
+const MAX_MESSAGES_PER_CONVERSATION = 120;
 
 const copy = {
   en: {
@@ -38,10 +51,17 @@ const copy = {
     sources: "Evidence",
     ready: "Ready",
     busy: "Working",
-    stop: "Stop current answer",
+    pause: "Pause current answer",
+    paused: "Answer paused. You can continue with another question.",
     resize: "Resize Viki",
     agentCli: "Agent CLI",
+    currentCli: "Current answer",
+    nextCli: "Next answer",
     pet: "Viki pet",
+    history: "Conversation history",
+    newConversation: "New conversation",
+    deleteConversation: "Delete conversation",
+    conversations: "Conversations",
     retry: "Please try again."
   },
   zh: {
@@ -56,10 +76,17 @@ const copy = {
     sources: "参考证据",
     ready: "已就绪",
     busy: "工作中",
-    stop: "停止当前回答",
+    pause: "暂停当前回答",
+    paused: "本轮回答已暂停，可以继续提问。",
     resize: "调整 Viki 窗口大小",
     agentCli: "Agent CLI",
+    currentCli: "本轮",
+    nextCli: "下一轮",
     pet: "Viki 宠物",
+    history: "会话历史",
+    newConversation: "新建会话",
+    deleteConversation: "删除会话",
+    conversations: "会话",
     retry: "请稍后重试。"
   }
 } as const;
@@ -72,9 +99,11 @@ export function Viki({ language }: { language: Language }) {
   const [petId, setPetId] = useState("");
   const [petMenuOpen, setPetMenuOpen] = useState(false);
   const [provider, setProvider] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
+  const [chatState, setChatState] = useState<VikiChatState>(() => initialChatState());
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
+  const [activeRequest, setActiveRequestState] = useState<ActiveRequest | null>(null);
   const [error, setError] = useState("");
   const [viewport, setViewport] = useState(() => currentViewport());
   const [position, setPositionState] = useState<VikiPosition>(() => initialPosition());
@@ -85,6 +114,7 @@ export function Viki({ language }: { language: Language }) {
   const [hovered, setHovered] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const petPickerRef = useRef<HTMLDivElement>(null);
+  const sessionPickerRef = useRef<HTMLDivElement>(null);
   const positionRef = useRef(position);
   const panelSizeRef = useRef(panelSize);
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
@@ -99,6 +129,16 @@ export function Viki({ language }: { language: Language }) {
   } | null>(null);
   const suppressClickRef = useRef(false);
   const requestVersionRef = useRef(0);
+  const resumedJobRef = useRef("");
+  const activeRequestRef = useRef<ActiveRequest | null>(null);
+
+  const conversation = chatState.conversations.find((item) => item.id === chatState.activeId) || chatState.conversations[0];
+  const messages = conversation?.messages || [];
+
+  const setActiveRequest = (value: ActiveRequest | null) => {
+    activeRequestRef.current = value;
+    setActiveRequestState(value);
+  };
 
   const setPosition = (value: VikiPosition) => {
     positionRef.current = value;
@@ -114,6 +154,28 @@ export function Viki({ language }: { language: Language }) {
     localApi.agent().then((nextAgent) => {
       setAgent(nextAgent);
       setProvider(selectInitialProvider(nextAgent));
+      setBusy(nextAgent.busy);
+      const active = nextAgent.activeJob;
+      const conversationId = String(active?.meta?.conversationId || "");
+      if (active && resumedJobRef.current !== active.id) {
+        resumedJobRef.current = active.id;
+        if (conversationId && chatState.conversations.some((item) => item.id === conversationId)) {
+          const resumed = {
+            jobId: active.id,
+            conversationId,
+            provider: String(active.meta.provider || nextAgent.provider || "")
+          };
+          setActiveRequest(resumed);
+          void consumeAnswer(active, resumed);
+        } else {
+          void waitForJob(active)
+            .catch(() => undefined)
+            .finally(() => localApi.agent().then((latest) => {
+              setAgent(latest);
+              setBusy(latest.busy);
+            }).catch(() => setBusy(false)));
+        }
+      }
     }).catch(() => {
       setAgent({
         available: false,
@@ -142,13 +204,18 @@ export function Viki({ language }: { language: Language }) {
   }, []);
 
   useEffect(() => {
-    if (!petMenuOpen) return;
+    if (!petMenuOpen && !sessionMenuOpen) return;
     const closeMenu = (event: PointerEvent) => {
       if (!petPickerRef.current?.contains(event.target as Node)) setPetMenuOpen(false);
+      if (!sessionPickerRef.current?.contains(event.target as Node)) setSessionMenuOpen(false);
     };
     document.addEventListener("pointerdown", closeMenu);
     return () => document.removeEventListener("pointerdown", closeMenu);
-  }, [petMenuOpen]);
+  }, [petMenuOpen, sessionMenuOpen]);
+
+  useEffect(() => {
+    persistChatState(chatState);
+  }, [chatState]);
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ block: "end" });
@@ -169,62 +236,140 @@ export function Viki({ language }: { language: Language }) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  const history = useMemo(() => messages.slice(-8).map((message) => ({
+  const history = useMemo(() => messages.filter((message) => !message.contextExcluded).slice(-8).map((message) => ({
     role: message.role,
     content: message.content
   })), [messages]);
 
-  const ask = async () => {
-    const value = question.trim();
-    if (!value || !provider || busy || agent?.available !== true) return;
-    const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content: value };
-    setMessages((current) => [...current, userMessage]);
-    setQuestion("");
-    setError("");
-    setBusy(true);
+  const consumeAnswer = async (initialJob: Job, request: ActiveRequest) => {
     const requestVersion = ++requestVersionRef.current;
+    setBusy(true);
     try {
-      const complete = await waitForJob(await localApi.ask(value, history, language, provider));
+      const complete = await waitForJob(initialJob);
       if (requestVersionRef.current !== requestVersion) return;
       const answer = complete.result as AgentAnswer;
-      const images = await Promise.all((answer.images || []).map(async (image) => ({
-        ...image,
-        url: await localApi.vaultFileUrl(image.path)
-      })));
-      setMessages((current) => [...current, {
+      appendConversationMessage(request.conversationId, {
         id: complete.id,
         role: "assistant",
         content: answer.answerMarkdown,
         sources: answer.sources,
-        images
-      }]);
+        images: answer.images
+      });
       setAgent(await localApi.agent());
     } catch (nextError) {
       if (requestVersionRef.current === requestVersion) setError(`${errorMessage(nextError)} ${l.retry}`);
     } finally {
-      if (requestVersionRef.current === requestVersion) setBusy(false);
+      if (requestVersionRef.current === requestVersion) {
+        setBusy(false);
+        setActiveRequest(null);
+      }
     }
   };
 
-  const cancelAnswer = async () => {
-    requestVersionRef.current += 1;
+  const ask = async () => {
+    const value = question.trim();
+    if (!value || !provider || busy || activeRequestRef.current || agent?.busy || agent?.available !== true || !conversation) return;
+    const conversationId = conversation.id;
+    const requestProvider = provider;
+    const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content: value };
+    appendConversationMessage(conversationId, userMessage, value);
+    setQuestion("");
+    setError("");
+    setBusy(true);
+    try {
+      const initialJob = await localApi.ask(value, history, language, requestProvider, conversationId);
+      const request = { jobId: initialJob.id, conversationId, provider: requestProvider };
+      setActiveRequest(request);
+      await consumeAnswer(initialJob, request);
+    } catch (nextError) {
+      setBusy(false);
+      setActiveRequest(null);
+      setError(`${errorMessage(nextError)} ${l.retry}`);
+    }
+  };
+
+  const pauseAnswer = async () => {
+    const request = activeRequestRef.current;
+    if (!request) return;
     setError("");
     try {
-      await localApi.cancelQuery();
+      const paused = await localApi.cancelQuery(request.jobId);
+      if (paused.cancelled) {
+        requestVersionRef.current += 1;
+        appendConversationMessage(request.conversationId, {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: l.paused,
+          contextExcluded: true
+        });
+        setActiveRequest(null);
+      }
       const nextAgent = await localApi.agent();
       setAgent(nextAgent);
-      setBusy(nextAgent.busy);
+      setBusy(paused.cancelled ? nextAgent.busy : true);
     } catch (nextError) {
       setError(`${errorMessage(nextError)} ${l.retry}`);
-      setBusy(false);
+      const nextAgent = await localApi.agent().catch(() => null);
+      if (nextAgent) {
+        setAgent(nextAgent);
+        setBusy(nextAgent.busy);
+      }
     }
   };
 
-  const changeProvider = async (nextProvider: string) => {
-    if (busy || agent?.busy) await cancelAnswer();
+  const changeProvider = (nextProvider: string) => {
     setProvider(nextProvider);
     setError("");
     persistProvider(nextProvider);
+  };
+
+  const appendConversationMessage = (conversationId: string, message: ChatMessage, firstQuestion = "") => {
+    setChatState((current) => ({
+      ...current,
+      conversations: current.conversations.map((item) => item.id === conversationId
+        ? {
+            ...item,
+            title: item.title || conversationTitle(firstQuestion),
+            updatedAt: new Date().toISOString(),
+            messages: [...item.messages, message].slice(-MAX_MESSAGES_PER_CONVERSATION)
+          }
+        : item)
+    }));
+  };
+
+  const newConversation = () => {
+    if (conversation && conversation.messages.length === 0) {
+      setQuestion("");
+      setError("");
+      setSessionMenuOpen(false);
+      return;
+    }
+    const next = createConversation();
+    setChatState((current) => ({
+      activeId: next.id,
+      conversations: [next, ...current.conversations].slice(0, MAX_CONVERSATIONS)
+    }));
+    setQuestion("");
+    setError("");
+    setSessionMenuOpen(false);
+  };
+
+  const openConversation = (conversationId: string) => {
+    setChatState((current) => ({ ...current, activeId: conversationId }));
+    setError("");
+    setSessionMenuOpen(false);
+  };
+
+  const deleteConversation = (conversationId: string) => {
+    if (activeRequest?.conversationId === conversationId) return;
+    setChatState((current) => {
+      const remaining = current.conversations.filter((item) => item.id !== conversationId);
+      const conversations = remaining.length > 0 ? remaining : [createConversation()];
+      return {
+        conversations,
+        activeId: current.activeId === conversationId ? conversations[0].id : current.activeId
+      };
+    });
   };
 
   const startDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -334,9 +479,56 @@ export function Viki({ language }: { language: Language }) {
           <header>
             <div className="viki-identity">
               <span className="viki-avatar"><VikiPet pet={pet} state={petState} size={36} fallbackSize={20} /></span>
-              <div><strong>Viki</strong><span>{l.companion}</span></div>
+              <div><strong>Viki</strong><span>{conversation?.title || l.companion}</span></div>
             </div>
             <div className="viki-status">
+              <div className="viki-session-picker" ref={sessionPickerRef}>
+                <button
+                  className="viki-session-toggle"
+                  type="button"
+                  aria-label={l.history}
+                  title={l.history}
+                  aria-expanded={sessionMenuOpen}
+                  onClick={() => setSessionMenuOpen((value) => !value)}
+                >
+                  <History size={16} aria-hidden="true" />
+                </button>
+                {sessionMenuOpen ? (
+                  <div className="viki-session-menu" role="menu" aria-label={l.history}>
+                    <div className="viki-session-menu-header">
+                      <strong>{l.conversations}</strong>
+                      <button type="button" aria-label={l.newConversation} title={l.newConversation} onClick={newConversation}>
+                        <MessageSquarePlus size={15} aria-hidden="true" />
+                      </button>
+                    </div>
+                    <div className="viki-session-list">
+                      {[...chatState.conversations]
+                        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+                        .map((item) => (
+                          <div className="viki-session-item" data-active={item.id === conversation?.id} key={item.id}>
+                            <button type="button" role="menuitemradio" aria-checked={item.id === conversation?.id} onClick={() => openConversation(item.id)}>
+                              <strong>{item.title || l.newConversation}</strong>
+                              <span>{formatConversationTime(item.updatedAt, language)}</span>
+                            </button>
+                            <button
+                              className="viki-session-delete"
+                              type="button"
+                              aria-label={l.deleteConversation}
+                              title={l.deleteConversation}
+                              disabled={activeRequest?.conversationId === item.id}
+                              onClick={() => deleteConversation(item.id)}
+                            >
+                              <Trash2 size={13} aria-hidden="true" />
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              <button type="button" aria-label={l.newConversation} title={l.newConversation} onClick={newConversation}>
+                <MessageSquarePlus size={16} aria-hidden="true" />
+              </button>
               {pets.length ? (
                 <div className="viki-pet-picker" ref={petPickerRef}>
                   <button
@@ -378,15 +570,12 @@ export function Viki({ language }: { language: Language }) {
                   aria-label={l.agentCli}
                   title={l.agentCli}
                   value={provider}
-                  onChange={(event) => void changeProvider(event.target.value)}
+                  onChange={(event) => changeProvider(event.target.value)}
                 >
                   {agent.providers.map((item) => <option key={item.provider} value={item.provider}>{item.label}</option>)}
                 </select>
               ) : null}
               <span className={busy || agent?.busy ? "is-busy" : ""}>{busy || agent?.busy ? l.busy : l.ready}</span>
-              {busy || agent?.busy ? (
-                <button type="button" aria-label={l.stop} title={l.stop} onClick={() => void cancelAnswer()}><Square size={15} /></button>
-              ) : null}
               <button type="button" aria-label={l.close} title={l.close} onClick={() => setOpen(false)}><X size={17} /></button>
             </div>
           </header>
@@ -405,7 +594,7 @@ export function Viki({ language }: { language: Language }) {
                 {message.images?.length ? (
                   <div className="viki-images">
                     {message.images.map((image) => (
-                      <figure key={image.path}><img src={image.url} alt={image.caption || ""} /><figcaption>{image.caption}</figcaption></figure>
+                      <VikiVaultImage image={image} key={image.path} />
                     ))}
                   </div>
                 ) : null}
@@ -417,7 +606,15 @@ export function Viki({ language }: { language: Language }) {
                 ) : null}
               </article>
             ))}
-            {busy ? <div className="viki-thinking"><LoaderCircle className="spin" size={16} />{l.thinking}</div> : null}
+            {busy ? (
+              <div className="viki-thinking">
+                <LoaderCircle className="spin" size={16} />
+                <span>{l.thinking}{activeRequest?.provider ? ` · ${agentProviderLabel(agent, activeRequest.provider)}` : ""}</span>
+                {activeRequest?.provider && provider !== activeRequest.provider ? (
+                  <small>{l.nextCli}: {providerLabel}</small>
+                ) : null}
+              </div>
+            ) : null}
             {error ? <p className="viki-error">{error}</p> : null}
             <div ref={endRef} />
           </div>
@@ -434,10 +631,17 @@ export function Viki({ language }: { language: Language }) {
               }}
               placeholder={l.placeholder}
               rows={2}
-              disabled={busy || !provider || agent?.available !== true}
+              disabled={busy || agent?.busy || !provider || agent?.available !== true}
             />
-            <button type="button" aria-label={l.send} title={l.send} disabled={!question.trim() || !provider || busy || agent?.available !== true} onClick={() => void ask()}>
-              {busy ? <LoaderCircle className="spin" size={18} /> : <SendHorizontal size={18} />}
+            <button
+              className={busy && activeRequest ? "is-pause" : ""}
+              type="button"
+              aria-label={busy && activeRequest ? l.pause : l.send}
+              title={busy && activeRequest ? l.pause : l.send}
+              disabled={busy ? !activeRequest : !question.trim() || !provider || agent?.busy || agent?.available !== true}
+              onClick={() => busy && activeRequest ? void pauseAnswer() : void ask()}
+            >
+              {busy && activeRequest ? <CirclePause size={19} /> : <SendHorizontal size={18} />}
             </button>
           </div>
           <button
@@ -538,6 +742,130 @@ function VikiPet({ pet, state, size, fallbackSize, offsetX = 0, offsetY = 0 }: {
       <img src={pet.spritesheetUrl} alt="" draggable={false} style={imageStyle} />
     </span>
   );
+}
+
+function VikiVaultImage({ image }: { image: { path: string; caption: string } }) {
+  const [url, setUrl] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    localApi.vaultFileUrl(image.path)
+      .then((nextUrl) => { if (!cancelled) setUrl(nextUrl); })
+      .catch(() => { if (!cancelled) setUrl(""); });
+    return () => { cancelled = true; };
+  }, [image.path]);
+
+  if (!url) return null;
+  return <figure><img src={url} alt={image.caption || ""} /><figcaption>{image.caption}</figcaption></figure>;
+}
+
+function createConversation(): VikiConversation {
+  const now = new Date().toISOString();
+  return { id: crypto.randomUUID(), title: "", createdAt: now, updatedAt: now, messages: [] };
+}
+
+function initialChatState(): VikiChatState {
+  const fallback = createConversation();
+  if (typeof window === "undefined") return { activeId: fallback.id, conversations: [fallback] };
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(CHAT_STATE_KEY) || "null");
+    const conversations: VikiConversation[] = Array.isArray(stored?.conversations)
+      ? stored.conversations.slice(0, MAX_CONVERSATIONS).flatMap((item: any) => {
+          const id = String(item?.id || "").trim();
+          if (!id) return [];
+          const createdAt = validIsoDate(item.createdAt) || new Date().toISOString();
+          const updatedAt = validIsoDate(item.updatedAt) || createdAt;
+          const messages = Array.isArray(item.messages)
+            ? item.messages.slice(-MAX_MESSAGES_PER_CONVERSATION).flatMap(normalizeStoredMessage)
+            : [];
+          return [{ id, title: String(item.title || "").trim().slice(0, 80), createdAt, updatedAt, messages }];
+        })
+      : [];
+    if (conversations.length === 0) return { activeId: fallback.id, conversations: [fallback] };
+    const requestedActiveId = String(stored?.activeId || "");
+    return {
+      activeId: conversations.some((item) => item.id === requestedActiveId) ? requestedActiveId : conversations[0].id,
+      conversations
+    };
+  } catch {
+    return { activeId: fallback.id, conversations: [fallback] };
+  }
+}
+
+function normalizeStoredMessage(item: any): ChatMessage[] {
+  const role = item?.role === "user" || item?.role === "assistant" ? item.role : "";
+  const content = String(item?.content || "").trim().slice(0, 12000);
+  if (!role || !content) return [];
+  const sources = Array.isArray(item.sources)
+    ? item.sources.slice(0, 20).flatMap((source: any) => {
+        const path = String(source?.path || "").trim();
+        return path ? [{ path, title: String(source?.title || path).trim().slice(0, 240) }] : [];
+      })
+    : undefined;
+  const images = Array.isArray(item.images)
+    ? item.images.slice(0, 3).flatMap((image: any) => {
+        const path = String(image?.path || "").trim();
+        return path ? [{ path, caption: String(image?.caption || "").trim().slice(0, 500) }] : [];
+      })
+    : undefined;
+  return [{
+    id: String(item.id || crypto.randomUUID()),
+    role,
+    content,
+    sources,
+    images,
+    contextExcluded: Boolean(item.contextExcluded)
+  }];
+}
+
+function persistChatState(state: VikiChatState) {
+  if (typeof window === "undefined") return;
+  try {
+    const active = state.conversations.find((item) => item.id === state.activeId);
+    const ordered = [
+      ...(active ? [active] : []),
+      ...state.conversations
+        .filter((item) => item.id !== active?.id)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    ].slice(0, MAX_CONVERSATIONS);
+    const compact = ordered.map((item) => ({
+      ...item,
+      messages: item.messages.slice(-MAX_MESSAGES_PER_CONVERSATION).map((message) => ({
+        ...message,
+        content: message.content.slice(0, 12000),
+        images: message.images?.map(({ path, caption }) => ({ path, caption }))
+      }))
+    }));
+    window.localStorage.setItem(CHAT_STATE_KEY, JSON.stringify({ activeId: state.activeId, conversations: compact }));
+  } catch {
+    // Conversation history is helpful but must never block Viki itself.
+  }
+}
+
+function conversationTitle(question: string) {
+  const firstLine = String(question || "").split(/\r?\n/, 1)[0].replace(/\s+/g, " ").trim();
+  if (!firstLine) return "";
+  return firstLine.length > 42 ? `${firstLine.slice(0, 42)}...` : firstLine;
+}
+
+function validIsoDate(value: unknown) {
+  const date = new Date(String(value || ""));
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function formatConversationTime(value: string, language: Language) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function agentProviderLabel(agent: AgentInfo | null, provider: string) {
+  return agent?.providers.find((item) => item.provider === provider)?.label || provider;
 }
 
 function petViewportOffset(

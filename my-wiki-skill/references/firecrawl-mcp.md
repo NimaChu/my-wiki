@@ -1,6 +1,6 @@
 # Firecrawl MCP
 
-My Wiki uses Firecrawl through MCP first. This keeps the vault lightweight and lets agents use hosted Firecrawl scrape/search/interact without adding Firecrawl service code or API SDK dependencies to the Skill.
+My Wiki uses Firecrawl through MCP first. This keeps the vault and project lightweight and lets agents use hosted Firecrawl scrape/search/interact without adding Firecrawl service code or API SDK dependencies to the adapter Skill.
 
 ## Optional Workspace Config
 

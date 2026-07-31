@@ -2,7 +2,7 @@
 set -eu
 
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-skill_root="$(CDPATH= cd -- "$script_dir/../.." && pwd)"
+project_root="$(CDPATH= cd -- "$script_dir/../.." && pwd)"
 container_name="${MY_WIKI_CONTAINER_NAME:-my-wiki-demo}"
 image_name="${MY_WIKI_CONTAINER_IMAGE:-my-wiki-demo:local}"
 volume_name="${MY_WIKI_CONTAINER_VOLUME:-my-wiki-demo-vault}"
@@ -28,7 +28,7 @@ rsync -a --delete \
   --exclude 'dist' \
   --exclude 'node_modules' \
   --exclude 'public/wiki-graph.json' \
-  "$skill_root/" "$build_context/"
+  "$project_root/" "$build_context/"
 
 if [ -n "$container_proxy" ]; then
   container build \

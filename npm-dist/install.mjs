@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const skillSource = path.join(packageRoot, "my-wiki");
+const skillSource = path.join(packageRoot, "my-wiki-skill");
 const skillName = "my-wiki";
 const argv = process.argv.slice(2);
 const packageMetadata = JSON.parse(await fs.readFile(path.join(packageRoot, "package.json"), "utf8"));
@@ -172,12 +172,6 @@ async function installInto({ agent, root }) {
     throw error;
   }
 
-  const oldModules = path.join(retired, "assets", "dashboard", "node_modules");
-  const nextModules = path.join(target, "assets", "dashboard", "node_modules");
-  if (await exists(oldModules)) {
-    await fs.mkdir(path.dirname(nextModules), { recursive: true });
-    await fs.rename(oldModules, nextModules);
-  }
   await fs.rm(retired, { recursive: true, force: true });
 
   return { agent, target, status: targetStat ? "updated" : "installed" };
@@ -233,7 +227,7 @@ if (!targets.length) {
 }
 
 if (!(await exists(path.join(skillSource, "SKILL.md")))) {
-  console.error("The npm package is damaged: my-wiki/SKILL.md is missing.");
+  console.error("The npm package is damaged: my-wiki-skill/SKILL.md is missing.");
   process.exit(1);
 }
 
@@ -241,3 +235,4 @@ const results = [];
 for (const target of targets) results.push(await installInto(target));
 for (const result of results) console.log(`${result.status}: ${result.target} (${result.agent})`);
 console.log(`My Wiki Skill v${packageMetadata.version} is ready. Restart or open a new agent session to load it.`);
+console.log("This Skill is an adapter. Install and register the My Wiki project separately before using it.");

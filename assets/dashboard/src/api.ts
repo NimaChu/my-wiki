@@ -191,17 +191,24 @@ export const localApi = {
     return response.json() as Promise<Job>;
   },
 
-  async ask(question: string, history: Array<{ role: "user" | "assistant"; content: string }>, language: "en" | "zh", provider: string) {
+  async ask(
+    question: string,
+    history: Array<{ role: "user" | "assistant"; content: string }>,
+    language: "en" | "zh",
+    provider: string,
+    conversationId: string
+  ) {
     const response = await apiFetch("/api/v1/agent/ask", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ question, history, language, provider })
+      body: JSON.stringify({ question, history, language, provider, conversationId })
     });
     return response.json() as Promise<Job>;
   },
 
-  async cancelQuery() {
-    const response = await apiFetch("/api/v1/agent/query", { method: "DELETE" });
+  async cancelQuery(jobId: string) {
+    const params = new URLSearchParams({ job: jobId });
+    const response = await apiFetch(`/api/v1/agent/query?${params}`, { method: "DELETE" });
     return response.json() as Promise<{ cancelled: boolean; job: Job | null }>;
   },
 

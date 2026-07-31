@@ -9,7 +9,7 @@
 ![Node.js 18+](https://img.shields.io/badge/Node.js-18%2B-43853D?style=flat-square)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE.txt)
 
-**My Wiki 是一个本地优先、由 AI Agent 驱动的知识管理应用。它既可以作为 Agent Skill 在聊天中使用，也提供可视化知识宇宙、知识维护和 Viki 问答的网页前端。**
+**My Wiki 是一个可直接交给 AI Agent 使用的本地优先知识管理项目。项目主体提供 CLI、可视化知识宇宙、知识维护和 Viki 问答；仓库内另带一个可单独安装的轻量 Skill，用于让其他工作区中的 Agent 调用已安装项目。**
 
 [简体中文](README.md) · [English](README.en.md)
 
@@ -21,11 +21,33 @@ My Wiki 让本地 AI Agent 负责知识的完整生命周期：保存原始资�
 
 默认不需要云数据库、向量数据库、Obsidian 或付费 API。知识以 Markdown、原始文件、快照和图片保存在你控制的本地文件夹中。
 
-## 它不只是一个 Skill
+## 项目主体与 Skill 分离
+
+My Wiki 的运行主体位于仓库根目录。把仓库作为 Agent 工作区打开后，Agent 可依据 `AGENTS.md` 直接运行 CLI、Dashboard、测试和容器部署，不需要先安装 Skill。
+
+`my-wiki-skill/` 是项目的一部分，但只是可选适配层。它可以单独安装到 Codex、Claude Code、OpenCode 等客户端；使用时会定位已注册的 My Wiki 项目。Skill 不再复制应用代码，也不保存知识库。若项目主体或本地知识库尚未建立，Agent 会先征得用户确认，再代为安装项目并初始化独立 vault。
+
+```text
+my-wiki/
+  AGENTS.md          Agent 打开项目时的入口说明
+  scripts/           CLI 与知识维护主体
+  assets/dashboard/  网页应用与本地服务
+  deploy/            独立部署方案
+  tests/             项目测试
+  my-wiki-skill/     可单独安装的轻量 Agent 适配层
+```
+
+| 使用入口 | 需要全局 Skill | 需要项目主体 | 说明 |
+|---|---:|---:|---|
+| Codex/OpenCode 直接打开 `my-wiki` 项目 | 否 | 是 | Agent 读取根目录 `AGENTS.md` 和仓库内工作流 |
+| Dashboard、Viki 与网页维护 | 否 | 是 | 后端直接调用已登录的本地 Agent CLI |
+| 从知识库目录或其他项目中调用 My Wiki | 是 | 是 | Skill 负责发现或在确认后补齐项目与 vault |
+
+全局 Skill 不是 Dashboard 或 CLI 的运行依赖。只在 My Wiki 项目中工作时，无需把它安装到 Codex 或 OpenCode 的全局 Skill 目录。
 
 My Wiki 由两个相互配合的使用界面组成，共享同一个本地知识库：
 
-| | AI Agent Skill | 知识宇宙网页前端 |
+| | Agent 项目 / 可选 Skill | 知识宇宙网页前端 |
 |---|---|---|
 | 适合场景 | 在 Codex、Claude Code、OpenCode 等客户端中直接聊天 | 浏览、比较、维护和可视化操作知识 |
 | 主要交互 | 用自然语言让 Agent 入库、维护、检索和回答 | 用鼠标探索图谱、上传资料、处理队列、询问 Viki |
@@ -35,11 +57,11 @@ My Wiki 由两个相互配合的使用界面组成，共享同一个本地知识
 
 你可以只使用其中一种，也可以在聊天和网页之间随时切换。两种方式读写的是同一套知识，不需要同步两份数据。
 
-## 两种使用方式
+## 三种使用方式
 
-### 1. 在 AI Agent 客户端中作为 Skill 使用
+### 1. 把项目作为 Agent 工作区打开
 
-安装后，在 Codex、Claude Code、OpenCode、OpenClaw、Hermes 等支持 Skill 的 Agent 中直接说人话：
+克隆并注册项目后，用 Codex、Claude Code、OpenCode 等 Agent 直接打开项目目录，然后说人话：
 
 ```text
 在 D:\Knowledge\Personal 创建一个 My Wiki 知识库并设为默认。
@@ -51,7 +73,11 @@ My Wiki 由两个相互配合的使用界面组成，共享同一个本地知识
 
 Agent 会自动定位知识库，保存 raw 原始证据和附件，创建或更新原子 Wiki，维护双向关系，并优先用 Wiki 回答、再回到 raw 核实重要结论。你不需要记忆一套 CLI。
 
-### 2. 打开知识宇宙网页前端
+### 2. 在其他工作区中通过 Skill 使用
+
+安装仓库中的 `my-wiki-skill/` 后，Agent 可以从其他项目调用同一套 My Wiki 主体和本地知识库。Skill 只负责工作流、项目发现与引导安装；项目或 vault 缺失时，它会在用户确认后补齐，而不会把主体或知识内容复制进 Skill 目录。
+
+### 3. 打开知识宇宙网页前端
 
 对 Agent 说：
 
@@ -151,7 +177,7 @@ My Wiki 重点解决知识进入检索之前的整理层：把原始资料变成
 
 | | My Wiki | 传统 RAG | LLM + Obsidian |
 |---|---|---|---|
-| 开始使用 | 安装 Skill，同时获得 Agent 工作流与网页应用 | 搭建切片、Embedding、召回、存储和服务 | 安装编辑器和插件，再设计提示词与笔记规范 |
+| 开始使用 | 克隆 Agent 项目并建立独立本地知识库；Skill 按需安装 | 搭建切片、Embedding、召回、存储和服务 | 安装编辑器和插件，再设计提示词与笔记规范 |
 | 主要存储 | Markdown、原始文件、快照和本地图片 | 向量索引加外部原文存储 | Markdown Vault |
 | 谁来整理 | Agent 维护 raw、原子 Wiki、关系和健康状态 | 流水线索引文本切片，可读知识通常另做 | 通常由用户手工整理，LLM 提供辅助 |
 | 可追溯性 | Wiki 与 raw 双向链接并可自动检查 | 取决于检索元数据和应用设计 | 可以做到，但依赖用户习惯 |
@@ -163,23 +189,31 @@ My Wiki 不排斥 RAG 或 Obsidian。你可以用 Obsidian 打开同一个知识
 
 ## 快速开始
 
-需要 Node.js 18+ 和 npm。安装和更新使用同一条命令：
+需要 Node.js 18+ 和 npm。先安装并注册项目主体：
 
 ```bash
+git clone https://github.com/NimaChu/my-wiki.git
+cd my-wiki
+npm run setup
+npm run wiki -- init /path/to/my-vault --name personal --use
+```
+
+之后可以直接把 `my-wiki` 项目目录作为 Agent 工作区打开。项目命令也可独立运行：
+
+```bash
+npm run wiki -- status
+npm run dashboard:open
+```
+
+需要在其他工作区中通过自然语言调用 My Wiki 时，再安装轻量 Skill：
+
+```bash
+npm run skill:install
+# 或安装发布版 Skill
 npx my-wiki-skill@latest
 ```
 
-国内网络可以使用：
-
-```bash
-npx --registry=https://registry.npmmirror.com my-wiki-skill@latest
-```
-
-也可以直接让 Agent 安装：
-
-```text
-帮我安装 My Wiki：npx my-wiki-skill@latest
-```
+`npm run setup:all` 可以一次注册当前项目并安装仓库内的 Skill。国内网络安装发布版 Skill 时可使用 `npx --registry=https://registry.npmmirror.com my-wiki-skill@latest`。
 
 安装器会自动探测常见 Agent Skill 目录：
 
@@ -192,11 +226,11 @@ npx --registry=https://registry.npmmirror.com my-wiki-skill@latest
 | Hermes Agent | `~/.hermes/skills` | 自动探测或 `--target hermes` |
 | 其他兼容 `SKILL.md` 的 Agent | 由宿主决定 | 使用 `--dir <Skill目录>` |
 
-安装完成后，新开或刷新 Agent 会话，然后创建知识库、开始入库，或直接说“打开知识宇宙”。
+安装 Skill 后需新开或刷新 Agent 会话。Skill 会调用已注册的项目主体；找不到项目或默认知识库时，它会先请求确认，再完成安装或初始化，不会把知识写进 Skill 或源码仓库。
 
 ## 本地知识库结构
 
-知识库可以放在电脑任意位置，与 Skill 安装目录和源码仓库完全分离：
+知识库可以放在电脑任意位置，与项目主体和 Skill 安装目录完全分离：
 
 ```text
 my-vault/
@@ -211,7 +245,7 @@ my-vault/
 
 网页与 Agent 使用相同的本地解析质量门槛。文本 PDF 会逐页提取，扫描件和图片会本地 OCR，DOCX、PPTX、XLSX 会转换为结构化 Markdown；原文件始终保留在 `raw/snapshots/`。
 
-公开仓库和 npm 包不包含你的知识库、本地 MCP 凭据、运行日志或工作区专用 Agent 规则。知识库是否备份、同步、加密或始终留在一台电脑上，由你决定。
+代码仓库和 npm Skill 包不包含你的知识库、本地 MCP 凭据或运行日志。知识库是否备份、同步、加密或始终留在一台电脑上，由你决定。
 
 ## 可选能力
 
@@ -222,4 +256,4 @@ my-vault/
 
 ## 开源许可证
 
-My Wiki 源码使用 [MIT License](LICENSE.txt)。Dashboard 内置宠物资源保留各自的作者和许可说明，详见 [宠物资源说明](my-wiki/assets/dashboard/pets/NOTICE.md)。
+My Wiki 源码使用 [MIT License](LICENSE.txt)。Dashboard 内置宠物资源保留各自的作者和许可说明，详见 [宠物资源说明](assets/dashboard/pets/NOTICE.md)。

@@ -427,4 +427,84 @@ This source contains substantive readable evidence for a maintenance timeout tes
   assert.equal(completed.body.status, "complete");
   assert.equal(runOptions.timeoutMs, 20 * 60 * 1000);
   assert.equal(runOptions.idleTimeoutMs, 0);
+  assert.match(runOptions.prompt, /no installed Agent Skill is required/);
+  assert.doesNotMatch(runOptions.prompt, /Follow the installed My Wiki Skill/);
+});
+
+test("Viki binds a question to its dispatched provider and pauses only the matching job", async (context) => {
+  const fixture = await createFixture(context);
+  let runOptions;
+  let markAborted;
+  const aborted = new Promise((resolve) => { markAborted = resolve; });
+  const agentRunner = {
+    info: async () => ({
+      available: true,
+      provider: "opencode",
+      label: "OpenCode",
+      defaultProvider: "opencode",
+      providers: [
+        { provider: "opencode", label: "OpenCode" },
+        { provider: "qoder", label: "Qoder CN" }
+      ],
+      message: ""
+    }),
+    run: async (options) => {
+      runOptions = options;
+      return new Promise((resolve, reject) => {
+        options.signal.addEventListener("abort", () => {
+          markAborted();
+          reject(new Error("Local agent request was cancelled"));
+        }, { once: true });
+      });
+    }
+  };
+  const server = http.createServer(createDashboardApi({
+    dashboardRoot: fixture.dashboard,
+    port: 0,
+    agentRunner
+  }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+  const conversationId = "conversation_test_01";
+  const body = JSON.stringify({
+    question: "What is in this vault?",
+    history: [],
+    language: "en",
+    provider: "opencode",
+    conversationId
+  });
+  const queued = await request(port, "POST", "/api/v1/agent/ask", {
+    headers: {
+      ...auth,
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(body)
+    },
+    body
+  });
+  assert.equal(queued.status, 202);
+  assert.equal(queued.body.meta.provider, "opencode");
+  assert.equal(queued.body.meta.conversationId, conversationId);
+
+  for (let attempt = 0; attempt < 20 && !runOptions; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(runOptions.provider, "opencode");
+
+  const wrongPause = await request(port, "DELETE", "/api/v1/agent/query?job=another-job", { headers: auth });
+  assert.equal(wrongPause.status, 409);
+
+  const active = await request(port, "GET", "/api/v1/agent", { headers: auth });
+  assert.equal(active.body.activeJob.id, queued.body.id);
+  assert.equal(active.body.activeJob.meta.provider, "opencode");
+  assert.equal(active.body.activeJob.meta.conversationId, conversationId);
+
+  const paused = await request(port, "DELETE", `/api/v1/agent/query?job=${queued.body.id}`, { headers: auth });
+  assert.equal(paused.status, 200);
+  assert.equal(paused.body.cancelled, true);
+  assert.equal(paused.body.job.status, "cancelled");
+  await aborted;
 });

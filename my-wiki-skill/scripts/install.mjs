@@ -81,4 +81,11 @@ async function install({ agent, root }) {
 
 const results = [];
 for (const target of targets) results.push(await install(target));
-console.log(JSON.stringify({ source, mode, results, restartRequired: true }, null, 2));
+console.log(JSON.stringify({
+  source,
+  mode,
+  results,
+  restartRequired: true,
+  projectRequired: true,
+  next: "Run `npm run setup` from the standalone My Wiki project, then create or select a separate local vault."
+}, null, 2));

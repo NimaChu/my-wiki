@@ -5,9 +5,9 @@ This directory contains the public `npx my-wiki-skill` installer source.
 The npm package ships only:
 
 - `npm-dist/install.mjs`
-- the clean `my-wiki/` Skill directory
+- the clean `my-wiki-skill/` adapter directory
 - the MIT license and bilingual package documentation
 
-The installer detects the standard Skill roots used by Claude Code, Codex, OpenCode, OpenClaw, Hermes Agent, and the shared Agent Skills convention. It installs or updates `my-wiki` atomically and preserves existing Dashboard dependencies.
+The installer detects the standard Skill roots used by Claude Code, Codex, OpenCode, OpenClaw, Hermes Agent, and the shared Agent Skills convention. It installs or updates the `my-wiki` adapter atomically. The runnable My Wiki project and Dashboard are deliberately excluded from the npm Skill package.
 
 Use `--target <agent>` for an explicit supported host, `--dir <skills-root>` for any other `SKILL.md`-compatible Agent, and `--list` to inspect detected destinations.

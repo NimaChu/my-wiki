@@ -10,7 +10,11 @@ The task may write only inside the active vault. It must not use Git, change ano
 
 ## Viki
 
-Viki is the persistent knowledge companion in the Dashboard. Its header lets the user choose any currently available Agent CLI, remembers that browser-local choice, and sends the selected provider with every question. Each question starts a read-only local agent task. The agent searches `wiki/` first, verifies important claims against linked `raw/sources/`, and says when the vault lacks enough evidence. It must not edit files or start maintenance while answering.
+Viki is the persistent knowledge companion in the Dashboard. Its header lets the user choose any currently available Agent CLI and remembers that browser-local choice. A question is permanently bound to the provider selected when it is dispatched; changing the selector while that question is running affects the next question and never cancels the active job. The composer exposes a pause control while the browser's own question is running. Pausing aborts that exact local Agent job, preserves the user's question, and records a context-excluded pause marker in the conversation.
+
+Conversation history is browser-local and persists across Dashboard reloads without writing chat content into the vault. Users can create, reopen, and delete conversations. The complete bounded display history is stored locally, while only the latest eight non-excluded messages are sent as conversational context with each question. Every Agent CLI remains non-persistent; the Dashboard owns the context explicitly. Active jobs include their browser conversation ID so the same browser can resume polling after a reload. A browser may observe a query started elsewhere as busy, but cannot pause it without the matching job ID.
+
+Each question starts a read-only local agent task. The agent searches `wiki/` first, verifies important claims against linked `raw/sources/`, and says when the vault lacks enough evidence. It must not edit files or start maintenance while answering.
 
 Answers use structured output containing Markdown, evidence paths, and up to three genuinely useful local images. The local service validates every returned path. Browser-visible images are limited to existing files under `raw/assets/` or image files under `raw/snapshots/`; arbitrary vault files and paths outside the vault are never served.
 

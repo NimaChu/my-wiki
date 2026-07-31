@@ -45,12 +45,12 @@ async function copyCleanTree(source, destination, root = source) {
 async function createStagingPackage() {
   const staging = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-npm-"));
   const rootMetadata = JSON.parse(await fs.readFile(path.join(repositoryRoot, "package.json"), "utf8"));
-  const marker = JSON.parse(await fs.readFile(path.join(repositoryRoot, "my-wiki", ".my-wiki-skill.json"), "utf8"));
+  const marker = JSON.parse(await fs.readFile(path.join(repositoryRoot, "my-wiki-skill", ".my-wiki-skill.json"), "utf8"));
   if (rootMetadata.version !== marker.version) {
     throw new Error(`Version mismatch: package.json=${rootMetadata.version}, Skill=${marker.version}`);
   }
 
-  await copyCleanTree(path.join(repositoryRoot, "my-wiki"), path.join(staging, "my-wiki"));
+  await copyCleanTree(path.join(repositoryRoot, "my-wiki-skill"), path.join(staging, "my-wiki-skill"));
   await fs.mkdir(path.join(staging, "bin"), { recursive: true });
   await fs.copyFile(path.join(repositoryRoot, "npm-dist", "install.mjs"), path.join(staging, "bin", "install.mjs"));
   await fs.copyFile(path.join(repositoryRoot, "LICENSE.txt"), path.join(staging, "LICENSE.txt"));
@@ -64,7 +64,7 @@ async function createStagingPackage() {
     license: "MIT",
     type: "module",
     bin: { [packageName]: "bin/install.mjs" },
-    files: ["bin", "my-wiki", "LICENSE.txt", "README.md", "README.en.md"],
+    files: ["bin", "my-wiki-skill", "LICENSE.txt", "README.md", "README.en.md"],
     repository: { type: "git", url: "git+https://github.com/NimaChu/my-wiki.git" },
     homepage: "https://github.com/NimaChu/my-wiki#readme",
     bugs: { url: "https://github.com/NimaChu/my-wiki/issues" },

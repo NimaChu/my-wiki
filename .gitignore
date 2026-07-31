@@ -7,9 +7,8 @@ output/
 /knowledge-base/
 /paper/
 /.mcp.json
-/AGENTS.md
 *.log
 *.pid
-/my-wiki/assets/dashboard/public/wiki-graph.json
-/my-wiki/assets/dashboard/.my-wiki-runtime.json
-/my-wiki/assets/dashboard/.dashboard-server.pid
+/assets/dashboard/public/wiki-graph.json
+/assets/dashboard/.my-wiki-runtime.json
+/assets/dashboard/.dashboard-server.pid

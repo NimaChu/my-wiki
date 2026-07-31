@@ -56,7 +56,7 @@ Galaxy packages use names rather than package IDs or galaxy IDs. The package sch
 
 ## Dashboard
 
-Treat requests to view the graph, frontend, or Dashboard as permission to run `open-dashboard`. Each installed Skill uses a stable local port, so independent Codex and OpenCode copies do not serve one another's stale graph. Within one installation, opening another vault switches graph generation and the watcher to that vault.
+Treat requests to view the graph, frontend, or Dashboard as permission to run `open-dashboard`. Each registered My Wiki project uses a stable local port, so separate project installations do not serve one another's stale graph. Within one installation, opening another vault switches graph generation and the watcher to that vault.
 
 The local Dashboard can perform deterministic vault operations without calling an agent:
 

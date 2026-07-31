@@ -9,7 +9,7 @@
 ![Node.js 18+](https://img.shields.io/badge/Node.js-18%2B-43853D?style=flat-square)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE.txt)
 
-**My Wiki is a local-first knowledge application powered by AI agents. Use it as an Agent Skill through chat, or open its web frontend for an interactive knowledge universe, maintenance workflows, and grounded Viki Q&A.**
+**My Wiki is a local-first knowledge project that an AI agent can use directly. The project provides the CLI, visual knowledge universe, maintenance workflows, and grounded Viki Q&A. A separate lightweight Skill adapter lets agents in other workspaces call an installed project.**
 
 [简体中文](README.md) · [English](README.en.md)
 
@@ -21,11 +21,33 @@ My Wiki gives a local AI agent responsibility for the whole knowledge lifecycle:
 
 No hosted database, vector database, Obsidian installation, or paid API is required by default. Knowledge stays in Markdown, snapshots, original files, and images inside folders you control.
 
-## More Than An Agent Skill
+## Project And Skill Are Separate
+
+The runnable My Wiki application lives at the repository root. Open the repository as an Agent workspace and the Agent can follow `AGENTS.md` to use the CLI, Dashboard, tests, and container deployment without installing a Skill first.
+
+`my-wiki-skill/` is an optional adapter shipped as part of the project. It can be installed independently into Codex, Claude Code, OpenCode, and other clients, but it contains no application or Dashboard code. If the project or local vault is missing, the Agent first asks for confirmation, then installs the project and initializes a separate vault on the user's behalf.
+
+```text
+my-wiki/
+  AGENTS.md          entry instructions when an Agent opens the project
+  scripts/           CLI and knowledge-maintenance application
+  assets/dashboard/  web application and local service
+  deploy/            standalone deployment options
+  tests/             project tests
+  my-wiki-skill/     independently installable Agent adapter
+```
+
+| Entry point | Global Skill required | Project required | How it works |
+|---|---:|---:|---|
+| Open the `my-wiki` project in Codex/OpenCode | No | Yes | The Agent reads root `AGENTS.md` and the bundled workflow docs |
+| Dashboard, Viki, and web maintenance | No | Yes | The backend invokes an authenticated local Agent CLI directly |
+| Call My Wiki from a vault or another project | Yes | Yes | The Skill discovers or, after confirmation, provisions the project and vault |
+
+The global Skill is not a runtime dependency of the Dashboard or CLI. Users who always work inside the My Wiki project do not need to install it globally for Codex or OpenCode.
 
 My Wiki provides two interfaces over the same local knowledge vault:
 
-| | AI Agent Skill | Knowledge Universe Web App |
+| | Agent Project / Optional Skill | Knowledge Universe Web App |
 |---|---|---|
 | Best for | Conversational work inside Codex, Claude Code, OpenCode, and similar clients | Visual exploration, comparison, maintenance, and direct knowledge operations |
 | Main interaction | Ask the agent to capture, maintain, search, and answer | Browse graphs, upload sources, process the queue, and ask Viki |
@@ -35,11 +57,11 @@ My Wiki provides two interfaces over the same local knowledge vault:
 
 Use either interface on its own or move between chat and the browser whenever useful. There is no second database to synchronize.
 
-## Two Ways To Use My Wiki
+## Three Ways To Use My Wiki
 
-### 1. Use It As A Skill In An AI Agent Client
+### 1. Open The Project As An Agent Workspace
 
-After installation, speak naturally in Codex, Claude Code, OpenCode, OpenClaw, Hermes, or another Skill-compatible agent:
+Clone and register the project, open its directory in Codex, Claude Code, OpenCode, or another Agent, then speak naturally:
 
 ```text
 Create a My Wiki vault at D:\Knowledge\Personal and make it the default.
@@ -51,7 +73,11 @@ Answer this question from my local knowledge and show the relevant evidence imag
 
 The agent resolves the active vault, preserves raw evidence and attachments, creates or updates atomic Wiki pages, maintains reciprocal links, and answers from Wiki knowledge while following evidence back to raw sources when verification matters. You do not need to memorize a separate CLI.
 
-### 2. Open The Knowledge Universe Web App
+### 2. Use The Skill From Another Workspace
+
+Install `my-wiki-skill/` when an Agent working elsewhere should call the same My Wiki application and local vault. The Skill provides workflow guidance, project discovery, and confirmed provisioning. Missing project or vault layers are created only after user approval and never embedded inside the Skill directory.
+
+### 3. Open The Knowledge Universe Web App
 
 Tell the agent:
 
@@ -151,7 +177,7 @@ My Wiki focuses on the organization layer before retrieval: turning source mater
 
 | | My Wiki | Traditional RAG | LLM + Obsidian |
 |---|---|---|---|
-| Getting started | Install one Skill and gain both Agent workflows and a web app | Build chunking, embeddings, retrieval, storage, and services | Install an editor and plugins, then define prompts and note conventions |
+| Getting started | Clone the Agent project and create a separate local vault; install the Skill only when useful | Build chunking, embeddings, retrieval, storage, and services | Install an editor and plugins, then define prompts and note conventions |
 | Main storage | Markdown, originals, snapshots, and local images | Vector index plus an external source store | Markdown vault |
 | Who organizes it | The agent maintains raw evidence, atomic Wiki pages, links, and health | The pipeline indexes chunks; readable synthesis is usually separate | Usually the user, with LLM assistance |
 | Traceability | Wiki and raw links are reciprocal and automatically checkable | Depends on retrieval metadata and application design | Possible, but depends on user discipline |
@@ -163,23 +189,31 @@ My Wiki does not oppose RAG or Obsidian. Open the same vault in Obsidian wheneve
 
 ## Quick Start
 
-Requires Node.js 18+ and npm. Installation and updates use the same command:
+Requires Node.js 18+ and npm. Install and register the runnable project first:
 
 ```bash
+git clone https://github.com/NimaChu/my-wiki.git
+cd my-wiki
+npm run setup
+npm run wiki -- init /path/to/my-vault --name personal --use
+```
+
+You can now open the `my-wiki` directory directly as an Agent workspace or run the project CLI:
+
+```bash
+npm run wiki -- status
+npm run dashboard:open
+```
+
+Install the lightweight Skill only when another workspace should call My Wiki:
+
+```bash
+npm run skill:install
+# Or install the published Skill adapter
 npx my-wiki-skill@latest
 ```
 
-For networks that use npmmirror:
-
-```bash
-npx --registry=https://registry.npmmirror.com my-wiki-skill@latest
-```
-
-You can also ask an agent to install it:
-
-```text
-Install My Wiki for me: npx my-wiki-skill@latest
-```
+`npm run setup:all` registers the current project and installs the bundled Skill in one step. Networks using npmmirror can install the published adapter with `npx --registry=https://registry.npmmirror.com my-wiki-skill@latest`.
 
 The installer detects common Agent Skill roots:
 
@@ -192,11 +226,11 @@ The installer detects common Agent Skill roots:
 | Hermes Agent | `~/.hermes/skills` | Auto-detect or `--target hermes` |
 | Other `SKILL.md`-compatible agents | Host-defined | Use `--dir <skills-root>` |
 
-After installation, open or refresh the Agent session, create a vault, start capturing knowledge, or simply say "Open the knowledge universe."
+After installing the Skill, open or refresh the Agent session. The adapter calls the registered project; if the project or default vault is missing, it asks for confirmation before installing or initializing it and never writes knowledge into the Skill or source repository.
 
 ## Local Vault Structure
 
-The vault can live anywhere on the computer and remains separate from both the installed Skill and this source repository:
+The vault can live anywhere on the computer and remains separate from both the runnable project and the installed Skill:
 
 ```text
 my-vault/
@@ -211,7 +245,7 @@ my-vault/
 
 The web app and Agent capture use the same extraction quality gate. Text PDFs are extracted page by page, scans and images use local OCR, and DOCX, PPTX, and XLSX become structured Markdown. Every original remains in `raw/snapshots/`.
 
-The public repository and npm package contain no personal vault, MCP credentials, runtime logs, or workspace-specific Agent rules. You decide whether a vault is backed up, synchronized, encrypted, or kept on one machine.
+The code repository and npm Skill package contain no personal vault, MCP credentials, or runtime logs. You decide whether a vault is backed up, synchronized, encrypted, or kept on one machine.
 
 ## Optional Capabilities
 
@@ -222,4 +256,4 @@ The public repository and npm package contain no personal vault, MCP credentials
 
 ## License
 
-My Wiki source code is released under the [MIT License](LICENSE.txt). Bundled Dashboard pet assets retain their own attribution and license terms; see the [pet asset notice](my-wiki/assets/dashboard/pets/NOTICE.md).
+My Wiki source code is released under the [MIT License](LICENSE.txt). Bundled Dashboard pet assets retain their own attribution and license terms; see the [pet asset notice](assets/dashboard/pets/NOTICE.md).
