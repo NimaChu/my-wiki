@@ -29,6 +29,14 @@ test("runnable application lives at the project root, outside the Skill", async 
   }
 });
 
+test("project and Skill package versions stay aligned", async () => {
+  const packageMetadata = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
+  const projectMarker = JSON.parse(await fs.readFile(path.join(root, ".my-wiki-project.json"), "utf8"));
+  const skillMarker = JSON.parse(await fs.readFile(path.join(root, "my-wiki-skill", ".my-wiki-skill.json"), "utf8"));
+  assert.equal(projectMarker.version, packageMetadata.version);
+  assert.equal(skillMarker.version, packageMetadata.version);
+});
+
 test("project instructions stay a concise router to the canonical Skill", async () => {
   const instructions = await fs.readFile(path.join(root, "AGENTS.md"), "utf8");
   assert.match(instructions, /canonical Agent playbook/);
@@ -103,4 +111,10 @@ test("standalone Skill explains both missing project and vault setup", async (co
   assert.match(result.stderr, /found no installed My Wiki project/);
   assert.match(result.stderr, /Install the project first/);
   assert.match(result.stderr, /create a separate local vault/);
+
+  const instructions = await fs.readFile(path.join(skill, "SKILL.md"), "utf8");
+  assert.match(instructions, /Bootstrap Missing Layers/);
+  assert.match(instructions, /https:\/\/github\.com\/NimaChu\/my-wiki\.git/);
+  assert.match(instructions, /Rerun `where`/);
+  assert.match(instructions, /Run `where` and `status` through the bridge/);
 });

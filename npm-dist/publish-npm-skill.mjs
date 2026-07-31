@@ -60,7 +60,7 @@ async function createStagingPackage() {
   const metadata = {
     name: packageName,
     version: rootMetadata.version,
-    description: rootMetadata.description,
+    description: "Thin Agent Skill adapter for the standalone My Wiki local knowledge project.",
     license: "MIT",
     type: "module",
     bin: { [packageName]: "bin/install.mjs" },
