@@ -196,7 +196,8 @@ test("Dashboard exposes the bundled smooth QoderWork pet manifest", async (conte
     displayName: "QoderWork",
     spritesheetPath: "spritesheet.png",
     spriteVersionNumber: 2,
-    imageRendering: "smooth"
+    imageRendering: "smooth",
+    displayScale: 1.5
   })}\n`, "utf8");
   await writeFile(path.join(petRoot, "spritesheet.png"), Buffer.from([137, 80, 78, 71]));
 
@@ -223,6 +224,7 @@ test("Dashboard exposes the bundled smooth QoderWork pet manifest", async (conte
     cellWidth: 192,
     cellHeight: 208,
     imageRendering: "smooth",
+    displayScale: 1.5,
     spritesheetUrl: "/api/v1/pets/qoderwork--my-wiki/spritesheet"
   }]);
 });
@@ -274,6 +276,82 @@ test("File uploads enter the Inbox queue before extraction completes", async (co
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   assert.equal(completed.body.status, "complete");
+});
+
+test("Chunked uploads assemble the original bytes before entering the Inbox queue", async (context) => {
+  const fixture = await createFixture(context);
+  let received = null;
+  const server = http.createServer(createDashboardApi({
+    dashboardRoot: fixture.dashboard,
+    port: 0,
+    agentRunner: { info: async () => ({}) },
+    localFileIngestor: async ({ file }) => {
+      received = await readFile(file);
+      return { kind: "zip", count: 1, items: [{ status: "inbox", path: "raw/sources/chunked.md" }] };
+    }
+  }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+  const uploaded = Buffer.from("chunk-one::chunk-two::chunk-three");
+  const metadata = JSON.stringify({
+    filename: "notes.zip",
+    title: "Chunked notes",
+    size: uploaded.length
+  });
+
+  const created = await request(port, "POST", "/api/v1/inbox/file/uploads", {
+    headers: {
+      ...auth,
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(metadata)
+    },
+    body: metadata
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.offset, 0);
+  assert.equal(created.body.chunkSize, 512 * 1024);
+
+  const split = 12;
+  const first = uploaded.subarray(0, split);
+  const firstChunk = await request(port, "PATCH", `/api/v1/inbox/file/uploads/${created.body.id}?offset=0`, {
+    headers: { ...auth, "content-type": "application/octet-stream", "content-length": first.length },
+    body: first
+  });
+  assert.equal(firstChunk.status, 200);
+  assert.equal(firstChunk.body.offset, split);
+
+  const wrongOffset = await request(port, "PATCH", `/api/v1/inbox/file/uploads/${created.body.id}?offset=0`, {
+    headers: { ...auth, "content-type": "application/octet-stream", "content-length": 1 },
+    body: Buffer.from("x")
+  });
+  assert.equal(wrongOffset.status, 409);
+
+  const remainder = uploaded.subarray(split);
+  const finalChunk = await request(port, "PATCH", `/api/v1/inbox/file/uploads/${created.body.id}?offset=${split}`, {
+    headers: { ...auth, "content-type": "application/octet-stream", "content-length": remainder.length },
+    body: remainder
+  });
+  assert.equal(finalChunk.status, 200);
+  assert.equal(finalChunk.body.complete, true);
+
+  const queued = await request(port, "POST", `/api/v1/inbox/file/uploads/${created.body.id}/complete`, {
+    headers: auth
+  });
+  assert.equal(queued.status, 202);
+  assert.equal(queued.body.type, "capture-file");
+
+  let completed;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    completed = await request(port, "GET", `/api/v1/jobs/${queued.body.id}`, { headers: auth });
+    if (completed.body.status === "complete") break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(completed.body.status, "complete");
+  assert.deepEqual(received, uploaded);
 });
 
 test("Maintenance uses a total timeout without an idle timeout", async (context) => {

@@ -28,6 +28,7 @@ const JSON_LIMIT = 128 * 1024;
 const MARKDOWN_JSON_LIMIT = 8 * 1024 * 1024;
 const MARKDOWN_BODY_LIMIT = 6 * 1024 * 1024;
 const FILE_LIMIT = Number(process.env.MY_WIKI_UPLOAD_LIMIT_BYTES || 1024 * 1024 * 1024);
+const FILE_CHUNK_LIMIT = Math.max(64 * 1024, Math.min(4 * 1024 * 1024, Number(process.env.MY_WIKI_UPLOAD_CHUNK_BYTES) || 512 * 1024));
 const sessionToken = randomBytes(32).toString("hex");
 const jobs = new Map();
 const BUNDLED_PET_IDS = ["qoderwork--my-wiki", "codenono--dq02", "claude--xiangking"];
@@ -81,6 +82,38 @@ export function createDashboardApi({
 }) {
   const runtimeFile = path.join(dashboardRoot, ".my-wiki-runtime.json");
   const activeAgentJobs = { query: "", maintenance: "" };
+  const pendingUploads = new Map();
+
+  const queueFileCapture = ({ vault, temporary, filename, title, collection, sourcePath }) => {
+    const job = createJob("capture-file", {
+      filename,
+      title,
+      collection,
+      sourcePath,
+      sourceType: sourceTypeFromFilename(filename)
+    }, vault);
+    runJob(job, async () => {
+      try {
+        const batch = await localFileIngestor({
+          vault,
+          title,
+          file: temporary,
+          filename,
+          collection,
+          sourcePath,
+          dependencyRoot: dashboardRoot,
+          captureMethod: "dashboard-upload",
+        });
+        const graphRefreshed = await refreshDashboardGraph(dashboardRoot, vault).catch(() => false);
+        return batch.kind === "file"
+          ? { ...batch.items[0], kind: batch.kind, count: batch.count, total: batch.count, items: batch.items, graphRefreshed }
+          : { ...batch, graphRefreshed };
+      } finally {
+        await fs.rm(temporary, { force: true });
+      }
+    });
+    return job;
+  };
 
   return async function handleDashboardApi(req, res) {
     try {
@@ -309,34 +342,76 @@ export function createDashboardApi({
         const collection = String(requestUrl.searchParams.get("collection") || "");
         const sourcePath = String(requestUrl.searchParams.get("sourcePath") || "").replace(/\\/g, "/").slice(0, 1000);
         const temporary = await receiveUpload(req, vault, filename);
-        const job = createJob("capture-file", {
+        const job = queueFileCapture({ vault, temporary, filename, title, collection, sourcePath });
+        sendJson(res, 202, publicJob(job));
+        return true;
+      }
+      if (requestUrl.pathname === "/api/v1/inbox/file/uploads" && req.method === "POST") {
+        const body = await readJson(req);
+        const filename = safeFilename(body.filename || "upload.bin");
+        const title = String(body.title || path.basename(filename, path.extname(filename))).trim() || "Uploaded Source";
+        const collection = String(body.collection || "").slice(0, 500);
+        const sourcePath = String(body.sourcePath || "").replace(/\\/g, "/").slice(0, 1000);
+        const size = Number(body.size);
+        if (!Number.isSafeInteger(size) || size <= 0) throw httpError(400, "Upload size must be a positive integer");
+        if (size > FILE_LIMIT) throw httpError(413, `Upload exceeds ${FILE_LIMIT} bytes`);
+        await cleanupPendingUploads(pendingUploads);
+        const root = path.join(vault, ".my-wiki", "uploads");
+        await fs.mkdir(root, { recursive: true });
+        await cleanupOldUploads(root);
+        const id = randomUUID();
+        const temporary = path.join(root, `${id}-${filename}`);
+        const handle = await fs.open(temporary, "wx");
+        await handle.close();
+        pendingUploads.set(id, {
+          id,
+          vault,
+          temporary,
           filename,
           title,
           collection,
           sourcePath,
-          sourceType: sourceTypeFromFilename(filename)
-        }, vault);
-        runJob(job, async () => {
-          try {
-            const batch = await localFileIngestor({
-              vault,
-              title,
-              file: temporary,
-              filename,
-              collection,
-              sourcePath,
-              dependencyRoot: dashboardRoot,
-              captureMethod: "dashboard-upload",
-            });
-            const graphRefreshed = await refreshDashboardGraph(dashboardRoot, vault).catch(() => false);
-            return batch.kind === "file"
-              ? { ...batch.items[0], kind: batch.kind, count: batch.count, total: batch.count, items: batch.items, graphRefreshed }
-              : { ...batch, graphRefreshed };
-          } finally {
-            await fs.rm(temporary, { force: true });
-          }
+          size,
+          offset: 0,
+          createdAt: Date.now()
         });
+        sendJson(res, 201, { id, offset: 0, chunkSize: FILE_CHUNK_LIMIT });
+        return true;
+      }
+      const fileUploadMatch = requestUrl.pathname.match(/^\/api\/v1\/inbox\/file\/uploads\/([a-f0-9-]+)$/i);
+      if (fileUploadMatch && req.method === "PATCH") {
+        const upload = pendingUploads.get(fileUploadMatch[1]);
+        if (!upload || upload.vault !== vault) throw httpError(404, "Pending upload not found");
+        const requestedOffset = Number(requestUrl.searchParams.get("offset"));
+        if (!Number.isSafeInteger(requestedOffset) || requestedOffset !== upload.offset) {
+          throw httpError(409, `Upload offset mismatch; expected ${upload.offset}`);
+        }
+        const chunk = await readBinary(req, Math.min(FILE_CHUNK_LIMIT, upload.size - upload.offset));
+        if (!chunk.length) throw httpError(400, "Upload chunk is empty");
+        await fs.appendFile(upload.temporary, chunk);
+        upload.offset += chunk.length;
+        sendJson(res, 200, { id: upload.id, offset: upload.offset, complete: upload.offset === upload.size });
+        return true;
+      }
+      const completeUploadMatch = requestUrl.pathname.match(/^\/api\/v1\/inbox\/file\/uploads\/([a-f0-9-]+)\/complete$/i);
+      if (completeUploadMatch && req.method === "POST") {
+        const upload = pendingUploads.get(completeUploadMatch[1]);
+        if (!upload || upload.vault !== vault) throw httpError(404, "Pending upload not found");
+        const stat = await fs.stat(upload.temporary).catch(() => null);
+        if (!stat?.isFile() || stat.size !== upload.size || upload.offset !== upload.size) {
+          throw httpError(409, `Upload is incomplete; received ${upload.offset} of ${upload.size} bytes`);
+        }
+        pendingUploads.delete(upload.id);
+        const job = queueFileCapture(upload);
         sendJson(res, 202, publicJob(job));
+        return true;
+      }
+      if (fileUploadMatch && req.method === "DELETE") {
+        const upload = pendingUploads.get(fileUploadMatch[1]);
+        if (!upload || upload.vault !== vault) throw httpError(404, "Pending upload not found");
+        pendingUploads.delete(upload.id);
+        await fs.rm(upload.temporary, { force: true });
+        sendJson(res, 200, { cancelled: true });
         return true;
       }
       if (requestUrl.pathname === "/api/v1/universes/export" && req.method === "POST") {
@@ -502,6 +577,7 @@ async function resolvePetAppearance(dashboardRoot, petIdValue) {
   }
 
   const spriteVersionNumber = Number(manifest.spriteVersionNumber) === 2 ? 2 : 1;
+  const requestedDisplayScale = Number(manifest.displayScale);
   return {
     id: petId,
     displayName: String(manifest.displayName || petId).slice(0, 80),
@@ -511,6 +587,9 @@ async function resolvePetAppearance(dashboardRoot, petIdValue) {
     cellWidth: 192,
     cellHeight: 208,
     imageRendering: manifest.imageRendering === "smooth" ? "smooth" : "pixelated",
+    displayScale: Number.isFinite(requestedDisplayScale)
+      ? Math.min(2, Math.max(0.75, requestedDisplayScale))
+      : 1,
     spritesheetFile,
     contentType: extension === ".png" ? "image/png" : "image/webp"
   };
@@ -526,6 +605,7 @@ function publicPetAppearance(pet) {
     cellWidth: pet.cellWidth,
     cellHeight: pet.cellHeight,
     imageRendering: pet.imageRendering,
+    displayScale: pet.displayScale,
     spritesheetUrl: `/api/v1/pets/${pet.id}/spritesheet`
   };
 }
@@ -1140,6 +1220,15 @@ async function cleanupOldUploads(root) {
   }
 }
 
+async function cleanupPendingUploads(pendingUploads) {
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  for (const [id, upload] of pendingUploads) {
+    if (upload.createdAt >= cutoff) continue;
+    pendingUploads.delete(id);
+    await fs.rm(upload.temporary, { force: true });
+  }
+}
+
 async function revertUnsupportedProcessedSources(scan) {
   const invalidIds = new Set(processedRawIssues(scan)
     .filter((issue) => issue.reason === "missing-readable-content")
@@ -1166,6 +1255,17 @@ async function readJson(req, limit = JSON_LIMIT) {
   } catch {
     throw httpError(400, "Invalid JSON request");
   }
+}
+
+async function readBinary(req, limit) {
+  let bytes = 0;
+  const chunks = [];
+  for await (const chunk of req) {
+    bytes += chunk.length;
+    if (bytes > limit) throw httpError(413, `Upload chunk exceeds ${limit} bytes`);
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
 }
 
 async function validatePublicUrl(value) {

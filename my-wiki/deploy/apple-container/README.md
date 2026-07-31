@@ -58,9 +58,10 @@ after the list. Explicit cancellation and timeout failures do not retry.
 Authentication failures also stop immediately because all models share the same
 OpenCode credential.
 
-Qoder is optional. Add a dedicated `QODER_PERSONAL_ACCESS_TOKEN` to the same
-private environment file to expose it in Viki's Agent CLI selector. Without a
-token, the preinstalled but unsigned-in Qoder CLI stays hidden. Set
+Qoder CN is optional and is installed in the container from `https://qoder.cn/install`.
+Add a dedicated `QODERCN_PERSONAL_ACCESS_TOKEN` to the same private environment
+file to expose it as `Qoder CN` in Viki's Agent CLI selector. Without a token,
+the preinstalled but unsigned-in Qoder CN CLI stays hidden. Set
 `MY_WIKI_QODER_MODEL` only when a specific Qoder model or tier is required;
 otherwise Qoder uses the account default. Viki invokes Qoder in non-interactive,
 non-persistent mode: questions receive read/search tools only, while maintenance

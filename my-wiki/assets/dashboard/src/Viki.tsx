@@ -317,6 +317,7 @@ export function Viki({ language }: { language: Language }) {
       : error ? "failed"
         : agent?.available === false ? "waiting"
           : hovered ? "waving" : "idle";
+  const launcherPetOffset = pet ? petViewportOffset(pet, position, viewport, 72) : { x: 0, y: 0 };
 
   return (
     <aside
@@ -468,7 +469,14 @@ export function Viki({ language }: { language: Language }) {
         onPointerLeave={() => setHovered(false)}
         onClick={toggleOpen}
       >
-        <VikiPet pet={pet} state={petState} size={72} fallbackSize={25} />
+        <VikiPet
+          pet={pet}
+          state={petState}
+          size={72}
+          fallbackSize={25}
+          offsetX={launcherPetOffset.x}
+          offsetY={launcherPetOffset.y}
+        />
       </button>
     </aside>
   );
@@ -484,11 +492,13 @@ const petAnimations: Record<PetAnimationState, { row: number; durations: number[
   working: { row: 7, durations: [120, 120, 120, 120, 120, 220] }
 };
 
-function VikiPet({ pet, state, size, fallbackSize }: {
+function VikiPet({ pet, state, size, fallbackSize, offsetX = 0, offsetY = 0 }: {
   pet?: PetAppearance;
   state: PetAnimationState;
   size: number;
   fallbackSize: number;
+  offsetX?: number;
+  offsetY?: number;
 }) {
   const animation = petAnimations[state];
   const reducedMotion = useReducedMotion();
@@ -509,22 +519,42 @@ function VikiPet({ pet, state, size, fallbackSize }: {
 
   if (!pet) return <Bot size={fallbackSize} aria-hidden="true" />;
   const scale = size / pet.cellWidth;
-  const frameHeight = pet.cellHeight * scale;
+  const displayScale = pet.displayScale || 1;
+  const displayedCellWidth = pet.cellWidth * scale * displayScale;
+  const displayedCellHeight = pet.cellHeight * scale * displayScale;
   const style = {
-    width: size,
-    height: frameHeight
+    width: displayedCellWidth,
+    height: displayedCellHeight,
+    transform: `translate3d(${offsetX}px, ${offsetY}px, 0)`
   } as CSSProperties;
   const imageStyle = {
-    width: pet.columns * pet.cellWidth * scale,
-    height: pet.rows * pet.cellHeight * scale,
+    width: pet.columns * displayedCellWidth,
+    height: pet.rows * displayedCellHeight,
     imageRendering: pet.imageRendering === "smooth" ? "auto" : "pixelated",
-    transform: `translate3d(${-frame * pet.cellWidth * scale}px, ${-animation.row * pet.cellHeight * scale}px, 0)`
+    transform: `translate3d(${-frame * displayedCellWidth}px, ${-animation.row * displayedCellHeight}px, 0)`
   } as CSSProperties;
   return (
     <span className="viki-pet" style={style} aria-hidden="true">
       <img src={pet.spritesheetUrl} alt="" draggable={false} style={imageStyle} />
     </span>
   );
+}
+
+function petViewportOffset(
+  pet: PetAppearance,
+  position: VikiPosition,
+  viewport: { width: number; height: number },
+  size: number
+) {
+  const displayScale = pet.displayScale || 1;
+  const width = size * displayScale;
+  const height = pet.cellHeight * (size / pet.cellWidth) * displayScale;
+  const centerX = position.x + LAUNCHER_SIZE / 2;
+  const centerY = position.y + LAUNCHER_SIZE / 2;
+  return {
+    x: clamp(0, EDGE_GAP + width / 2 - centerX, viewport.width - EDGE_GAP - width / 2 - centerX),
+    y: clamp(0, EDGE_GAP + height / 2 - centerY, viewport.height - EDGE_GAP - height / 2 - centerY)
+  };
 }
 
 function useReducedMotion() {

@@ -60,27 +60,20 @@ export function createLocalAgentRunner({ env = process.env } = {}) {
               timeoutMs,
               idleTimeoutMs,
               signal,
-              stopOnStderr: selected.provider === "opencode" ? openCodeProviderError : undefined
+              stopOnStderr: providerStderrError(selected.provider)
             });
           } catch (error) {
-            const providerError = selected.provider === "opencode"
-              ? openCodeProviderError(error?.message)
-              : "";
+            const providerError = providerOutputError(selected.provider, error?.message);
             if (providerError) throw new Error(providerError);
             throw error;
           }
           const raw = selected.provider === "codex"
             ? await fs.readFile(outputFile, "utf8").catch(() => result.stdout)
             : result.stdout;
-          try {
-            return parseStructuredOutput(raw);
-          } catch (error) {
-            const providerError = selected.provider === "opencode"
-              ? openCodeProviderError(result.stderr)
-              : "";
-            if (providerError) throw new Error(providerError);
-            throw error;
-          }
+          const providerOutput = selected.provider === "qoder" ? `${result.stderr}\n${raw}` : result.stderr;
+          const providerError = providerOutputError(selected.provider, providerOutput);
+          if (providerError) throw new Error(providerError);
+          return parseStructuredOutput(raw);
         };
 
         const models = selected.provider === "opencode"
@@ -118,7 +111,7 @@ function detectProviders(env) {
       : providerCandidates(provider, env);
     for (const command of candidates) {
       if (commandAvailable(command) && providerAuthenticated(provider, command, env)) {
-        discovered.push({ provider, command, label: providerLabel(provider) });
+        discovered.push({ provider, command, label: providerLabel(provider, command) });
         break;
       }
     }
@@ -159,10 +152,10 @@ function resolveProvider(info, requestedProvider) {
   return selected;
 }
 
-function providerLabel(provider) {
+function providerLabel(provider, command = "") {
   if (provider === "codex") return "Codex";
   if (provider === "opencode") return "OpenCode";
-  if (provider === "qoder") return "Qoder";
+  if (provider === "qoder") return path.basename(command).toLowerCase().includes("qoderclicn") ? "Qoder CN" : "Qoder";
   return "Claude";
 }
 
@@ -173,8 +166,7 @@ function inferCommandProvider(command, preferred) {
 }
 
 function providerCandidates(provider, env) {
-  const candidates = [provider];
-  if (provider === "qoder") candidates[0] = "qodercli";
+  const candidates = provider === "qoder" ? ["qoderclicn", "qodercli"] : [provider];
   if (process.platform !== "win32") return candidates;
   const local = env.LOCALAPPDATA || "";
   const appData = env.APPDATA || "";
@@ -184,7 +176,12 @@ function providerCandidates(provider, env) {
   if (provider === "qoder" && appData) {
     candidates.unshift(path.join(appData, "npm", "node_modules", "@qoder-ai", "qodercli", "bundle", "qodercli.js"));
   }
-  if (provider === "qoder" && profile) candidates.unshift(path.join(profile, ".local", "bin", "qodercli.exe"));
+  if (provider === "qoder" && profile) {
+    candidates.unshift(
+      path.join(profile, ".local", "bin", "qoderclicn.exe"),
+      path.join(profile, ".local", "bin", "qodercli.exe")
+    );
+  }
   return candidates;
 }
 
@@ -202,7 +199,9 @@ function commandAvailable(command) {
 
 function providerAuthenticated(provider, command, env) {
   if (provider !== "qoder") return true;
-  if (String(env.QODER_PERSONAL_ACCESS_TOKEN || "").trim()) return true;
+  const isChinaCli = path.basename(command).toLowerCase().includes("qoderclicn");
+  const tokenName = isChinaCli ? "QODERCN_PERSONAL_ACCESS_TOKEN" : "QODER_PERSONAL_ACCESS_TOKEN";
+  if (String(env[tokenName] || "").trim()) return true;
   const invocation = executableInvocation(command, ["status"]);
   const result = spawnSync(invocation.command, invocation.args, {
     encoding: "utf8",
@@ -213,7 +212,9 @@ function providerAuthenticated(provider, command, env) {
     shell: false
   });
   const output = `${result.stdout || ""}\n${result.stderr || ""}`;
-  return !result.error && result.status === 0 && /(?:Username|Email):\s*\S+/i.test(output);
+  return !result.error
+    && result.status === 0
+    && (/(?:Username|Email):\s*\S+/i.test(output) || /["']?logged_in["']?\s*:\s*true/i.test(output));
 }
 
 function executableInvocation(command, args) {
@@ -356,6 +357,32 @@ function openCodeProviderError(stderr) {
     /ProviderModelNotFoundError/i
   ].map((pattern) => value.match(pattern)?.[0]).find(Boolean);
   return known ? `OpenCode provider request failed: ${known}` : "";
+}
+
+function qoderProviderError(output) {
+  const value = stripAnsi(String(output || ""));
+  if (/insufficient_quota|exceeded your current quota|quota (?:is )?(?:exhausted|exceeded)|too_many_requests/i.test(value)) {
+    return "Qoder quota is exhausted. Switch Agent CLI to OpenCode or add Qoder credits, then retry.";
+  }
+  if (/invalid (?:personal access )?token|authentication (?:failed|required)|unauthorized|\b401\b/i.test(value)) {
+    return "Qoder authentication failed. Check the Qoder personal access token, then retry.";
+  }
+  if (/rate.?limit(?:ed| exceeded)?|\b429\b/i.test(value)) {
+    return "Qoder rate limit was reached. Wait briefly or switch Agent CLI to OpenCode, then retry.";
+  }
+  return "";
+}
+
+function providerOutputError(provider, output) {
+  if (provider === "opencode") return openCodeProviderError(output);
+  if (provider === "qoder") return qoderProviderError(output);
+  return "";
+}
+
+function providerStderrError(provider) {
+  if (provider === "opencode") return openCodeProviderError;
+  if (provider === "qoder") return qoderProviderError;
+  return undefined;
 }
 
 function runProcess(command, args, { cwd, env, input, timeoutMs, idleTimeoutMs, signal, stopOnStderr }) {

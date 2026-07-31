@@ -215,7 +215,7 @@ process.exit(1);
 
 test("Qoder uses bounded read-only tools for Viki and workspace edits for maintenance", async () => {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-qoder-test-"));
-  const command = path.join(temporary, "qoder-test.cjs");
+  const command = path.join(temporary, "qoderclicn-test.cjs");
   const attempts = path.join(temporary, "attempts.log");
   const script = `#!/usr/bin/env node
 const fs = require("node:fs");
@@ -244,7 +244,7 @@ process.stdout.write(JSON.stringify({ answer: "qoder worked" }));
     });
     const info = await runner.info();
     assert.equal(info.defaultProvider, "qoder");
-    assert.ok(info.providers.some((item) => item.provider === "qoder" && item.label === "Qoder"));
+    assert.ok(info.providers.some((item) => item.provider === "qoder" && item.label === "Qoder CN"));
 
     const options = {
       provider: "qoder",
@@ -282,6 +282,75 @@ process.stdout.write(JSON.stringify({ answer: "qoder worked" }));
   }
 });
 
+test("Qoder quota failures are reported instead of misclassified as invalid structured output", async () => {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-qoder-quota-test-"));
+  const command = path.join(temporary, "qoder-quota-test.cjs");
+  const script = `#!/usr/bin/env node
+if (process.argv.includes("--version")) {
+  process.stdout.write("1.1.9");
+  process.exit(0);
+}
+process.stdout.write("Qoder API error: TOO_MANY_REQUESTS - {\\"error\\":{\\"code\\":\\"insufficient_quota\\",\\"message\\":\\"You exceeded your current quota\\"}}");
+`;
+  await fs.writeFile(command, script, { mode: 0o755 });
+
+  try {
+    const runner = createLocalAgentRunner({
+      env: {
+        ...process.env,
+        MY_WIKI_AGENT_PROVIDER: "qoder",
+        MY_WIKI_AGENT_COMMAND: command,
+        QODER_PERSONAL_ACCESS_TOKEN: "test-token"
+      }
+    });
+    await assert.rejects(
+      runner.run({
+        provider: "qoder",
+        vault: temporary,
+        mode: "maintenance",
+        prompt: "Maintain",
+        schema: {
+          type: "object",
+          required: ["summary"],
+          properties: { summary: { type: "string" } }
+        }
+      }),
+      /Qoder quota is exhausted.*OpenCode/
+    );
+  } finally {
+    await fs.rm(temporary, { recursive: true, force: true });
+  }
+});
+
+test("Qoder CN uses its region-specific PAT environment variable", async () => {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-qodercn-auth-test-"));
+  const command = path.join(temporary, "qoderclicn-test.cjs");
+  const script = `#!/usr/bin/env node
+if (process.argv.includes("--version")) {
+  process.stdout.write("1.1.9");
+  process.exit(0);
+}
+process.exit(2);
+`;
+  await fs.writeFile(command, script, { mode: 0o755 });
+
+  try {
+    const runner = createLocalAgentRunner({
+      env: {
+        ...process.env,
+        MY_WIKI_AGENT_PROVIDER: "qoder",
+        MY_WIKI_AGENT_COMMAND: command,
+        QODER_PERSONAL_ACCESS_TOKEN: "",
+        QODERCN_PERSONAL_ACCESS_TOKEN: "test-token"
+      }
+    });
+    const info = await runner.info();
+    assert.equal(info.providers.find((item) => item.provider === "qoder")?.label, "Qoder CN");
+  } finally {
+    await fs.rm(temporary, { recursive: true, force: true });
+  }
+});
+
 test("Qoder stays hidden when the CLI is not signed in", async () => {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-qoder-auth-test-"));
   const command = path.join(temporary, "qoder-auth-test.cjs");
@@ -304,7 +373,8 @@ process.exit(2);
         ...process.env,
         MY_WIKI_AGENT_PROVIDER: "qoder",
         MY_WIKI_AGENT_COMMAND: command,
-        QODER_PERSONAL_ACCESS_TOKEN: ""
+        QODER_PERSONAL_ACCESS_TOKEN: "",
+        QODERCN_PERSONAL_ACCESS_TOKEN: ""
       }
     });
     const info = await runner.info();

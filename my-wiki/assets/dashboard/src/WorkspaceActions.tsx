@@ -57,6 +57,7 @@ const labels = {
     importing: "Importing",
     imported: "Knowledge galaxy imported",
     loading: "Loading",
+    uploading: "Uploading",
     queued: "Queued",
     extracting: "Extracting",
     failed: "Failed",
@@ -121,6 +122,7 @@ const labels = {
     importing: "正在导入",
     imported: "知识星系已导入",
     loading: "正在加载",
+    uploading: "正在上传",
     queued: "排队中",
     extracting: "正在提取",
     failed: "处理失败",
@@ -169,6 +171,7 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
   const [folderFiles, setFolderFiles] = useState<File[]>([]);
   const [zipFile, setZipFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [result, setResult] = useState<Record<string, any> | null>(null);
   const [inbox, setInbox] = useState<InboxItem[]>([]);
@@ -211,6 +214,7 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
     if (tab === "folder" && folderFiles.length === 0) return setError(l.requiredFolder);
     if (tab === "zip" && !zipFile) return setError(l.requiredZip);
     setBusy(true);
+    setUploadProgress(null);
     try {
       let captured: Record<string, any>;
       if (tab === "link") {
@@ -232,7 +236,11 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
         return;
       } else {
         const selected = tab === "zip" ? zipFile! : file!;
-        await localApi.captureFile(selected, { title: title.trim(), collection: collection.trim() });
+        await localApi.captureFile(
+          selected,
+          { title: title.trim(), collection: collection.trim() },
+          (uploaded, total) => setUploadProgress(Math.round(uploaded / total * 100))
+        );
         setFile(null);
         setZipFile(null);
         setTitle("");
@@ -246,6 +254,7 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
       setError(errorMessage(nextError));
     } finally {
       setBusy(false);
+      setUploadProgress(null);
     }
   };
 
@@ -349,7 +358,7 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
             <datalist id="my-wiki-collections">{collections.map((item) => <option key={item} value={item} />)}</datalist>
           </div>
           {error ? <p className="dialog-error">{error}</p> : null}
-          <div className="dialog-footer"><button type="button" onClick={onClose}>{l.close}</button><button className="primary-button" type="button" disabled={busy} onClick={submit}>{busy ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />}{l.capture}</button></div>
+          <div className="dialog-footer"><button type="button" onClick={onClose}>{l.close}</button><button className="primary-button" type="button" disabled={busy} onClick={submit}>{busy ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />}{busy && uploadProgress !== null ? `${l.uploading} ${uploadProgress}%` : l.capture}</button></div>
         </>
       )}
       {tab === "inbox" && error ? <p className="dialog-error">{error}</p> : null}

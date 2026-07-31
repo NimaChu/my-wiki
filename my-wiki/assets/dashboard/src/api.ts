@@ -58,6 +58,7 @@ export type PetAppearance = {
   cellWidth: number;
   cellHeight: number;
   imageRendering: "smooth" | "pixelated";
+  displayScale: number;
   spritesheetUrl: string;
 };
 
@@ -84,6 +85,7 @@ export type MarkdownDocument = {
 };
 
 let session: Promise<{ token: string; vault: string }> | null = null;
+const CHUNKED_UPLOAD_THRESHOLD = 1024 * 1024;
 
 async function getSession() {
   if (!session) {
@@ -212,7 +214,50 @@ export const localApi = {
     return response.json() as Promise<Record<string, any>>;
   },
 
-  async captureFile(file: File, input: { title?: string; collection?: string; sourcePath?: string }) {
+  async captureFile(
+    file: File,
+    input: { title?: string; collection?: string; sourcePath?: string },
+    onProgress?: (uploaded: number, total: number) => void
+  ) {
+    if (file.size >= CHUNKED_UPLOAD_THRESHOLD) {
+      let uploadId = "";
+      try {
+        const created = await apiFetch("/api/v1/inbox/file/uploads", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            filename: file.name,
+            title: input.title || "",
+            collection: input.collection || "",
+            sourcePath: input.sourcePath || "",
+            size: file.size
+          })
+        });
+        const upload = await created.json() as { id: string; offset: number; chunkSize: number };
+        uploadId = upload.id;
+        let offset = upload.offset;
+        onProgress?.(offset, file.size);
+        while (offset < file.size) {
+          const end = Math.min(file.size, offset + upload.chunkSize);
+          const response = await apiFetch(`/api/v1/inbox/file/uploads/${upload.id}?offset=${offset}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/octet-stream" },
+            body: file.slice(offset, end)
+          });
+          const next = await response.json() as { offset: number };
+          if (next.offset !== end) throw new Error(`Upload offset mismatch; expected ${end}`);
+          offset = next.offset;
+          onProgress?.(offset, file.size);
+        }
+        const completed = await apiFetch(`/api/v1/inbox/file/uploads/${upload.id}/complete`, { method: "POST" });
+        return completed.json() as Promise<Job>;
+      } catch (error) {
+        if (uploadId) {
+          await apiFetch(`/api/v1/inbox/file/uploads/${uploadId}`, { method: "DELETE" }).catch(() => undefined);
+        }
+        throw error;
+      }
+    }
     const params = new URLSearchParams({ filename: file.name });
     if (input.title) params.set("title", input.title);
     if (input.collection) params.set("collection", input.collection);
