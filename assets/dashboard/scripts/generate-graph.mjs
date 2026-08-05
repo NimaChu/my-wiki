@@ -228,7 +228,12 @@ function buildResolver(nodes) {
 }
 
 async function main() {
-  const files = (await Promise.all(scanRoots.map((root) => walk(path.join(vaultRoot, root))))).flat();
+  const scannedFiles = await Promise.all(scanRoots.map((root) => walk(path.join(vaultRoot, root))));
+  const files = scannedFiles.flat()
+    .filter((file) => {
+      const relative = path.relative(vaultRoot, file).replace(/\\/g, "/").toLowerCase();
+      return !relative.startsWith("raw/assets/") && !relative.startsWith("raw/snapshots/");
+    });
   const loaded = await Promise.all(
     files.map(async (filePath) => {
       const content = await fs.readFile(filePath, "utf8");

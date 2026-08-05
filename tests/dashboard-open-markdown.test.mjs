@@ -116,6 +116,93 @@ test("Markdown API reads and saves the body while preserving frontmatter and rej
   assert.match(stale.body.error, /changed after it was opened/);
 });
 
+test("Maintenance queue items can be deleted with their unshared snapshot and owned assets", async (context) => {
+  const fixture = await createFixture(context);
+  const snapshotFile = path.join(fixture.vault, "raw", "snapshots", "evidence.pdf");
+  const ownedAssetFile = path.join(fixture.vault, "raw", "assets", "evidence", "page.png");
+  await mkdir(path.dirname(snapshotFile), { recursive: true });
+  await mkdir(path.dirname(ownedAssetFile), { recursive: true });
+  await writeFile(snapshotFile, Buffer.from("snapshot"));
+  await writeFile(ownedAssetFile, Buffer.from("asset"));
+  await writeFile(fixture.rawFile, "---\ntitle: Evidence\ntype: raw-source\nstatus: inbox\nsnapshot_path: raw/snapshots/evidence.pdf\n---\n# Evidence\n\nDuplicate upload.\n", "utf8");
+
+  const server = http.createServer(createDashboardApi({
+    dashboardRoot: fixture.dashboard,
+    port: 0,
+    agentRunner: { info: async () => ({}) }
+  }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+
+  const deleted = await request(port, "DELETE", "/api/v1/inbox/item?path=raw%2Fsources%2Fevidence.md", { headers: auth });
+  assert.equal(deleted.status, 200);
+  assert.equal(deleted.body.deleted, true);
+  assert.deepEqual(deleted.body.removedArtifacts.sort(), ["raw/assets/evidence", "raw/snapshots/evidence.pdf"]);
+  await assert.rejects(readFile(fixture.rawFile), { code: "ENOENT" });
+  await assert.rejects(readFile(snapshotFile), { code: "ENOENT" });
+  await assert.rejects(readFile(ownedAssetFile), { code: "ENOENT" });
+});
+
+test("Maintenance queue deletion protects raw notes referenced by other knowledge", async (context) => {
+  const fixture = await createFixture(context);
+  await writeFile(fixture.rawFile, "---\ntitle: Evidence\ntype: raw-source\nstatus: inbox\n---\n# Evidence\n\nPending evidence.\n", "utf8");
+  await writeFile(fixture.wikiFile, "---\ntitle: Note\nstatus: active\n---\n# Note\n\n[[Evidence]]\n", "utf8");
+
+  const server = http.createServer(createDashboardApi({
+    dashboardRoot: fixture.dashboard,
+    port: 0,
+    agentRunner: { info: async () => ({}) }
+  }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+
+  const blocked = await request(port, "DELETE", "/api/v1/inbox/item?path=raw%2Fsources%2Fevidence.md", { headers: auth });
+  assert.equal(blocked.status, 409);
+  assert.match(blocked.body.error, /referenced by other knowledge/);
+  assert.match(await readFile(fixture.rawFile, "utf8"), /Pending evidence/);
+});
+
+test("Maintenance queue batch deletion removes eligible items and reports protected items", async (context) => {
+  const fixture = await createFixture(context);
+  const disposableFile = path.join(fixture.vault, "raw", "sources", "disposable.md");
+  await writeFile(fixture.rawFile, "---\ntitle: Evidence\ntype: raw-source\nstatus: inbox\n---\n# Evidence\n\nReferenced evidence.\n", "utf8");
+  await writeFile(disposableFile, "---\ntitle: Disposable\ntype: raw-source\nstatus: inbox\n---\n# Disposable\n\nDuplicate upload.\n", "utf8");
+  await writeFile(fixture.wikiFile, "---\ntitle: Note\nstatus: active\n---\n# Note\n\n[[Evidence]]\n", "utf8");
+
+  const server = http.createServer(createDashboardApi({
+    dashboardRoot: fixture.dashboard,
+    port: 0,
+    agentRunner: { info: async () => ({}) }
+  }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+  const body = JSON.stringify({ paths: ["raw/sources/evidence.md", "raw/sources/disposable.md"] });
+
+  const result = await request(port, "DELETE", "/api/v1/inbox/items", {
+    headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(body) },
+    body
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.count, 1);
+  assert.deepEqual(result.body.deleted.map((item) => item.path), ["raw/sources/disposable.md"]);
+  assert.deepEqual(result.body.failed.map((item) => item.path), ["raw/sources/evidence.md"]);
+  await assert.rejects(readFile(disposableFile), { code: "ENOENT" });
+  assert.match(await readFile(fixture.rawFile, "utf8"), /Referenced evidence/);
+});
+
 test("Markdown images resolve relative to the note but stay inside raw/assets", async (context) => {
   const fixture = await createFixture(context);
 

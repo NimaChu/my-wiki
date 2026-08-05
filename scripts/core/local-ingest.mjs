@@ -20,6 +20,10 @@ export async function ingestLocalFile({
   dependencyRoot,
   captureMethod = "agent-file"
 }) {
+  const uploadPath = sourcePath || filename;
+  if (isIgnoredLocalEntry(uploadPath)) {
+    return { kind: "file", count: 0, items: [], ignored: [uploadPath], total: 0 };
+  }
   if (path.extname(filename).toLowerCase() === ".zip") {
     return ingestZipBundle({ vault, file, filename, collection, dependencyRoot, captureMethod: captureMethod.replace(/file$/, "zip") });
   }
@@ -236,8 +240,8 @@ async function listDirectoryFiles(root) {
   const output = [];
   const walk = async (directory) => {
     for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
-      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
       const candidate = path.join(directory, entry.name);
+      if (isIgnoredLocalEntry(path.relative(root, candidate))) continue;
       if (entry.isDirectory()) await walk(candidate);
       else if (entry.isFile()) output.push(candidate);
     }
@@ -282,8 +286,16 @@ function validateArchivePath(value) {
 }
 
 function isIgnoredArchiveEntry(value) {
+  return isIgnoredLocalEntry(normalizeArchivePath(value));
+}
+
+export function isIgnoredLocalEntry(value) {
   const normalized = normalizeArchivePath(value);
-  return normalized.startsWith("__MACOSX/") || path.posix.basename(normalized).startsWith(".");
+  const parts = normalized.split("/").filter(Boolean);
+  const basename = String(parts[parts.length - 1] || "").toLowerCase();
+  return parts.some((part) => part.startsWith(".") || ["__macosx", "node_modules"].includes(part.toLowerCase()))
+    || ["thumbs.db", "ehthumbs.db", "desktop.ini", "icon\r"].includes(basename)
+    || basename.startsWith("~$");
 }
 
 function markdownTitle(content) {

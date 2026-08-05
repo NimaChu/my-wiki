@@ -1053,7 +1053,34 @@ h3 {
   gap: 12px;
 }
 
-.queue-heading .maintenance-button {
+.queue-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.queue-count {
+  display: inline-grid;
+  min-width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid rgba(141, 162, 255, 0.24);
+  border-radius: 999px;
+  background: rgba(141, 162, 255, 0.1);
+  color: #cbd4ff;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+.queue-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.queue-heading .maintenance-button,
+.queue-heading .batch-delete-button {
   display: inline-flex;
   width: auto;
   min-height: 32px;
@@ -1067,7 +1094,21 @@ h3 {
   white-space: nowrap;
 }
 
-.queue-heading .maintenance-button:disabled {
+.queue-heading .batch-delete-button {
+  border-color: rgba(228, 142, 134, 0.22);
+  background: rgba(228, 142, 134, 0.1);
+  color: #f0b0aa;
+}
+
+.queue-heading .batch-delete-button:hover,
+.queue-heading .batch-delete-button:focus-visible {
+  border-color: rgba(228, 142, 134, 0.5);
+  background: rgba(228, 142, 134, 0.22);
+  outline: none;
+}
+
+.queue-heading .maintenance-button:disabled,
+.queue-heading .batch-delete-button:disabled {
   cursor: not-allowed;
   opacity: 0.42;
 }
@@ -1097,33 +1138,56 @@ h3 {
   position: relative;
 }
 
-.queue-panel .queue-item-main {
-  padding-right: 48px;
+.queue-list {
+  display: grid;
+  max-height: min(48vh, 560px);
+  gap: 6px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
-.queue-panel .queue-item-process {
+.queue-panel .queue-item-main {
+  padding-right: 84px;
+}
+
+.queue-item-actions {
   position: absolute;
   top: 50%;
   right: 8px;
+  display: flex;
+  gap: 4px;
+  transform: translateY(-50%);
+  opacity: 0.5;
+  transition: opacity 140ms ease;
+}
+
+.queue-panel .queue-item-process,
+.queue-panel .queue-item-delete {
   display: grid;
   width: 30px;
   height: 30px;
   min-height: 0;
   place-items: center;
-  transform: translateY(-50%);
-  border-color: rgba(141, 162, 255, 0.2);
-  background: rgba(141, 162, 255, 0.14);
   padding: 0;
-  color: #dce3ff;
-  opacity: 0;
-  pointer-events: none;
   transition: opacity 140ms ease, background-color 140ms ease, border-color 140ms ease;
 }
 
-.queue-item:hover .queue-item-process,
-.queue-item:focus-within .queue-item-process {
-  opacity: 0.58;
-  pointer-events: auto;
+.queue-panel .queue-item-process {
+  border-color: rgba(141, 162, 255, 0.2);
+  background: rgba(141, 162, 255, 0.14);
+  color: #dce3ff;
+}
+
+.queue-panel .queue-item-delete {
+  border-color: rgba(228, 142, 134, 0.2);
+  background: rgba(228, 142, 134, 0.1);
+  color: #f0b0aa;
+}
+
+.queue-item:hover .queue-item-actions,
+.queue-item:focus-within .queue-item-actions {
+  opacity: 1;
 }
 
 .queue-panel .queue-item-process:hover,
@@ -1134,13 +1198,17 @@ h3 {
   outline: none;
 }
 
-.queue-panel .queue-item-process:disabled {
-  cursor: not-allowed;
+.queue-panel .queue-item-delete:hover,
+.queue-panel .queue-item-delete:focus-visible {
+  border-color: rgba(228, 142, 134, 0.5);
+  background: rgba(228, 142, 134, 0.24);
+  outline: none;
 }
 
-.queue-item:hover .queue-item-process:disabled,
-.queue-item:focus-within .queue-item-process:disabled {
-  opacity: 0.24;
+.queue-panel .queue-item-process:disabled,
+.queue-panel .queue-item-delete:disabled {
+  cursor: not-allowed;
+  opacity: 0.28;
 }
 
 .queue-panel button,
