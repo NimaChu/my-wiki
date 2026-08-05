@@ -14,6 +14,7 @@ import {
   LoaderCircle,
   Save,
   Sparkles,
+  Trash2,
   X
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -173,7 +174,13 @@ const copy = {
     maintenanceQueue: "Maintenance Queue",
     noPendingRaw: "No raw items awaiting maintenance",
     processBatch: "Maintain batch",
+    deleteBatch: "Delete all",
+    deletingBatch: "Deleting",
+    deleteBatchConfirm: "Delete all {count} items awaiting maintenance and their unshared uploaded files? This cannot be undone.",
+    deleteBatchPartial: "Deleted {deleted} items; {failed} could not be deleted.",
     processItem: "Maintain this item",
+    deleteQueueItem: "Delete this queue item",
+    deleteQueueConfirm: "Delete \"{title}\" and its unshared uploaded files? This cannot be undone.",
     processingBatch: "Maintaining",
     maintenanceComplete: "Batch maintenance complete",
     maintenanceFailed: "Maintenance failed",
@@ -250,7 +257,13 @@ const copy = {
     maintenanceQueue: "维护队列",
     noPendingRaw: "没有待维护的原始资料",
     processBatch: "批量维护",
+    deleteBatch: "批量删除",
+    deletingBatch: "正在删除",
+    deleteBatchConfirm: "确定删除全部 {count} 条待维护资料及其未被其他条目共享的上传文件吗？此操作无法撤销。",
+    deleteBatchPartial: "已删除 {deleted} 条，另有 {failed} 条因引用保护等原因无法删除。",
     processItem: "维护此条知识",
+    deleteQueueItem: "删除此条待维护资料",
+    deleteQueueConfirm: "确定删除“{title}”及其未被其他条目共享的上传文件吗？此操作无法撤销。",
     processingBatch: "正在维护",
     maintenanceComplete: "本批维护完成",
     maintenanceFailed: "维护失败",
@@ -1759,13 +1772,16 @@ function Stats({ graph, visibleEdges, items }: { graph: WikiGraph; visibleEdges:
 
 function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeById: Map<string, WikiNode>; onSelect: (id: string) => void }) {
   const { language, t } = useI18n();
-  const ids = [...graph.queues.inbox, ...graph.queues.needsFollowup, ...graph.queues.stale]
-    .filter((id) => id.startsWith("raw/"))
-    .slice(0, 8);
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(() => new Set());
+  const ids = [...new Set([...graph.queues.inbox, ...graph.queues.needsFollowup, ...graph.queues.stale])]
+    .filter((id) => id.startsWith("raw/") && !deletedIds.has(id));
   const nodes = ids.map((id) => nodeById.get(id)).filter(Boolean) as WikiNode[];
+  const batchNodes = nodes.slice(0, 8);
   const [agentState, setAgentState] = useState<AgentInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [activePath, setActivePath] = useState<string | null>(null);
+  const [deletingPath, setDeletingPath] = useState<string | null>(null);
+  const [deletingBatch, setDeletingBatch] = useState(false);
   const [result, setResult] = useState<MaintenanceResult | null>(null);
   const [error, setError] = useState("");
 
@@ -1794,42 +1810,110 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
     }
   };
 
+  const deleteNode = async (node: WikiNode) => {
+    if (busy || deletingPath || deletingBatch || agentState?.maintenanceBusy) return;
+    if (!window.confirm(t("deleteQueueConfirm", { title: node.title }))) return;
+    setDeletingPath(node.path);
+    setError("");
+    setResult(null);
+    try {
+      await localApi.deleteQueueItem(node.path);
+      setDeletedIds((current) => new Set(current).add(node.id));
+      window.dispatchEvent(new Event("my-wiki:graph-updated"));
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setDeletingPath(null);
+    }
+  };
+
+  const deleteAllNodes = async () => {
+    if (nodes.length === 0 || busy || deletingPath || deletingBatch || agentState?.maintenanceBusy) return;
+    if (!window.confirm(t("deleteBatchConfirm", { count: nodes.length }))) return;
+    setDeletingBatch(true);
+    setError("");
+    setResult(null);
+    try {
+      const outcome = await localApi.deleteQueueItems(nodes.map((node) => node.path));
+      const deletedPaths = new Set(outcome.deleted.map((item) => item.path));
+      setDeletedIds((current) => {
+        const next = new Set(current);
+        for (const node of nodes) if (deletedPaths.has(node.path)) next.add(node.id);
+        return next;
+      });
+      if (outcome.failed.length > 0) {
+        setError(t("deleteBatchPartial", { deleted: outcome.count, failed: outcome.failed.length }));
+      }
+      window.dispatchEvent(new Event("my-wiki:graph-updated"));
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setDeletingBatch(false);
+    }
+  };
+
   return (
     <section className="queue-panel">
       <div className="queue-heading">
-        <h2>{t("maintenanceQueue")}</h2>
-        <button
-          type="button"
-          className="maintenance-button"
-          disabled={nodes.length === 0 || busy || !agentState?.available || agentState.maintenanceBusy}
-          title={agentState?.available === false ? t("agentUnavailable") : t("processBatch")}
-          onClick={() => void processNodes(nodes)}
-        >
-          {busy || agentState?.maintenanceBusy ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />}
-          {busy || agentState?.maintenanceBusy ? t("processingBatch") : t("processBatch")}
-        </button>
+        <h2>{t("maintenanceQueue")} <span className="queue-count">{nodes.length}</span></h2>
+        <div className="queue-heading-actions">
+          <button
+            type="button"
+            className="maintenance-button"
+            disabled={batchNodes.length === 0 || busy || Boolean(deletingPath) || deletingBatch || !agentState?.available || agentState.maintenanceBusy}
+            title={agentState?.available === false ? t("agentUnavailable") : t("processBatch")}
+            onClick={() => void processNodes(batchNodes)}
+          >
+            {busy || agentState?.maintenanceBusy ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />}
+            {busy || agentState?.maintenanceBusy ? t("processingBatch") : t("processBatch")}
+          </button>
+          <button
+            type="button"
+            className="batch-delete-button"
+            disabled={nodes.length === 0 || busy || Boolean(deletingPath) || deletingBatch || agentState?.maintenanceBusy}
+            title={t("deleteBatch")}
+            onClick={() => void deleteAllNodes()}
+          >
+            {deletingBatch ? <LoaderCircle className="spin" size={14} /> : <Trash2 size={14} />}
+            {deletingBatch ? t("deletingBatch") : t("deleteBatch")}
+          </button>
+        </div>
       </div>
       {nodes.length === 0 ? (
         <p className="muted">{t("noPendingRaw")}</p>
       ) : (
-        nodes.map((node) => (
-          <div className="queue-item" key={node.id}>
-            <button className="queue-item-main" type="button" onClick={() => onSelect(node.id)}>
-              <strong>{node.title}</strong>
-              <span>{localizedStatus(node.status, language)}</span>
-            </button>
-            <button
-              className="queue-item-process"
-              type="button"
-              aria-label={t("processItem")}
-              title={agentState?.available === false ? t("agentUnavailable") : t("processItem")}
-              disabled={busy || !agentState?.available || agentState.maintenanceBusy}
-              onClick={() => void processNodes([node])}
-            >
-              {busy && activePath === node.path ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />}
-            </button>
-          </div>
-        ))
+        <div className="queue-list">
+          {nodes.map((node) => (
+            <div className="queue-item" key={node.id}>
+              <button className="queue-item-main" type="button" onClick={() => onSelect(node.id)}>
+                <strong>{node.title}</strong>
+                <span>{localizedStatus(node.status, language)}</span>
+              </button>
+              <div className="queue-item-actions">
+                <button
+                  className="queue-item-process"
+                  type="button"
+                  aria-label={t("processItem")}
+                  title={agentState?.available === false ? t("agentUnavailable") : t("processItem")}
+                  disabled={busy || Boolean(deletingPath) || deletingBatch || !agentState?.available || agentState.maintenanceBusy}
+                  onClick={() => void processNodes([node])}
+                >
+                  {busy && activePath === node.path ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />}
+                </button>
+                <button
+                  className="queue-item-delete"
+                  type="button"
+                  aria-label={t("deleteQueueItem")}
+                  title={t("deleteQueueItem")}
+                  disabled={busy || Boolean(deletingPath) || deletingBatch || agentState?.maintenanceBusy}
+                  onClick={() => void deleteNode(node)}
+                >
+                  {deletingPath === node.path ? <LoaderCircle className="spin" size={14} /> : <Trash2 size={14} />}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
       {result ? <div className="maintenance-result"><strong>{t("maintenanceComplete")}</strong><p>{result.summary}</p>{result.lintIssues > 0 ? <span>{t("lintRemaining", { count: result.lintIssues })}</span> : null}</div> : null}
       {error ? <div className="maintenance-error"><strong>{t("maintenanceFailed")}</strong><p>{error}</p></div> : null}

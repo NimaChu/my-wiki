@@ -154,6 +154,26 @@ export const localApi = {
     return response.json() as Promise<{ items: InboxItem[] }>;
   },
 
+  async deleteQueueItem(path: string) {
+    const params = new URLSearchParams({ path });
+    const response = await apiFetch(`/api/v1/inbox/item?${params}`, { method: "DELETE" });
+    return response.json() as Promise<{ deleted: boolean; path: string; removedArtifacts: string[]; graphRefreshed: boolean }>;
+  },
+
+  async deleteQueueItems(paths: string[]) {
+    const response = await apiFetch("/api/v1/inbox/items", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paths })
+    });
+    return response.json() as Promise<{
+      deleted: Array<{ deleted: boolean; path: string; removedArtifacts: string[] }>;
+      failed: Array<{ path: string; error: string }>;
+      count: number;
+      graphRefreshed: boolean;
+    }>;
+  },
+
   async collections() {
     const response = await apiFetch("/api/v1/collections");
     return response.json() as Promise<{ collections: Array<{ name: string; count: number }> }>;

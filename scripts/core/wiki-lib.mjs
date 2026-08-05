@@ -275,7 +275,12 @@ export function parseRelationHints(frontmatter) {
 
 export async function scanVault(vault = vaultPath()) {
   const roots = ["raw", "wiki", "templates", "_archive"];
-  const files = (await Promise.all(roots.map((root) => walkMarkdown(path.join(vault, root))))).flat();
+  const files = (await Promise.all(roots.map((root) => walkMarkdown(path.join(vault, root)))))
+    .flat()
+    .filter((file) => {
+      const relative = path.relative(vault, file).replace(/\\/g, "/").toLowerCase();
+      return !relative.startsWith("raw/assets/") && !relative.startsWith("raw/snapshots/");
+    });
   const nodes = [];
   for (const file of files) {
     const content = await fs.readFile(file, "utf8");

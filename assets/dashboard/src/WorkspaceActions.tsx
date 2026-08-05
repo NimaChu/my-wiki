@@ -211,7 +211,8 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
     setError("");
     if (tab === "link" && !url.trim()) return setError(l.requiredUrl);
     if (tab === "file" && !file) return setError(l.requiredFile);
-    if (tab === "folder" && folderFiles.length === 0) return setError(l.requiredFolder);
+    const uploadableFolderFiles = folderFiles.filter((item) => !isIgnoredFolderFile(item));
+    if (tab === "folder" && uploadableFolderFiles.length === 0) return setError(l.requiredFolder);
     if (tab === "zip" && !zipFile) return setError(l.requiredZip);
     setBusy(true);
     setUploadProgress(null);
@@ -222,7 +223,7 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
       } else if (tab === "folder") {
         const items: Job[] = [];
         const failures = [];
-        for (const item of folderFiles) {
+        for (const item of uploadableFolderFiles) {
           try {
             items.push(await localApi.captureFile(item, { collection: collection.trim(), sourcePath: item.webkitRelativePath || item.name }));
           } catch (nextError) {
@@ -343,7 +344,7 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
                 <FolderUp size={24} aria-hidden="true" />
                 <strong>{folderFiles.length ? `${folderFiles.length} ${language === "zh" ? "个文件" : "files"}` : l.chooseFolder}</strong>
                 <span>{folderFiles.length ? formatBytes(folderFiles.reduce((sum, item) => sum + item.size, 0)) : l.folderHint}</span>
-                <input ref={folderInput} type="file" multiple hidden {...({ webkitdirectory: "", directory: "" } as any)} onChange={(event) => setFolderFiles(Array.from(event.target.files || []))} />
+                <input ref={folderInput} type="file" multiple hidden {...({ webkitdirectory: "", directory: "" } as any)} onChange={(event) => setFolderFiles(Array.from(event.target.files || []).filter((item) => !isIgnoredFolderFile(item)))} />
               </button>
             ) : (
               <button type="button" className="file-drop" onClick={() => zipInput.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const dropped = event.dataTransfer.files?.[0] || null; setZipFile(dropped?.name.toLowerCase().endsWith(".zip") ? dropped : null); }}>
@@ -503,6 +504,15 @@ function TabButton({ active, onClick, icon, label }: { active: boolean; onClick:
 
 function errorMessage(value: unknown) {
   return value instanceof Error ? value.message : String(value);
+}
+
+function isIgnoredFolderFile(file: File) {
+  const sourcePath = (file.webkitRelativePath || file.name).replace(/\\/g, "/").replace(/^\.\//, "");
+  const parts = sourcePath.split("/").filter(Boolean);
+  const basename = (parts[parts.length - 1] || "").toLowerCase();
+  return parts.some((part) => part.startsWith(".") || ["__macosx", "node_modules"].includes(part.toLowerCase()))
+    || ["thumbs.db", "ehthumbs.db", "desktop.ini", "icon\r"].includes(basename)
+    || basename.startsWith("~$");
 }
 
 function formatBytes(bytes: number) {
