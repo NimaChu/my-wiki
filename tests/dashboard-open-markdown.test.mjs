@@ -530,8 +530,16 @@ test("Viki binds a question to its dispatched provider and pauses only the match
       label: "OpenCode",
       defaultProvider: "opencode",
       providers: [
-        { provider: "opencode", label: "OpenCode" },
-        { provider: "qoder", label: "Qoder CN" }
+        {
+          provider: "opencode",
+          label: "OpenCode",
+          defaultModel: "internal/default",
+          models: [
+            { id: "internal/default", label: "Default model" },
+            { id: "internal/chosen", label: "Chosen model" }
+          ]
+        },
+        { provider: "qoder", label: "Qoder CN", defaultModel: "auto", models: [{ id: "auto", label: "Auto" }] }
       ],
       message: ""
     }),
@@ -562,6 +570,7 @@ test("Viki binds a question to its dispatched provider and pauses only the match
     history: [],
     language: "en",
     provider: "opencode",
+    model: "internal/chosen",
     conversationId
   });
   const queued = await request(port, "POST", "/api/v1/agent/ask", {
@@ -574,12 +583,15 @@ test("Viki binds a question to its dispatched provider and pauses only the match
   });
   assert.equal(queued.status, 202);
   assert.equal(queued.body.meta.provider, "opencode");
+  assert.equal(queued.body.meta.model, "internal/chosen");
+  assert.equal(queued.body.meta.modelLabel, "Chosen model");
   assert.equal(queued.body.meta.conversationId, conversationId);
 
   for (let attempt = 0; attempt < 20 && !runOptions; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   assert.equal(runOptions.provider, "opencode");
+  assert.equal(runOptions.model, "internal/chosen");
 
   const wrongPause = await request(port, "DELETE", "/api/v1/agent/query?job=another-job", { headers: auth });
   assert.equal(wrongPause.status, 409);
@@ -587,6 +599,7 @@ test("Viki binds a question to its dispatched provider and pauses only the match
   const active = await request(port, "GET", "/api/v1/agent", { headers: auth });
   assert.equal(active.body.activeJob.id, queued.body.id);
   assert.equal(active.body.activeJob.meta.provider, "opencode");
+  assert.equal(active.body.activeJob.meta.model, "internal/chosen");
   assert.equal(active.body.activeJob.meta.conversationId, conversationId);
 
   const paused = await request(port, "DELETE", `/api/v1/agent/query?job=${queued.body.id}`, { headers: auth });
@@ -594,4 +607,76 @@ test("Viki binds a question to its dispatched provider and pauses only the match
   assert.equal(paused.body.cancelled, true);
   assert.equal(paused.body.job.status, "cancelled");
   await aborted;
+});
+
+test("Viki preserves image block placement and rejects invalid answer images", async (context) => {
+  const fixture = await createFixture(context);
+  let runOptions;
+  const agentRunner = {
+    info: async () => ({
+      available: true,
+      provider: "opencode",
+      label: "OpenCode",
+      defaultProvider: "opencode",
+      providers: [{
+        provider: "opencode",
+        label: "OpenCode",
+        defaultModel: "internal/default",
+        models: [{ id: "internal/default", label: "Default model" }]
+      }],
+      message: ""
+    }),
+    run: async (options) => {
+      runOptions = options;
+      return {
+        answerMarkdown: "First supporting claim.\n\nSecond supporting claim.",
+        sources: [{ path: "wiki/note.md", title: "Note" }],
+        images: [
+          { path: "raw/assets/capture/image.png", caption: "Supporting diagram", afterBlock: 99 },
+          { path: "wiki/not-an-image.png", caption: "Rejected", afterBlock: 0 }
+        ]
+      };
+    }
+  };
+  const server = http.createServer(createDashboardApi({
+    dashboardRoot: fixture.dashboard,
+    port: 0,
+    agentRunner
+  }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+  const body = JSON.stringify({
+    question: "Show the supporting image",
+    history: [],
+    language: "en",
+    provider: "opencode",
+    model: "internal/default",
+    conversationId: "conversation_image_01"
+  });
+  const queued = await request(port, "POST", "/api/v1/agent/ask", {
+    headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(body) },
+    body
+  });
+  assert.equal(queued.status, 202);
+
+  let completed;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    completed = await request(port, "GET", `/api/v1/jobs/${queued.body.id}`, { headers: auth });
+    if (completed.body.status === "complete") break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  assert.equal(completed.body.status, "complete");
+  assert.deepEqual(completed.body.result.images, [{
+    path: "raw/assets/capture/image.png",
+    caption: "Supporting diagram",
+    afterBlock: 1
+  }]);
+  assert.deepEqual(completed.body.result.sources, [{ path: "wiki/note.md", title: "Note" }]);
+  assert.equal(runOptions.model, "internal/default");
+  assert.match(runOptions.prompt, /afterBlock/);
 });

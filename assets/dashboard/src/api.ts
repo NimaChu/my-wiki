@@ -34,6 +34,13 @@ export type Job = {
 export type AgentProvider = {
   provider: string;
   label: string;
+  defaultModel: string;
+  models: AgentModel[];
+};
+
+export type AgentModel = {
+  id: string;
+  label: string;
 };
 
 export type AgentInfo = {
@@ -65,7 +72,7 @@ export type PetAppearance = {
 export type AgentAnswer = {
   answerMarkdown: string;
   sources: Array<{ path: string; title: string }>;
-  images: Array<{ path: string; caption: string }>;
+  images: Array<{ path: string; caption: string; afterBlock: number }>;
 };
 
 export type MaintenanceResult = {
@@ -216,12 +223,13 @@ export const localApi = {
     history: Array<{ role: "user" | "assistant"; content: string }>,
     language: "en" | "zh",
     provider: string,
+    model: string,
     conversationId: string
   ) {
     const response = await apiFetch("/api/v1/agent/ask", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ question, history, language, provider, conversationId })
+      body: JSON.stringify({ question, history, language, provider, model, conversationId })
     });
     return response.json() as Promise<Job>;
   },

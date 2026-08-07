@@ -4,7 +4,66 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createLocalAgentRunner } from "../scripts/core/agent-service.mjs";
+import { createLocalAgentRunner, parseProviderModels } from "../scripts/core/agent-service.mjs";
+
+test("provider model catalogs normalize OpenCode lines and visible Codex models", () => {
+  assert.deepEqual(parseProviderModels("opencode", `
+internal-litellm/gpt-5.6-sol
+not a model id
+internal-litellm/gpt-5.6-sol
+openai/gpt-5
+`), [
+    { id: "internal-litellm/gpt-5.6-sol", label: "internal-litellm/gpt-5.6-sol" },
+    { id: "openai/gpt-5", label: "openai/gpt-5" }
+  ]);
+
+  assert.deepEqual(parseProviderModels("codex", JSON.stringify({ models: [
+    { slug: "gpt-5.6-sol", display_name: "GPT-5.6 Sol", visibility: "list" },
+    { slug: "internal-only", display_name: "Internal", visibility: "hide" }
+  ] })), [
+    { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" }
+  ]);
+});
+
+test("an explicitly selected OpenCode model is passed through without fallback", async () => {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-opencode-explicit-model-test-"));
+  const command = path.join(temporary, "opencode-explicit-model-test.cjs");
+  const attempts = path.join(temporary, "attempts.log");
+  const script = `#!/usr/bin/env node
+const fs = require("node:fs");
+if (process.argv.includes("--version")) process.exit(0);
+const model = process.argv[process.argv.indexOf("--model") + 1];
+fs.appendFileSync(process.env.ATTEMPTS_FILE, model + "\\n");
+process.stdout.write(JSON.stringify({ answer: model }));
+`;
+  await fs.writeFile(command, script, { mode: 0o755 });
+
+  try {
+    const runner = createLocalAgentRunner({
+      env: {
+        ...process.env,
+        MY_WIKI_AGENT_PROVIDER: "opencode",
+        MY_WIKI_AGENT_COMMAND: command,
+        MY_WIKI_OPENCODE_MODEL: "configured/default",
+        MY_WIKI_OPENCODE_FALLBACK_MODELS: "fallback/one,fallback/two",
+        ATTEMPTS_FILE: attempts
+      }
+    });
+    const result = await runner.run({
+      provider: "opencode",
+      model: "chosen/model",
+      vault: temporary,
+      mode: "query",
+      prompt: "Answer",
+      schema: { type: "object", required: ["answer"], properties: { answer: { type: "string" } } }
+    });
+
+    assert.deepEqual(result, { answer: "chosen/model" });
+    assert.equal((await fs.readFile(attempts, "utf8")).trim(), "chosen/model");
+  } finally {
+    await fs.rm(temporary, { recursive: true, force: true });
+  }
+});
 
 test("OpenCode retries a failed primary model with the configured fallback", async () => {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-opencode-test-"));

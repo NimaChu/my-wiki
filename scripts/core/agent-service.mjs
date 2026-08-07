@@ -17,7 +17,7 @@ export function createLocalAgentRunner({ env = process.env } = {}) {
       return detected;
     },
 
-    async run({ provider, vault, mode, prompt, schema, timeoutMs = DEFAULT_TIMEOUT, idleTimeoutMs = 0, signal }) {
+    async run({ provider, model = "", vault, mode, prompt, schema, timeoutMs = DEFAULT_TIMEOUT, idleTimeoutMs = 0, signal }) {
       detected ??= detectProviders(env);
       if (!detected.available) throw new Error(detected.message);
       const selected = resolveProvider(detected, provider);
@@ -26,8 +26,9 @@ export function createLocalAgentRunner({ env = process.env } = {}) {
       const outputFile = path.join(temporary, `${randomUUID()}.json`);
       const schemaFile = path.join(temporary, "response.schema.json");
       const providerConfigFile = path.join(temporary, "opencode.json");
-      const primaryModel = providerModel(selected.provider, env);
-      const fallbackModels = selected.provider === "opencode"
+      const requestedModel = String(model || "").trim();
+      const primaryModel = requestedModel || providerModel(selected.provider, env);
+      const fallbackModels = selected.provider === "opencode" && !requestedModel
         ? openCodeFallbackModels(env, primaryModel)
         : [];
       await fs.writeFile(schemaFile, `${JSON.stringify(schema, null, 2)}\n`, "utf8");
@@ -111,7 +112,16 @@ function detectProviders(env) {
       : providerCandidates(provider, env);
     for (const command of candidates) {
       if (commandAvailable(command) && providerAuthenticated(provider, command, env)) {
-        discovered.push({ provider, command, label: providerLabel(provider, command) });
+        const defaultModel = providerModel(provider, env);
+        discovered.push({
+          provider,
+          command,
+          label: providerLabel(provider, command),
+          defaultModel,
+          models: providerModels(provider, command, env, {
+            discoverCatalog: !(customCommand && command === customCommand)
+          })
+        });
         break;
       }
     }
@@ -236,6 +246,7 @@ function providerInvocation({ provider, command, vault, mode, prompt, schema, ou
         "--color", "never",
         "--sandbox", mode === "maintenance" ? "workspace-write" : "read-only",
         "-C", vault,
+        ...(model ? ["--model", model] : []),
         "--output-schema", schemaFile,
         "--output-last-message", outputFile,
         "-"
@@ -290,6 +301,7 @@ function providerInvocation({ provider, command, vault, mode, prompt, schema, ou
       "-p",
       "--output-format", "text",
       "--permission-mode", mode === "maintenance" ? "acceptEdits" : "plan",
+      ...(model ? ["--model", model] : []),
       promptWithSchema(prompt, schema)
     ],
     input: "",
@@ -300,7 +312,81 @@ function providerInvocation({ provider, command, vault, mode, prompt, schema, ou
 function providerModel(provider, env) {
   if (provider === "opencode") return String(env.MY_WIKI_OPENCODE_MODEL || "").trim();
   if (provider === "qoder") return String(env.MY_WIKI_QODER_MODEL || "").trim();
+  if (provider === "codex") return String(env.MY_WIKI_CODEX_MODEL || "").trim();
+  if (provider === "claude") return String(env.MY_WIKI_CLAUDE_MODEL || "").trim();
   return "";
+}
+
+function providerModels(provider, command, env, { discoverCatalog = true } = {}) {
+  const configured = providerModel(provider, env);
+  let discovered = [];
+  if (provider === "qoder") {
+    discovered = [
+      { id: "auto", label: "Auto" },
+      { id: "efficient", label: "Efficient" },
+      { id: "powerful", label: "Powerful" }
+    ];
+  } else if (provider === "claude") {
+    discovered = [
+      { id: "sonnet", label: "Sonnet" },
+      { id: "opus", label: "Opus" },
+      { id: "haiku", label: "Haiku" }
+    ];
+  } else if (discoverCatalog) {
+    const args = provider === "opencode" ? ["models"] : provider === "codex" ? ["debug", "models"] : [];
+    if (args.length > 0) {
+      const invocation = executableInvocation(command, args);
+      const result = spawnSync(invocation.command, invocation.args, {
+        encoding: "utf8",
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 15000,
+        maxBuffer: 2 * 1024 * 1024,
+        windowsHide: true,
+        shell: false
+      });
+      if (!result.error && result.status === 0) discovered = parseProviderModels(provider, result.stdout);
+    }
+  }
+
+  return uniqueModelOptions([
+    ...(configured ? [{ id: configured, label: configured }] : []),
+    ...discovered
+  ]);
+}
+
+export function parseProviderModels(provider, output) {
+  const value = stripAnsi(String(output || "")).trim();
+  if (provider === "opencode") {
+    return uniqueModelOptions(value.split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => /^[^\s/]+\/[^\s]+$/.test(line))
+      .map((id) => ({ id, label: id })));
+  }
+  if (provider === "codex") {
+    try {
+      const parsed = JSON.parse(value);
+      return uniqueModelOptions((Array.isArray(parsed?.models) ? parsed.models : [])
+        .filter((item) => item?.visibility !== "hide")
+        .flatMap((item) => {
+          const id = String(item?.slug || "").trim();
+          return id ? [{ id, label: String(item?.display_name || id).trim() || id }] : [];
+        }));
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function uniqueModelOptions(models) {
+  const seen = new Set();
+  return models.flatMap((item) => {
+    const id = String(item?.id || "").trim();
+    if (!id || seen.has(id)) return [];
+    seen.add(id);
+    return [{ id, label: String(item?.label || id).trim() || id }];
+  });
 }
 
 function promptWithSchema(prompt, schema) {

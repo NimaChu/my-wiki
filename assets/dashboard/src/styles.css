@@ -2119,6 +2119,7 @@ h3 {
 .viki-panel {
   position: absolute;
   display: grid;
+  container-type: inline-size;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.13);
@@ -2436,8 +2437,10 @@ h3 {
   white-space: nowrap;
 }
 
-.viki-provider-select {
+.viki-provider-select,
+.viki-model-select {
   min-width: 88px;
+  max-width: 150px;
   height: 30px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 5px;
@@ -2450,12 +2453,15 @@ h3 {
 }
 
 .viki-provider-select:hover,
-.viki-provider-select:focus-visible {
+.viki-provider-select:focus-visible,
+.viki-model-select:hover,
+.viki-model-select:focus-visible {
   border-color: rgba(255, 255, 255, 0.25);
   outline: none;
 }
 
-.viki-provider-select:disabled {
+.viki-provider-select:disabled,
+.viki-model-select:disabled {
   cursor: default;
   opacity: 0.58;
 }
@@ -2510,10 +2516,7 @@ h3 {
   background: rgba(141, 162, 255, 0.15);
 }
 
-.viki-message-body p + p,
-.viki-message-body p + ul,
-.viki-message-body ul + p,
-.viki-message-body h4 + p {
+.viki-markdown-block + .viki-markdown-block {
   margin-top: 8px;
 }
 
@@ -2532,31 +2535,89 @@ h3 {
   color: #b7c3ff;
 }
 
-.viki-images {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
+.viki-inline-image {
+  margin: 10px 0 2px;
+  border-radius: 6px;
+  outline: none;
+  cursor: zoom-in;
 }
 
-.viki-images figure {
-  margin: 0;
+.viki-inline-image:focus-visible {
+  box-shadow: 0 0 0 2px rgba(183, 195, 255, 0.72);
 }
 
-.viki-images img {
+.viki-inline-image img {
   display: block;
   width: 100%;
-  max-height: 180px;
+  max-height: 260px;
   object-fit: contain;
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 6px;
   background: #121415;
 }
 
-.viki-images figcaption {
+.viki-inline-image figcaption {
   margin-top: 4px;
   color: #929c9e;
   font-size: 10px;
   line-height: 1.35;
+}
+
+.viki-lightbox {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(5, 7, 8, 0.88);
+  backdrop-filter: blur(5px);
+  padding: 54px 32px 30px;
+}
+
+.viki-lightbox figure {
+  display: grid;
+  max-width: min(94vw, 1440px);
+  max-height: calc(100vh - 84px);
+  gap: 10px;
+  margin: 0;
+}
+
+.viki-lightbox img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 118px);
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.58);
+}
+
+.viki-lightbox figcaption {
+  color: #d5dada;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.viki-lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  background: rgba(28, 32, 34, 0.88);
+  color: #f3efe7;
+  cursor: pointer;
+}
+
+.viki-lightbox-close:hover,
+.viki-lightbox-close:focus-visible {
+  border-color: rgba(255, 255, 255, 0.36);
+  background: #303638;
+  outline: none;
 }
 
 .viki-sources {
@@ -2734,6 +2795,29 @@ h3 {
   .document-editor {
     width: calc(100% - 24px);
     padding-top: 12px;
+  }
+}
+
+@container (max-width: 620px) {
+  .viki-panel > header {
+    flex-direction: column;
+    min-height: 96px;
+    align-items: stretch;
+    gap: 5px;
+  }
+
+  .viki-identity {
+    min-height: 34px;
+  }
+
+  .viki-status {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .viki-provider-select,
+  .viki-model-select {
+    max-width: min(150px, 28cqw);
   }
 }
 

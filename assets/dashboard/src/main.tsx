@@ -20,6 +20,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AgentInfo, localApi, MaintenanceResult, MarkdownDocument, waitForJob } from "./api";
+import { isUniverseOverviewMode, shouldUseDegreeCenteredUniverseLayout } from "./layout-mode.js";
 import { Viki } from "./Viki";
 import { WorkspaceActions } from "./WorkspaceActions";
 import "./styles.css";
@@ -464,6 +465,7 @@ function App() {
 
   const layoutScope = graphMode === "evidence" ? "local" : graphScope;
   const layoutCenterId = graphMode === "evidence" ? evidenceCenterId : activeSelectedId;
+  const isUniverseOverview = isUniverseOverviewMode({ graphMode, graphScope, focusedGroup });
   const filteredNodes = useMemo(
     () => graphMode === "evidence" ? baseFilteredNodes : applyGraphScope(baseFilteredNodes, graph, activeSelectedId, graphScope, localDepth),
     [baseFilteredNodes, graph, activeSelectedId, graphMode, graphScope, localDepth]
@@ -482,7 +484,10 @@ function App() {
 
   const canRotateLayout = graphMode === "knowledge" && graphScope === "global" && Boolean(focusedGroup);
   const layoutRotation = canRotateLayout ? rotation : initialRotation;
-  const layout = useMemo(() => buildLayout(filteredNodes, displayEdges, layoutScope, layoutCenterId, layoutRotation), [filteredNodes, displayEdges, layoutScope, layoutCenterId, layoutRotation]);
+  const layout = useMemo(
+    () => buildLayout(filteredNodes, displayEdges, layoutScope, layoutCenterId, layoutRotation, isUniverseOverview),
+    [filteredNodes, displayEdges, layoutScope, layoutCenterId, layoutRotation, isUniverseOverview]
+  );
   const layoutById = useMemo(() => new Map(layout.map((node) => [node.id, node])), [layout]);
   const selected = activeSelectedId ? nodeById.get(activeSelectedId) ?? null : null;
   const evidenceCenter = evidenceCenterId ? nodeById.get(evidenceCenterId) ?? null : null;
@@ -585,7 +590,6 @@ function App() {
     setRotation(initialRotation);
   };
 
-  const isUniverseOverview = graphMode === "knowledge" && graphScope === "global" && !focusedGroup;
   const canNavigateBack = graphMode === "evidence" || Boolean(focusedGroup) || graphScope === "local";
   const layerTitle = graphMode === "evidence" && evidenceCenter
     ? t("evidenceTitle", { title: evidenceCenter.title })
@@ -1972,13 +1976,16 @@ function buildLayout(
   edges: WikiEdge[],
   scope: GraphScope,
   selectedId: string | null,
-  rotation: { x: number; y: number }
+  rotation: { x: number; y: number },
+  isUniverseOverview: boolean
 ): LayoutNode[] {
   const width = viewBox.width;
   const height = viewBox.height;
   const isLocal = scope === "local";
   const degree = new Map(nodes.map((node) => [node.id, node.out.length + node.backlinks.length]));
-  if (!isLocal && nodes.every((node) => node.id.startsWith("wiki/"))) return buildWikiUniverseLayout(nodes, degree, rotation);
+  if (!isLocal && nodes.every((node) => node.id.startsWith("wiki/"))) {
+    return buildWikiUniverseLayout(nodes, degree, rotation, isUniverseOverview);
+  }
   if (!isLocal && nodes.length > 450) return buildLargeGraphLayout(nodes, degree);
   const groups = unique(nodes.map((node) => primaryUniverse(node)));
   const groupIndex = new Map(groups.map((group, index) => [group, index]));
@@ -2075,7 +2082,12 @@ function buildLayout(
   }));
 }
 
-function buildWikiUniverseLayout(nodes: WikiNode[], degree: Map<string, number>, rotation: { x: number; y: number }): LayoutNode[] {
+function buildWikiUniverseLayout(
+  nodes: WikiNode[],
+  degree: Map<string, number>,
+  rotation: { x: number; y: number },
+  isUniverseOverview: boolean
+): LayoutNode[] {
   const groupBuckets = new Map<string, WikiNode[]>();
   for (const node of nodes) {
     const group = primaryUniverse(node);
@@ -2085,7 +2097,7 @@ function buildWikiUniverseLayout(nodes: WikiNode[], degree: Map<string, number>,
   const groups = Array.from(groupBuckets.keys())
     .sort((a, b) => (groupBuckets.get(b)?.length ?? 0) - (groupBuckets.get(a)?.length ?? 0) || a.localeCompare(b));
   const sharedUniversePairs = sharedWikiUniversePairs(nodes);
-  const isOverview = groups.length > 1;
+  const isOverview = shouldUseDegreeCenteredUniverseLayout({ isUniverseOverview, groupCount: groups.length });
   const overviewRadius = overviewUniverseRadius(groups.length);
   const overviewRadii = new Map(groups.map((group) => [group, overviewRadius]));
   const centers = wikiSphereCenters(groups, overviewRadii, sharedUniversePairs);

@@ -67,8 +67,12 @@ const answerSchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["path", "caption"],
-        properties: { path: { type: "string" }, caption: { type: "string" } }
+        required: ["path", "caption", "afterBlock"],
+        properties: {
+          path: { type: "string" },
+          caption: { type: "string" },
+          afterBlock: { type: "integer", minimum: 0 }
+        }
       }
     }
   }
@@ -314,6 +318,7 @@ export function createDashboardApi({
         const body = await readJson(req);
         const requestedProvider = String(body.provider || "").trim().toLowerCase();
         const info = await requireAgent(agentRunner, requestedProvider);
+        const model = selectAgentModel(info, body.model);
         const question = String(body.question || "").trim();
         if (!question) throw httpError(400, "Question is required");
         if (question.length > 8000) throw httpError(413, "Question is too long");
@@ -323,6 +328,8 @@ export function createDashboardApi({
         const job = createJob("agent-answer", {
           provider: info.provider,
           providerLabel: info.label,
+          model,
+          modelLabel: agentModelLabel(info, model),
           conversationId,
           question: question.slice(0, 180)
         });
@@ -332,6 +339,7 @@ export function createDashboardApi({
           try {
             const result = await agentRunner.run({
               provider: info.provider,
+              model,
               vault,
               mode: "query",
               prompt: answerPrompt(vault, question, history, language),
@@ -803,8 +811,34 @@ function publicAgentProviders(info) {
       : [];
   return providers.map((item) => ({
     provider: String(item.provider || "").trim().toLowerCase(),
-    label: String(item.label || item.provider || "").trim()
+    label: String(item.label || item.provider || "").trim(),
+    defaultModel: String(item.defaultModel || "").trim(),
+    models: publicAgentModels(item.models)
   })).filter((item) => item.provider);
+}
+
+function publicAgentModels(value) {
+  const seen = new Set();
+  return (Array.isArray(value) ? value : []).flatMap((item) => {
+    const id = String(item?.id || "").trim();
+    if (!id || id.length > 200 || /[\r\n\0]/.test(id) || seen.has(id)) return [];
+    seen.add(id);
+    return [{ id, label: String(item?.label || id).trim().slice(0, 240) || id }];
+  });
+}
+
+function selectAgentModel(providerInfo, requestedValue) {
+  const requested = String(requestedValue || "").trim();
+  if (!requested) return "";
+  if (requested.length > 200 || /[\r\n\0]/.test(requested)) throw httpError(400, "Selected model is invalid");
+  const selected = publicAgentModels(providerInfo.models).find((item) => item.id === requested);
+  if (!selected) throw httpError(400, `Selected model is unavailable for ${providerInfo.label}: ${requested}`);
+  return selected.id;
+}
+
+function agentModelLabel(providerInfo, model) {
+  if (!model) return "";
+  return publicAgentModels(providerInfo.models).find((item) => item.id === model)?.label || model;
 }
 
 function isActiveJob(job) {
@@ -939,7 +973,7 @@ ${conversation}
 Current question:
 ${question}
 
-Respond in ${language === "zh" ? "Chinese" : "English"}. Return only JSON matching the supplied schema. answerMarkdown should be a clear, concise Markdown answer. sources must contain the most useful vault-relative wiki/ or raw/sources/ Markdown paths. images should contain zero to three genuinely useful existing local image paths under raw/assets/ or image files under raw/snapshots/; do not add decorative images or invent paths.`;
+Respond in ${language === "zh" ? "Chinese" : "English"}. Return only JSON matching the supplied schema. answerMarkdown should be a clear, concise Markdown answer. sources must contain the most useful vault-relative wiki/ or raw/sources/ Markdown paths. images should contain zero to three genuinely useful existing local image paths under raw/assets/ or image files under raw/snapshots/; do not add decorative images or invent paths. For each image, set afterBlock to the zero-based answerMarkdown block index after which the image best supports the surrounding explanation. Markdown blocks are separated by blank lines; place each image immediately after the claim or section it illustrates rather than collecting images at the end.`;
 }
 
 function normalizeConversation(value) {
@@ -996,6 +1030,8 @@ function normalizeMaintenanceResult(value, lint = {}, beforeWikiIds = new Set(),
 }
 
 async function normalizeAnswerResult(vault, value) {
+  const answerMarkdown = redactSecrets(String(value?.answerMarkdown || "")).trim().slice(0, 100000);
+  const lastBlock = Math.max(0, answerMarkdown.split(/\r?\n\s*\r?\n/).filter(Boolean).length - 1);
   const sources = [];
   for (const item of Array.isArray(value?.sources) ? value.sources.slice(0, 8) : []) {
     const relative = normalizeVaultRelative(String(item?.path || ""));
@@ -1010,11 +1046,17 @@ async function normalizeAnswerResult(vault, value) {
     const relative = normalizeVaultRelative(String(item?.path || ""));
     if (!relative || !/^(raw\/assets|raw\/snapshots)\//i.test(relative) || !isImagePath(relative)) continue;
     if (!await vaultFileExists(vault, relative)) continue;
-    images.push({ path: slash(relative), caption: redactSecrets(String(item?.caption || "")).slice(0, 300) });
+    const requestedBlock = Number(item?.afterBlock);
+    const afterBlock = Number.isInteger(requestedBlock) ? Math.max(0, Math.min(lastBlock, requestedBlock)) : lastBlock;
+    images.push({
+      path: slash(relative),
+      caption: redactSecrets(String(item?.caption || "")).slice(0, 300),
+      afterBlock
+    });
   }
 
   return {
-    answerMarkdown: redactSecrets(String(value?.answerMarkdown || "")).trim().slice(0, 100000),
+    answerMarkdown,
     sources,
     images
   };
