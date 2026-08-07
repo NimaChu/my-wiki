@@ -493,7 +493,8 @@ export function Viki({ language }: { language: Language }) {
       : error ? "failed"
         : agent?.available === false ? "waiting"
           : hovered ? "waving" : "idle";
-  const launcherPetOffset = pet ? petViewportOffset(pet, position, viewport, 72) : { x: 0, y: 0 };
+  const launcherPetSize = viewport.width <= 600 ? 48 : 72;
+  const launcherPetOffset = pet ? petViewportOffset(pet, position, viewport, launcherPetSize) : { x: 0, y: 0 };
 
   return (
     <aside
@@ -714,7 +715,7 @@ export function Viki({ language }: { language: Language }) {
         <VikiPet
           pet={pet}
           state={petState}
-          size={72}
+          size={launcherPetSize}
           fallbackSize={25}
           offsetX={launcherPetOffset.x}
           offsetY={launcherPetOffset.y}
@@ -1173,8 +1174,8 @@ function vikiPanelOffset(position: VikiPosition, viewport: { width: number; heig
 }
 
 function clampPanelSize(size: VikiPanelSize, viewport: { width: number; height: number }): VikiPanelSize {
-  const maxWidth = Math.max(320, viewport.width - EDGE_GAP * 2);
-  const maxHeight = Math.max(260, viewport.height - EDGE_GAP * 2);
+  const maxWidth = Math.max(1, viewport.width - EDGE_GAP * 2);
+  const maxHeight = Math.max(1, viewport.height - EDGE_GAP * 2);
   const minWidth = Math.min(MIN_PANEL_SIZE.width, maxWidth);
   const minHeight = Math.min(MIN_PANEL_SIZE.height, maxHeight);
   return {
