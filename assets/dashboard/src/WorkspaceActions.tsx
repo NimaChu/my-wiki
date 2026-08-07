@@ -146,11 +146,23 @@ export function WorkspaceActions({ language }: { language: Language }) {
   return (
     <>
       <div className="workspace-actions">
-        <button type="button" className="workspace-action primary" onClick={() => setView("add")}>
+        <button
+          type="button"
+          className="workspace-action primary"
+          aria-label={l.addKnowledge}
+          title={l.addKnowledge}
+          onClick={() => setView("add")}
+        >
           <Plus size={16} aria-hidden="true" />
           <span>{l.addKnowledge}</span>
         </button>
-        <button type="button" className="workspace-action" onClick={() => setView("universes")}>
+        <button
+          type="button"
+          className="workspace-action"
+          aria-label={l.manageUniverses}
+          title={l.manageUniverses}
+          onClick={() => setView("universes")}
+        >
           <Orbit size={16} aria-hidden="true" />
           <span>{l.manageUniverses}</span>
         </button>

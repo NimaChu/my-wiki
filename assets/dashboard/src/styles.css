@@ -2724,7 +2724,9 @@ h3 {
   }
 
   .app-shell {
-    grid-template-columns: 1fr;
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto auto;
     grid-template-areas:
       "top"
@@ -2733,8 +2735,20 @@ h3 {
     height: auto;
   }
 
+  .top-nav,
+  .graph-stage,
+  .right-panel {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
   .right-panel {
     border: 0;
+  }
+
+  .panel-resize-handle {
+    display: none;
   }
 
   .top-nav {
@@ -2747,6 +2761,110 @@ h3 {
 }
 
 @media (max-width: 760px) {
+  body {
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  .app-shell {
+    min-height: 100dvh;
+  }
+
+  .top-nav {
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .brand {
+    gap: 10px;
+  }
+
+  .brand-mark {
+    width: 38px;
+    height: 38px;
+  }
+
+  .search-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "search search"
+      "actions language";
+    gap: 8px;
+  }
+
+  .top-search {
+    grid-area: search;
+  }
+
+  .workspace-actions {
+    grid-area: actions;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  .workspace-action {
+    min-height: 36px;
+    padding: 0 10px;
+  }
+
+  .language-control {
+    grid-area: language;
+    width: 78px;
+  }
+
+  .graph-stage {
+    overflow: hidden;
+  }
+
+  .graph-svg {
+    height: min(62svh, 560px);
+    min-height: 430px;
+    touch-action: pan-y;
+  }
+
+  .right-panel {
+    padding: 18px 14px 112px;
+  }
+
+  .dialog-backdrop {
+    place-items: stretch;
+    padding: 10px;
+  }
+
+  .workspace-dialog,
+  .workspace-dialog.wide {
+    width: 100%;
+    max-height: calc(100dvh - 20px);
+  }
+
+  .workspace-dialog > header {
+    gap: 12px;
+    padding: 16px 14px 14px;
+  }
+
+  .dialog-tabs {
+    overflow-x: auto;
+    padding: 8px 14px 0;
+    scrollbar-width: thin;
+  }
+
+  .workspace-dialog .dialog-tabs button {
+    flex: 0 0 auto;
+    padding: 0 9px;
+  }
+
+  .dialog-form {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    padding: 18px 14px;
+  }
+
+  .field.full {
+    grid-column: auto;
+  }
+
   .markdown-workspace {
     grid-template-rows: 56px minmax(0, 1fr);
   }
@@ -2812,6 +2930,7 @@ h3 {
 
   .viki-status {
     width: 100%;
+    flex-wrap: wrap;
     justify-content: flex-end;
   }
 
@@ -2822,6 +2941,44 @@ h3 {
 }
 
 @media (max-width: 600px) {
+  .graph-layer-bar {
+    top: 10px;
+    right: 10px;
+    left: 10px;
+    max-width: none;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .hierarchy-button {
+    width: auto;
+    min-width: 72px;
+    padding: 0 10px;
+  }
+
+  .degree-legend {
+    grid-template-columns: auto 48px auto;
+    margin-left: auto;
+  }
+
+  .queue-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .queue-heading-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .viki-resize-handle {
+    display: none;
+  }
+
+  .viki-lightbox {
+    padding: 48px 10px 16px;
+  }
+
   .viki-panel > header {
     flex-direction: column;
     min-height: 96px;
@@ -2846,5 +3003,20 @@ h3 {
     left: auto;
     right: 0;
     width: min(270px, calc(100vw - 48px));
+  }
+}
+
+@media (max-width: 420px) {
+  .workspace-actions {
+    gap: 6px;
+  }
+
+  .workspace-action {
+    width: 40px;
+    padding: 0;
+  }
+
+  .workspace-action span {
+    display: none;
   }
 }
