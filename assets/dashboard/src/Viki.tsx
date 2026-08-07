@@ -1,4 +1,5 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Bot, BookOpen, Check, CirclePause, History, LoaderCircle, MessageSquarePlus, MoveDiagonal2, PawPrint, SendHorizontal, Trash2, X } from "lucide-react";
 import { AgentAnswer, AgentInfo, Job, localApi, PetAppearance, waitForJob } from "./api";
 
@@ -23,7 +24,8 @@ type VikiConversation = {
   messages: ChatMessage[];
 };
 type VikiChatState = { activeId: string; conversations: VikiConversation[] };
-type ActiveRequest = { jobId: string; conversationId: string; provider: string };
+type ActiveRequest = { jobId: string; conversationId: string; provider: string; model: string };
+type OpenedImage = { path: string; caption: string; url: string };
 
 const LAUNCHER_SIZE = 80;
 const EDGE_GAP = 16;
@@ -32,6 +34,7 @@ const DEFAULT_PANEL_SIZE = { width: 640, height: 480 };
 const MIN_PANEL_SIZE = { width: 480, height: 360 };
 const POSITION_KEY = "my-wiki-viki-position";
 const PROVIDER_KEY = "my-wiki-viki-provider";
+const MODEL_KEY = "my-wiki-viki-models-v1";
 const PET_KEY = "my-wiki-viki-pet";
 const PANEL_SIZE_KEY = "my-wiki-viki-panel-size";
 const CHAT_STATE_KEY = "my-wiki-viki-chat-state-v1";
@@ -55,8 +58,12 @@ const copy = {
     paused: "Answer paused. You can continue with another question.",
     resize: "Resize Viki",
     agentCli: "Agent CLI",
+    model: "Model",
+    cliDefault: "CLI default",
     currentCli: "Current answer",
     nextCli: "Next answer",
+    imageDetail: "Open image detail",
+    closeImage: "Close image detail",
     pet: "Viki pet",
     history: "Conversation history",
     newConversation: "New conversation",
@@ -80,8 +87,12 @@ const copy = {
     paused: "本轮回答已暂停，可以继续提问。",
     resize: "调整 Viki 窗口大小",
     agentCli: "Agent CLI",
+    model: "模型",
+    cliDefault: "CLI 默认",
     currentCli: "本轮",
     nextCli: "下一轮",
+    imageDetail: "打开图片详情",
+    closeImage: "关闭图片详情",
     pet: "Viki 宠物",
     history: "会话历史",
     newConversation: "新建会话",
@@ -99,12 +110,14 @@ export function Viki({ language }: { language: Language }) {
   const [petId, setPetId] = useState("");
   const [petMenuOpen, setPetMenuOpen] = useState(false);
   const [provider, setProvider] = useState("");
+  const [model, setModel] = useState("");
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const [chatState, setChatState] = useState<VikiChatState>(() => initialChatState());
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
   const [activeRequest, setActiveRequestState] = useState<ActiveRequest | null>(null);
   const [error, setError] = useState("");
+  const [openedImage, setOpenedImage] = useState<OpenedImage | null>(null);
   const [viewport, setViewport] = useState(() => currentViewport());
   const [position, setPositionState] = useState<VikiPosition>(() => initialPosition());
   const [panelSize, setPanelSizeState] = useState<VikiPanelSize>(() => initialPanelSize());
@@ -153,7 +166,9 @@ export function Viki({ language }: { language: Language }) {
   useEffect(() => {
     localApi.agent().then((nextAgent) => {
       setAgent(nextAgent);
-      setProvider(selectInitialProvider(nextAgent));
+      const nextProvider = selectInitialProvider(nextAgent);
+      setProvider(nextProvider);
+      setModel(selectInitialModel(nextAgent, nextProvider));
       setBusy(nextAgent.busy);
       const active = nextAgent.activeJob;
       const conversationId = String(active?.meta?.conversationId || "");
@@ -163,7 +178,8 @@ export function Viki({ language }: { language: Language }) {
           const resumed = {
             jobId: active.id,
             conversationId,
-            provider: String(active.meta.provider || nextAgent.provider || "")
+            provider: String(active.meta.provider || nextAgent.provider || ""),
+            model: String(active.meta.model || "")
           };
           setActiveRequest(resumed);
           void consumeAnswer(active, resumed);
@@ -190,6 +206,7 @@ export function Viki({ language }: { language: Language }) {
         activeMaintenanceJob: null
       });
       setProvider("");
+      setModel("");
     });
   }, [l.unavailable]);
 
@@ -271,14 +288,15 @@ export function Viki({ language }: { language: Language }) {
     if (!value || !provider || busy || activeRequestRef.current || agent?.busy || agent?.available !== true || !conversation) return;
     const conversationId = conversation.id;
     const requestProvider = provider;
+    const requestModel = model;
     const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content: value };
     appendConversationMessage(conversationId, userMessage, value);
     setQuestion("");
     setError("");
     setBusy(true);
     try {
-      const initialJob = await localApi.ask(value, history, language, requestProvider, conversationId);
-      const request = { jobId: initialJob.id, conversationId, provider: requestProvider };
+      const initialJob = await localApi.ask(value, history, language, requestProvider, requestModel, conversationId);
+      const request = { jobId: initialJob.id, conversationId, provider: requestProvider, model: requestModel };
       setActiveRequest(request);
       await consumeAnswer(initialJob, request);
     } catch (nextError) {
@@ -319,8 +337,15 @@ export function Viki({ language }: { language: Language }) {
 
   const changeProvider = (nextProvider: string) => {
     setProvider(nextProvider);
+    setModel(selectInitialModel(agent, nextProvider));
     setError("");
     persistProvider(nextProvider);
+  };
+
+  const changeModel = (nextModel: string) => {
+    setModel(nextModel);
+    setError("");
+    persistModel(provider, nextModel);
   };
 
   const appendConversationMessage = (conversationId: string, message: ChatMessage, firstQuestion = "") => {
@@ -455,6 +480,12 @@ export function Viki({ language }: { language: Language }) {
   const panelOffset = vikiPanelOffset(position, viewport, panelSize);
   const resizeCorner = `${panelDirections.yDirection === 1 ? "bottom" : "top"}-${panelDirections.xDirection === 1 ? "right" : "left"}`;
   const providerLabel = agent?.providers.find((item) => item.provider === provider)?.label || agent?.label || "";
+  const selectedProvider = agent?.providers.find((item) => item.provider === provider);
+  const modelLabel = agentModelLabel(agent, provider, model, l.cliDefault);
+  const currentSelection = activeRequest
+    ? agentSelectionLabel(agent, activeRequest.provider, activeRequest.model, l.cliDefault)
+    : "";
+  const nextSelection = agentSelectionLabel(agent, provider, model, l.cliDefault);
   const pet = pets.find((item) => item.id === petId) || pets[0];
   const petState: PetAnimationState = dragging
     ? dragDirection === "left" ? "running-left" : "running-right"
@@ -575,6 +606,18 @@ export function Viki({ language }: { language: Language }) {
                   {agent.providers.map((item) => <option key={item.provider} value={item.provider}>{item.label}</option>)}
                 </select>
               ) : null}
+              {selectedProvider ? (
+                <select
+                  className="viki-model-select"
+                  aria-label={l.model}
+                  title={l.model}
+                  value={model}
+                  onChange={(event) => changeModel(event.target.value)}
+                >
+                  <option value="">{selectedProvider.defaultModel ? `${l.cliDefault} · ${selectedProvider.defaultModel}` : l.cliDefault}</option>
+                  {(selectedProvider.models || []).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                </select>
+              ) : null}
               <span className={busy || agent?.busy ? "is-busy" : ""}>{busy || agent?.busy ? l.busy : l.ready}</span>
               <button type="button" aria-label={l.close} title={l.close} onClick={() => setOpen(false)}><X size={17} /></button>
             </div>
@@ -585,19 +628,14 @@ export function Viki({ language }: { language: Language }) {
               <div className="viki-welcome">
                 <span className="viki-avatar large"><VikiPet pet={pet} state={petState} size={62} fallbackSize={27} /></span>
                 <p>{agent?.available === false ? agent.message || l.unavailable : l.welcome}</p>
-                {providerLabel ? <small>{providerLabel}</small> : null}
+                {providerLabel ? <small>{providerLabel} · {modelLabel}</small> : null}
               </div>
             ) : null}
             {messages.map((message) => (
               <article key={message.id} className={`viki-message is-${message.role}`}>
-                <div className="viki-message-body"><ChatMarkdown content={message.content} /></div>
-                {message.images?.length ? (
-                  <div className="viki-images">
-                    {message.images.map((image) => (
-                      <VikiVaultImage image={image} key={image.path} />
-                    ))}
-                  </div>
-                ) : null}
+                <div className="viki-message-body">
+                  <ChatMarkdown content={message.content} images={message.images} onOpenImage={setOpenedImage} imageDetailLabel={l.imageDetail} />
+                </div>
                 {message.sources?.length ? (
                   <details className="viki-sources">
                     <summary><BookOpen size={14} />{l.sources} · {message.sources.length}</summary>
@@ -609,9 +647,9 @@ export function Viki({ language }: { language: Language }) {
             {busy ? (
               <div className="viki-thinking">
                 <LoaderCircle className="spin" size={16} />
-                <span>{l.thinking}{activeRequest?.provider ? ` · ${agentProviderLabel(agent, activeRequest.provider)}` : ""}</span>
-                {activeRequest?.provider && provider !== activeRequest.provider ? (
-                  <small>{l.nextCli}: {providerLabel}</small>
+                <span>{l.thinking}{currentSelection ? ` · ${currentSelection}` : ""}</span>
+                {activeRequest && (provider !== activeRequest.provider || model !== activeRequest.model) ? (
+                  <small>{l.nextCli}: {nextSelection}</small>
                 ) : null}
               </div>
             ) : null}
@@ -682,6 +720,9 @@ export function Viki({ language }: { language: Language }) {
           offsetY={launcherPetOffset.y}
         />
       </button>
+      {openedImage ? (
+        <ImageLightbox image={openedImage} closeLabel={l.closeImage} onClose={() => setOpenedImage(null)} />
+      ) : null}
     </aside>
   );
 }
@@ -744,7 +785,11 @@ function VikiPet({ pet, state, size, fallbackSize, offsetX = 0, offsetY = 0 }: {
   );
 }
 
-function VikiVaultImage({ image }: { image: { path: string; caption: string } }) {
+function VikiVaultImage({ image, onOpen, detailLabel }: {
+  image: AgentAnswer["images"][number];
+  onOpen: (image: OpenedImage) => void;
+  detailLabel: string;
+}) {
   const [url, setUrl] = useState("");
 
   useEffect(() => {
@@ -756,7 +801,54 @@ function VikiVaultImage({ image }: { image: { path: string; caption: string } })
   }, [image.path]);
 
   if (!url) return null;
-  return <figure><img src={url} alt={image.caption || ""} /><figcaption>{image.caption}</figcaption></figure>;
+  const open = () => onOpen({ path: image.path, caption: image.caption, url });
+  return (
+    <figure
+      className="viki-inline-image"
+      role="button"
+      tabIndex={0}
+      aria-label={`${detailLabel}: ${image.caption || image.path}`}
+      title={detailLabel}
+      onDoubleClick={open}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") open();
+      }}
+    >
+      <img src={url} alt={image.caption || ""} />
+      {image.caption ? <figcaption>{image.caption}</figcaption> : null}
+    </figure>
+  );
+}
+
+function ImageLightbox({ image, closeLabel, onClose }: { image: OpenedImage; closeLabel: string; onClose: () => void }) {
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      className="viki-lightbox"
+      role="dialog"
+      aria-modal="true"
+      aria-label={image.caption || image.path}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <button type="button" className="viki-lightbox-close" aria-label={closeLabel} title={closeLabel} onClick={onClose}>
+        <X size={22} aria-hidden="true" />
+      </button>
+      <figure>
+        <img src={image.url} alt={image.caption || ""} />
+        {image.caption ? <figcaption>{image.caption}</figcaption> : null}
+      </figure>
+    </div>,
+    document.body
+  );
 }
 
 function createConversation(): VikiConversation {
@@ -805,7 +897,10 @@ function normalizeStoredMessage(item: any): ChatMessage[] {
   const images = Array.isArray(item.images)
     ? item.images.slice(0, 3).flatMap((image: any) => {
         const path = String(image?.path || "").trim();
-        return path ? [{ path, caption: String(image?.caption || "").trim().slice(0, 500) }] : [];
+        const requestedBlock = Number(image?.afterBlock);
+        const lastBlock = lastMarkdownBlockIndex(content);
+        const afterBlock = Number.isInteger(requestedBlock) ? clamp(requestedBlock, 0, lastBlock) : lastBlock;
+        return path ? [{ path, caption: String(image?.caption || "").trim().slice(0, 500), afterBlock }] : [];
       })
     : undefined;
   return [{
@@ -833,7 +928,7 @@ function persistChatState(state: VikiChatState) {
       messages: item.messages.slice(-MAX_MESSAGES_PER_CONVERSATION).map((message) => ({
         ...message,
         content: message.content.slice(0, 12000),
-        images: message.images?.map(({ path, caption }) => ({ path, caption }))
+        images: message.images?.map(({ path, caption, afterBlock }) => ({ path, caption, afterBlock }))
       }))
     }));
     window.localStorage.setItem(CHAT_STATE_KEY, JSON.stringify({ activeId: state.activeId, conversations: compact }));
@@ -864,8 +959,15 @@ function formatConversationTime(value: string, language: Language) {
   }).format(date);
 }
 
-function agentProviderLabel(agent: AgentInfo | null, provider: string) {
-  return agent?.providers.find((item) => item.provider === provider)?.label || provider;
+function agentModelLabel(agent: AgentInfo | null, provider: string, model: string, defaultLabel: string) {
+  const providerInfo = agent?.providers.find((item) => item.provider === provider);
+  if (!model) return providerInfo?.defaultModel ? `${defaultLabel} · ${providerInfo.defaultModel}` : defaultLabel;
+  return providerInfo?.models?.find((item) => item.id === model)?.label || model;
+}
+
+function agentSelectionLabel(agent: AgentInfo | null, provider: string, model: string, defaultLabel: string) {
+  const providerLabel = agent?.providers.find((item) => item.provider === provider)?.label || provider;
+  return providerLabel ? `${providerLabel} · ${agentModelLabel(agent, provider, model, defaultLabel)}` : "";
 }
 
 function petViewportOffset(
@@ -968,6 +1070,38 @@ function persistProvider(provider: string) {
   }
 }
 
+function selectInitialModel(agent: AgentInfo | null, provider: string) {
+  const providerInfo = agent?.providers.find((item) => item.provider === provider);
+  if (!providerInfo) return "";
+  const stored = readStoredModels()[provider];
+  return stored && providerInfo.models?.some((item) => item.id === stored) ? stored : "";
+}
+
+function readStoredModels(): Record<string, string> {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(MODEL_KEY) || "{}");
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)) return {};
+    return Object.fromEntries(Object.entries(stored).flatMap(([provider, model]) => {
+      const normalizedProvider = String(provider || "").trim().toLowerCase();
+      const normalizedModel = String(model || "").trim();
+      return normalizedProvider && normalizedModel ? [[normalizedProvider, normalizedModel]] : [];
+    }));
+  } catch {
+    return {};
+  }
+}
+
+function persistModel(provider: string, model: string) {
+  try {
+    const stored = readStoredModels();
+    if (model) stored[provider] = model;
+    else delete stored[provider];
+    window.localStorage.setItem(MODEL_KEY, JSON.stringify(stored));
+  } catch {
+    // Model persistence is optional.
+  }
+}
+
 function selectInitialPet(pets: PetAppearance[]) {
   const available = new Set(pets.map((item) => item.id));
   const stored = readStoredPet();
@@ -1053,16 +1187,50 @@ function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
-function ChatMarkdown({ content }: { content: string }) {
-  const blocks = content.replace(/\r\n/g, "\n").split(/\n{2,}/).filter(Boolean);
+function markdownBlocks(content: string) {
+  return content.replace(/\r\n/g, "\n").split(/\n{2,}/).filter(Boolean);
+}
+
+function lastMarkdownBlockIndex(content: string) {
+  return Math.max(0, markdownBlocks(content).length - 1);
+}
+
+function ChatMarkdown({ content, images = [], onOpenImage, imageDetailLabel }: {
+  content: string;
+  images?: AgentAnswer["images"];
+  onOpenImage: (image: OpenedImage) => void;
+  imageDetailLabel: string;
+}) {
+  const blocks = markdownBlocks(content);
+  const imagesByBlock = new Map<number, AgentAnswer["images"]>();
+  const lastBlock = Math.max(0, blocks.length - 1);
+  for (const image of images) {
+    const blockIndex = Number.isInteger(image.afterBlock) ? clamp(image.afterBlock, 0, lastBlock) : lastBlock;
+    imagesByBlock.set(blockIndex, [...(imagesByBlock.get(blockIndex) || []), image]);
+  }
   return <>{blocks.map((block, index) => {
     const lines = block.split("\n");
+    let markdownBlock: React.ReactNode;
     if (lines.every((line) => /^\s*[-*]\s+/.test(line))) {
-      return <ul key={index}>{lines.map((line, lineIndex) => <li key={lineIndex}>{inlineMarkdown(line.replace(/^\s*[-*]\s+/, ""))}</li>)}</ul>;
+      markdownBlock = <ul>{lines.map((line, lineIndex) => <li key={lineIndex}>{inlineMarkdown(line.replace(/^\s*[-*]\s+/, ""))}</li>)}</ul>;
+    } else {
+      const heading = block.match(/^#{1,4}\s+(.+)$/);
+      markdownBlock = heading ? <h4>{inlineMarkdown(heading[1])}</h4> : <p>{inlineMarkdown(block.replace(/\n/g, " "))}</p>;
     }
-    const heading = block.match(/^#{1,4}\s+(.+)$/);
-    if (heading) return <h4 key={index}>{inlineMarkdown(heading[1])}</h4>;
-    return <p key={index}>{inlineMarkdown(block.replace(/\n/g, " "))}</p>;
+    const placedImages = imagesByBlock.get(index) || [];
+    return (
+      <div className="viki-markdown-block" key={index}>
+        {markdownBlock}
+        {placedImages.map((image, imageIndex) => (
+          <VikiVaultImage
+            image={image}
+            detailLabel={imageDetailLabel}
+            onOpen={onOpenImage}
+            key={`${image.path}-${imageIndex}`}
+          />
+        ))}
+      </div>
+    );
   })}</>;
 }
 
