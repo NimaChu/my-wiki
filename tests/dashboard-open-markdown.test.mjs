@@ -680,3 +680,64 @@ test("Viki preserves image block placement and rejects invalid answer images", a
   assert.equal(runOptions.model, "internal/default");
   assert.match(runOptions.prompt, /afterBlock/);
 });
+
+test("Viki promotes valid Markdown image tags into authenticated answer images", async (context) => {
+  const fixture = await createFixture(context);
+  const agentRunner = {
+    info: async () => ({
+      available: true,
+      provider: "opencode",
+      label: "OpenCode",
+      defaultProvider: "opencode",
+      providers: [{ provider: "opencode", label: "OpenCode", defaultModel: "", models: [] }],
+      message: ""
+    }),
+    run: async () => ({
+      answerMarkdown: [
+        "First supporting claim.",
+        "![Agent workflow](raw/assets/capture/image.png)",
+        "Second supporting claim.",
+        "![Rejected](wiki/not-an-image.png)"
+      ].join("\n\n"),
+      sources: [],
+      images: []
+    })
+  };
+  const server = http.createServer(createDashboardApi({ dashboardRoot: fixture.dashboard, port: 0, agentRunner }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+  const body = JSON.stringify({
+    question: "Show the image",
+    history: [],
+    language: "en",
+    provider: "opencode",
+    model: "",
+    conversationId: "conversation_markdown_image_01"
+  });
+  const queued = await request(port, "POST", "/api/v1/agent/ask", {
+    headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(body) },
+    body
+  });
+
+  let completed;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    completed = await request(port, "GET", `/api/v1/jobs/${queued.body.id}`, { headers: auth });
+    if (completed.body.status === "complete") break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  assert.equal(completed.body.result.answerMarkdown, [
+    "First supporting claim.",
+    "Second supporting claim.",
+    "![Rejected](wiki/not-an-image.png)"
+  ].join("\n\n"));
+  assert.deepEqual(completed.body.result.images, [{
+    path: "raw/assets/capture/image.png",
+    caption: "Agent workflow",
+    afterBlock: 0
+  }]);
+});

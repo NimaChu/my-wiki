@@ -4,7 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createLocalAgentRunner, parseProviderModels } from "../scripts/core/agent-service.mjs";
+import {
+  createLocalAgentRunner,
+  parseOpenCodeConfig,
+  parseProviderModels
+} from "../scripts/core/agent-service.mjs";
 
 test("provider model catalogs normalize OpenCode lines and visible Codex models", () => {
   assert.deepEqual(parseProviderModels("opencode", `
@@ -17,12 +21,74 @@ openai/gpt-5
     { id: "openai/gpt-5", label: "openai/gpt-5" }
   ]);
 
+  assert.deepEqual(parseProviderModels("opencode", `
+opencode-go/glm-5.2
+openai/gpt-5
+opencode-go/kimi-k3
+`, { modelProvider: "opencode-go" }), [
+    { id: "opencode-go/glm-5.2", label: "opencode-go/glm-5.2" },
+    { id: "opencode-go/kimi-k3", label: "opencode-go/kimi-k3" }
+  ]);
+
   assert.deepEqual(parseProviderModels("codex", JSON.stringify({ models: [
     { slug: "gpt-5.6-sol", display_name: "GPT-5.6 Sol", visibility: "list" },
     { slug: "internal-only", display_name: "Internal", visibility: "hide" }
   ] })), [
     { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" }
   ]);
+});
+
+test("OpenCode resolved config supplies the CLI default model and provider", () => {
+  assert.deepEqual(parseOpenCodeConfig(JSON.stringify({
+    model: "opencode-go/glm-5.2",
+    enabled_providers: ["opencode-go"]
+  })), {
+    model: "opencode-go/glm-5.2",
+    provider: "opencode-go"
+  });
+
+  assert.deepEqual(parseOpenCodeConfig(JSON.stringify({ model: "opencode-go/kimi-k3" })), {
+    model: "opencode-go/kimi-k3",
+    provider: "opencode-go"
+  });
+});
+
+test("OpenCode constrains its runtime config to the configured provider", async () => {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-opencode-provider-test-"));
+  const command = path.join(temporary, "opencode-provider-test.cjs");
+  const capturedConfig = path.join(temporary, "opencode-config.json");
+  const script = `#!/usr/bin/env node
+const fs = require("node:fs");
+if (process.argv.includes("--version")) process.exit(0);
+fs.copyFileSync(process.env.OPENCODE_CONFIG, process.env.CAPTURED_CONFIG);
+process.stdout.write(JSON.stringify({ answer: "ok" }));
+`;
+  await fs.writeFile(command, script, { mode: 0o755 });
+
+  try {
+    const runner = createLocalAgentRunner({
+      env: {
+        ...process.env,
+        MY_WIKI_AGENT_PROVIDER: "opencode",
+        MY_WIKI_AGENT_COMMAND: command,
+        MY_WIKI_OPENCODE_PROVIDER: "opencode-go",
+        MY_WIKI_OPENCODE_MODEL: "opencode-go/glm-5.2",
+        CAPTURED_CONFIG: capturedConfig
+      }
+    });
+    await runner.run({
+      provider: "opencode",
+      vault: temporary,
+      mode: "query",
+      prompt: "Answer",
+      schema: { type: "object", required: ["answer"], properties: { answer: { type: "string" } } }
+    });
+
+    const config = JSON.parse(await fs.readFile(capturedConfig, "utf8"));
+    assert.deepEqual(config.enabled_providers, ["opencode-go"]);
+  } finally {
+    await fs.rm(temporary, { recursive: true, force: true });
+  }
 });
 
 test("an explicitly selected OpenCode model is passed through without fallback", async () => {

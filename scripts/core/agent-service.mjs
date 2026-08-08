@@ -27,14 +27,14 @@ export function createLocalAgentRunner({ env = process.env } = {}) {
       const schemaFile = path.join(temporary, "response.schema.json");
       const providerConfigFile = path.join(temporary, "opencode.json");
       const requestedModel = String(model || "").trim();
-      const primaryModel = requestedModel || providerModel(selected.provider, env);
+      const primaryModel = requestedModel || selected.defaultModel || providerModel(selected.provider, env);
       const fallbackModels = selected.provider === "opencode" && !requestedModel
         ? openCodeFallbackModels(env, primaryModel)
         : [];
       await fs.writeFile(schemaFile, `${JSON.stringify(schema, null, 2)}\n`, "utf8");
       await fs.writeFile(
         providerConfigFile,
-        `${JSON.stringify(openCodeConfig(mode), null, 2)}\n`,
+        `${JSON.stringify(openCodeConfig(mode, env, selected.modelProvider), null, 2)}\n`,
         "utf8"
       );
 
@@ -112,14 +112,18 @@ function detectProviders(env) {
       : providerCandidates(provider, env);
     for (const command of candidates) {
       if (commandAvailable(command) && providerAuthenticated(provider, command, env)) {
-        const defaultModel = providerModel(provider, env);
+        const openCodeSettings = provider === "opencode" ? resolveOpenCodeSettings(command, env) : null;
+        const defaultModel = openCodeSettings?.model || providerModel(provider, env);
         discovered.push({
           provider,
           command,
           label: providerLabel(provider, command),
           defaultModel,
+          modelProvider: openCodeSettings?.provider || "",
           models: providerModels(provider, command, env, {
-            discoverCatalog: !(customCommand && command === customCommand)
+            discoverCatalog: !(customCommand && command === customCommand),
+            configuredModel: defaultModel,
+            modelProvider: openCodeSettings?.provider || ""
           })
         });
         break;
@@ -317,8 +321,12 @@ function providerModel(provider, env) {
   return "";
 }
 
-function providerModels(provider, command, env, { discoverCatalog = true } = {}) {
-  const configured = providerModel(provider, env);
+function providerModels(provider, command, env, {
+  discoverCatalog = true,
+  configuredModel = providerModel(provider, env),
+  modelProvider = provider === "opencode" ? openCodeProvider(env) : ""
+} = {}) {
+  const configured = configuredModel;
   let discovered = [];
   if (provider === "qoder") {
     discovered = [
@@ -345,7 +353,9 @@ function providerModels(provider, command, env, { discoverCatalog = true } = {})
         windowsHide: true,
         shell: false
       });
-      if (!result.error && result.status === 0) discovered = parseProviderModels(provider, result.stdout);
+      if (!result.error && result.status === 0) {
+        discovered = parseProviderModels(provider, result.stdout, { modelProvider });
+      }
     }
   }
 
@@ -355,12 +365,14 @@ function providerModels(provider, command, env, { discoverCatalog = true } = {})
   ]);
 }
 
-export function parseProviderModels(provider, output) {
+export function parseProviderModels(provider, output, { modelProvider = "" } = {}) {
   const value = stripAnsi(String(output || "")).trim();
   if (provider === "opencode") {
+    const providerPrefix = String(modelProvider || "").trim();
     return uniqueModelOptions(value.split(/\r?\n/)
       .map((line) => line.trim())
       .filter((line) => /^[^\s/]+\/[^\s]+$/.test(line))
+      .filter((id) => !providerPrefix || id.startsWith(`${providerPrefix}/`))
       .map((id) => ({ id, label: id })));
   }
   if (provider === "codex") {
@@ -393,8 +405,59 @@ function promptWithSchema(prompt, schema) {
   return `${prompt}\n\nThe required JSON Schema is:\n${JSON.stringify(schema)}\nReturn one JSON object only, with every required property and no Markdown fence.`;
 }
 
-function openCodeConfig(mode) {
+function modelProvider(model) {
+  const value = String(model || "").trim();
+  const separator = value.indexOf("/");
+  return separator > 0 ? value.slice(0, separator) : "";
+}
+
+function openCodeProvider(env, fallbackModel = "") {
+  const configured = String(env.MY_WIKI_OPENCODE_PROVIDER || "").trim();
+  if (configured) return configured;
+  return modelProvider(providerModel("opencode", env) || fallbackModel);
+}
+
+function resolveOpenCodeSettings(command, env) {
+  let model = providerModel("opencode", env);
+  let provider = openCodeProvider(env, model);
+  if (model && provider) return { model, provider };
+
+  const invocation = executableInvocation(command, ["debug", "config"]);
+  const result = spawnSync(invocation.command, invocation.args, {
+    encoding: "utf8",
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 10000,
+    maxBuffer: 2 * 1024 * 1024,
+    windowsHide: true,
+    shell: false
+  });
+  if (!result.error && result.status === 0) {
+    const resolved = parseOpenCodeConfig(result.stdout);
+    model ||= resolved.model;
+    provider ||= resolved.provider;
+  }
+  provider ||= modelProvider(model);
+  return { model, provider };
+}
+
+export function parseOpenCodeConfig(output) {
+  try {
+    const config = JSON.parse(stripAnsi(String(output || "")).trim());
+    const model = String(config?.model || "").trim();
+    const enabledProviders = Array.isArray(config?.enabled_providers) ? config.enabled_providers : [];
+    const provider = String(enabledProviders.find((item) => String(item || "").trim()) || "").trim()
+      || modelProvider(model);
+    return { model, provider };
+  } catch {
+    return { model: "", provider: "" };
+  }
+}
+
+function openCodeConfig(mode, env, configuredProvider = "") {
+  const activeProvider = String(configuredProvider || "").trim() || openCodeProvider(env);
   return {
+    ...(activeProvider ? { enabled_providers: [activeProvider] } : {}),
     permission: {
       read: "allow",
       glob: "allow",

@@ -2,6 +2,8 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom";
 import { Bot, BookOpen, Check, CirclePause, History, LoaderCircle, MessageSquarePlus, MoveDiagonal2, PawPrint, SendHorizontal, Trash2, X } from "lucide-react";
 import { AgentAnswer, AgentInfo, Job, localApi, PetAppearance, waitForJob } from "./api";
+import { shouldSubmitVikiComposer } from "./viki-composer.js";
+import { promoteVaultMarkdownImages } from "./viki-markdown.js";
 
 type Language = "en" | "zh";
 type VikiEdge = "top" | "right" | "bottom" | "left";
@@ -144,6 +146,7 @@ export function Viki({ language }: { language: Language }) {
   const requestVersionRef = useRef(0);
   const resumedJobRef = useRef("");
   const activeRequestRef = useRef<ActiveRequest | null>(null);
+  const composingRef = useRef(false);
 
   const conversation = chatState.conversations.find((item) => item.id === chatState.activeId) || chatState.conversations[0];
   const messages = conversation?.messages || [];
@@ -662,8 +665,15 @@ export function Viki({ language }: { language: Language }) {
             <textarea
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
+              onCompositionStart={() => { composingRef.current = true; }}
+              onCompositionEnd={() => { composingRef.current = false; }}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
+                if (shouldSubmitVikiComposer({
+                  key: event.key,
+                  shiftKey: event.shiftKey,
+                  isComposing: composingRef.current || event.nativeEvent.isComposing,
+                  keyCode: event.nativeEvent.keyCode
+                })) {
                   event.preventDefault();
                   void ask();
                 }
@@ -1202,10 +1212,11 @@ function ChatMarkdown({ content, images = [], onOpenImage, imageDetailLabel }: {
   onOpenImage: (image: OpenedImage) => void;
   imageDetailLabel: string;
 }) {
-  const blocks = markdownBlocks(content);
+  const promoted = promoteVaultMarkdownImages(content, images);
+  const blocks = markdownBlocks(promoted.content);
   const imagesByBlock = new Map<number, AgentAnswer["images"]>();
   const lastBlock = Math.max(0, blocks.length - 1);
-  for (const image of images) {
+  for (const image of promoted.images) {
     const blockIndex = Number.isInteger(image.afterBlock) ? clamp(image.afterBlock, 0, lastBlock) : lastBlock;
     imagesByBlock.set(blockIndex, [...(imagesByBlock.get(blockIndex) || []), image]);
   }

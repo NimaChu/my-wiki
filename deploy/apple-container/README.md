@@ -50,13 +50,18 @@ the image or deletes the named vault volume.
 The normal local Dashboard remains loopback-only. Public hosts and HTTPS origins
 are enabled solely through deployment environment variables.
 
-OpenCode uses `MY_WIKI_OPENCODE_MODEL` as its primary model. When that model
-returns a provider error or invalid structured response, Viki advances through
-the comma-separated `MY_WIKI_OPENCODE_FALLBACK_MODELS` list. The legacy
-single-value `MY_WIKI_OPENCODE_FALLBACK_MODEL` remains supported and is appended
-after the list. Explicit cancellation and timeout failures do not retry.
-Authentication failures also stop immediately because all models share the same
-OpenCode credential.
+The launcher forwards an explicit `MY_WIKI_CONTAINER_PROXY` or shell HTTPS proxy
+into the container. When neither is set, it reads the active macOS HTTPS proxy
+from `scutil` and maps a loopback proxy to the Apple Container host gateway.
+
+OpenCode uses `MY_WIKI_OPENCODE_PROVIDER` to limit both the model selector and
+runtime provider configuration. It uses `MY_WIKI_OPENCODE_MODEL` as its primary
+model, while the Viki selector lets users choose another available model for a
+request. The container template enables automatic fallback through the
+comma-separated `MY_WIKI_OPENCODE_FALLBACK_MODELS` list; the legacy single-value
+`MY_WIKI_OPENCODE_FALLBACK_MODEL` is also supported. A manually selected model
+is used only for that request and does not enter the automatic fallback chain.
+Explicit cancellation, timeout, and authentication failures do not retry.
 
 Qoder CN is optional and is installed in the container from `https://qoder.cn/install`.
 Add a dedicated `QODERCN_PERSONAL_ACCESS_TOKEN` to the same private environment

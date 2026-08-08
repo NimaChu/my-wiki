@@ -973,7 +973,7 @@ ${conversation}
 Current question:
 ${question}
 
-Respond in ${language === "zh" ? "Chinese" : "English"}. Return only JSON matching the supplied schema. answerMarkdown should be a clear, concise Markdown answer. sources must contain the most useful vault-relative wiki/ or raw/sources/ Markdown paths. images should contain zero to three genuinely useful existing local image paths under raw/assets/ or image files under raw/snapshots/; do not add decorative images or invent paths. For each image, set afterBlock to the zero-based answerMarkdown block index after which the image best supports the surrounding explanation. Markdown blocks are separated by blank lines; place each image immediately after the claim or section it illustrates rather than collecting images at the end.`;
+Respond in ${language === "zh" ? "Chinese" : "English"}. Return only JSON matching the supplied schema. answerMarkdown should be a clear, concise Markdown answer and must not contain Markdown or HTML image tags. sources must contain the most useful vault-relative wiki/ or raw/sources/ Markdown paths. images should contain zero to three genuinely useful existing local image paths under raw/assets/ or image files under raw/snapshots/; do not add decorative images or invent paths. For each image, set afterBlock to the zero-based answerMarkdown block index after which the image best supports the surrounding explanation. Markdown blocks are separated by blank lines; place each image immediately after the claim or section it illustrates rather than collecting images at the end.`;
 }
 
 function normalizeConversation(value) {
@@ -1030,7 +1030,9 @@ function normalizeMaintenanceResult(value, lint = {}, beforeWikiIds = new Set(),
 }
 
 async function normalizeAnswerResult(vault, value) {
-  const answerMarkdown = redactSecrets(String(value?.answerMarkdown || "")).trim().slice(0, 100000);
+  const rawAnswerMarkdown = redactSecrets(String(value?.answerMarkdown || "")).trim().slice(0, 100000);
+  const normalizedMarkdown = await extractAnswerMarkdownImages(vault, rawAnswerMarkdown);
+  const answerMarkdown = normalizedMarkdown.answerMarkdown;
   const lastBlock = Math.max(0, answerMarkdown.split(/\r?\n\s*\r?\n/).filter(Boolean).length - 1);
   const sources = [];
   for (const item of Array.isArray(value?.sources) ? value.sources.slice(0, 8) : []) {
@@ -1042,12 +1044,23 @@ async function normalizeAnswerResult(vault, value) {
   }
 
   const images = [];
+  const seenImages = new Set();
+  for (const image of normalizedMarkdown.images) {
+    if (images.length >= 3 || seenImages.has(image.path)) continue;
+    seenImages.add(image.path);
+    images.push(image);
+  }
   for (const item of Array.isArray(value?.images) ? value.images.slice(0, 3) : []) {
     const relative = normalizeVaultRelative(String(item?.path || ""));
     if (!relative || !/^(raw\/assets|raw\/snapshots)\//i.test(relative) || !isImagePath(relative)) continue;
     if (!await vaultFileExists(vault, relative)) continue;
+    if (images.length >= 3 || seenImages.has(slash(relative))) continue;
     const requestedBlock = Number(item?.afterBlock);
-    const afterBlock = Number.isInteger(requestedBlock) ? Math.max(0, Math.min(lastBlock, requestedBlock)) : lastBlock;
+    const originalBlock = Number.isInteger(requestedBlock)
+      ? Math.max(0, Math.min(normalizedMarkdown.blockMap.length - 1, requestedBlock))
+      : normalizedMarkdown.blockMap.length - 1;
+    const afterBlock = normalizedMarkdown.blockMap[originalBlock] ?? lastBlock;
+    seenImages.add(slash(relative));
     images.push({
       path: slash(relative),
       caption: redactSecrets(String(item?.caption || "")).slice(0, 300),
@@ -1060,6 +1073,76 @@ async function normalizeAnswerResult(vault, value) {
     sources,
     images
   };
+}
+
+async function extractAnswerMarkdownImages(vault, answerMarkdown) {
+  const originalBlocks = answerMarkdown.replace(/\r\n/g, "\n").split(/\n{2,}/).filter(Boolean);
+  const outputBlocks = [];
+  const images = [];
+  const blockMap = [];
+  const seen = new Set();
+
+  for (const block of originalBlocks) {
+    const tokens = answerImageTokens(block);
+    let cleaned = "";
+    let cursor = 0;
+    const accepted = [];
+    for (const token of tokens) {
+      if (token.index < cursor) continue;
+      const relative = normalizeAnswerImagePath(token.path);
+      const valid = relative
+        && /^(raw\/assets|raw\/snapshots)\//i.test(relative)
+        && isImagePath(relative)
+        && await vaultFileExists(vault, relative);
+      cleaned += block.slice(cursor, token.index);
+      if (!valid) cleaned += block.slice(token.index, token.index + token.length);
+      else accepted.push({ path: slash(relative), caption: redactSecrets(token.caption).slice(0, 300) });
+      cursor = token.index + token.length;
+    }
+    cleaned = `${cleaned}${block.slice(cursor)}`.trim();
+    const mappedBlock = cleaned ? outputBlocks.length : Math.max(0, outputBlocks.length - 1);
+    blockMap.push(mappedBlock);
+    if (cleaned) outputBlocks.push(cleaned);
+    for (const image of accepted) {
+      if (seen.has(image.path)) continue;
+      seen.add(image.path);
+      images.push({ ...image, afterBlock: mappedBlock });
+    }
+  }
+
+  return {
+    answerMarkdown: outputBlocks.join("\n\n"),
+    images,
+    blockMap: blockMap.length ? blockMap : [0]
+  };
+}
+
+function answerImageTokens(block) {
+  const tokens = [];
+  const markdownImage = /!\[([^\]]*)\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+["'][^"']*["'])?\s*\)/g;
+  for (const match of block.matchAll(markdownImage)) {
+    tokens.push({
+      index: match.index ?? 0,
+      length: match[0].length,
+      path: match[2] || match[3] || "",
+      caption: match[1] || ""
+    });
+  }
+  const htmlImage = /<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi;
+  for (const match of block.matchAll(htmlImage)) {
+    const alt = match[0].match(/\balt=["']([^"']*)["']/i)?.[1] || "";
+    tokens.push({ index: match.index ?? 0, length: match[0].length, path: match[1], caption: alt });
+  }
+  return tokens.sort((left, right) => left.index - right.index);
+}
+
+function normalizeAnswerImagePath(value) {
+  const raw = String(value || "").trim().split(/[?#]/, 1)[0];
+  try {
+    return normalizeVaultRelative(decodeURIComponent(raw));
+  } catch {
+    return "";
+  }
 }
 
 function stringArray(value, limit) {

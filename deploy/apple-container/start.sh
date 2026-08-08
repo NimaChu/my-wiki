@@ -15,6 +15,16 @@ build_context="${MY_WIKI_CONTAINER_BUILD_CONTEXT:-$HOME/Library/Caches/my-wiki-c
 host_proxy="${MY_WIKI_CONTAINER_PROXY:-${HTTPS_PROXY:-${https_proxy:-}}}"
 container_proxy=""
 
+if [ -z "$host_proxy" ] && command -v scutil >/dev/null 2>&1; then
+  system_proxy="$(scutil --proxy)"
+  proxy_enabled="$(printf '%s\n' "$system_proxy" | awk '$1 == "HTTPSEnable" { print $3; exit }')"
+  proxy_host="$(printf '%s\n' "$system_proxy" | awk '$1 == "HTTPSProxy" { print $3; exit }')"
+  proxy_port="$(printf '%s\n' "$system_proxy" | awk '$1 == "HTTPSPort" { print $3; exit }')"
+  if [ "$proxy_enabled" = "1" ] && [ -n "$proxy_host" ] && [ -n "$proxy_port" ]; then
+    host_proxy="http://${proxy_host}:${proxy_port}"
+  fi
+fi
+
 if [ -n "$host_proxy" ]; then
   container_proxy="$(printf '%s' "$host_proxy" | sed \
     -e 's|//127\.0\.0\.1:|//192.168.64.1:|' \
