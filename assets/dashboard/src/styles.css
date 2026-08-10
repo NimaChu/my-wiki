@@ -406,7 +406,10 @@ h3 {
   font-weight: 700;
 }
 
-.field input {
+.field input,
+.field select,
+.field-with-action input,
+.field-with-action select {
   width: 100%;
   min-height: 40px;
   border: 1px solid rgba(255, 255, 255, 0.13);
@@ -415,6 +418,34 @@ h3 {
   color: #ece8dd;
   padding: 0 11px;
   outline: none;
+}
+
+.field-with-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.field-with-action select {
+  min-width: 0;
+}
+
+.universe-create {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  padding-bottom: 18px;
+}
+
+.universe-create h3 {
+  color: #ece8dd;
+  font-size: 14px;
+}
+
+.inline-success {
+  color: #acd4a4;
+  font-size: 12px;
 }
 
 .field input:focus {

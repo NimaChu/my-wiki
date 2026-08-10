@@ -16,6 +16,7 @@ export async function ingestLocalFile({
   filename = path.basename(file),
   title = "",
   collection = "",
+  suggestedUniverse = "",
   sourcePath = "",
   dependencyRoot,
   captureMethod = "agent-file"
@@ -25,7 +26,7 @@ export async function ingestLocalFile({
     return { kind: "file", count: 0, items: [], ignored: [uploadPath], total: 0 };
   }
   if (path.extname(filename).toLowerCase() === ".zip") {
-    return ingestZipBundle({ vault, file, filename, collection, dependencyRoot, captureMethod: captureMethod.replace(/file$/, "zip") });
+    return ingestZipBundle({ vault, file, filename, collection, suggestedUniverse, dependencyRoot, captureMethod: captureMethod.replace(/file$/, "zip") });
   }
   const snapshot = await preserveUploadedSnapshot({ vault, file, filename });
   const extracted = await extractLocalDocument({
@@ -39,6 +40,7 @@ export async function ingestLocalFile({
     title: title.trim() || path.basename(filename, path.extname(filename)) || "Uploaded Source",
     sourceType: sourceTypeForLocalFile(filename),
     collection,
+    suggestedUniverse,
     snapshotReference: snapshot.relative,
     content: extracted.content,
     textExtraction: extracted.status,
@@ -64,7 +66,7 @@ export async function ingestLocalFile({
   return { kind: "file", count: 1, items: [{ ...result, extractionMessage: extracted.message || "", extractionWarnings: extracted.warnings || [] }] };
 }
 
-export async function ingestDirectory({ vault, directory, collection = "", dependencyRoot, captureMethod = "agent-directory" }) {
+export async function ingestDirectory({ vault, directory, collection = "", suggestedUniverse = "", dependencyRoot, captureMethod = "agent-directory" }) {
   const root = path.resolve(directory);
   const stat = await fs.stat(root);
   if (!stat.isDirectory()) throw new Error(`Not a directory: ${root}`);
@@ -74,7 +76,7 @@ export async function ingestDirectory({ vault, directory, collection = "", depen
   for (const file of files) {
     const sourcePath = path.relative(root, file).replace(/\\/g, "/");
     try {
-      const result = await ingestLocalFile({ vault, file, filename: path.basename(file), collection, sourcePath, dependencyRoot, captureMethod });
+      const result = await ingestLocalFile({ vault, file, filename: path.basename(file), collection, suggestedUniverse, sourcePath, dependencyRoot, captureMethod });
       items.push(...result.items);
     } catch (error) {
       failures.push({ path: sourcePath, error: cleanError(error) });
@@ -83,10 +85,10 @@ export async function ingestDirectory({ vault, directory, collection = "", depen
   return { kind: "directory", count: items.length, items, failures, total: files.length };
 }
 
-export async function ingestZipBundle({ vault, file, filename = path.basename(file), collection = "", dependencyRoot, captureMethod = "agent-zip" }) {
+export async function ingestZipBundle({ vault, file, filename = path.basename(file), collection = "", suggestedUniverse = "", dependencyRoot, captureMethod = "agent-zip" }) {
   const snapshot = await preserveUploadedSnapshot({ vault, file, filename });
   try {
-    return await ingestPreservedZipBundle({ vault, filename, collection, dependencyRoot, captureMethod, snapshot });
+    return await ingestPreservedZipBundle({ vault, filename, collection, suggestedUniverse, dependencyRoot, captureMethod, snapshot });
   } catch (error) {
     const message = cleanError(error);
     const result = await captureSource({
@@ -94,6 +96,7 @@ export async function ingestZipBundle({ vault, file, filename = path.basename(fi
       title: path.basename(filename, path.extname(filename)) || "Uploaded ZIP",
       sourceType: "file",
       collection,
+      suggestedUniverse,
       snapshotReference: snapshot.relative,
       content: failedExtraction("zip-validation", message).content,
       textExtraction: "failed",
@@ -110,7 +113,7 @@ export async function ingestZipBundle({ vault, file, filename = path.basename(fi
   }
 }
 
-async function ingestPreservedZipBundle({ vault, filename, collection, dependencyRoot, captureMethod, snapshot }) {
+async function ingestPreservedZipBundle({ vault, filename, collection, suggestedUniverse, dependencyRoot, captureMethod, snapshot }) {
   const JSZip = createRequire(path.resolve(dependencyRoot, "package.json"))("jszip");
   const zip = await JSZip.loadAsync(await fs.readFile(snapshot.file), { checkCRC32: true, createFolders: false });
   const entries = Object.values(zip.files).filter((entry) => !entry.dir && !isIgnoredArchiveEntry(entry.name));
@@ -172,6 +175,7 @@ async function ingestPreservedZipBundle({ vault, filename, collection, dependenc
       title: markdownTitle(content) || path.posix.basename(markdownEntry.name, path.posix.extname(markdownEntry.name)),
       sourceType: "note",
       collection,
+      suggestedUniverse,
       snapshotReference: snapshot.relative,
       content: extracted.content,
       textExtraction: extracted.status,

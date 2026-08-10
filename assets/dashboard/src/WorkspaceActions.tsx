@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BookOpen, Download, FileArchive, FileUp, FolderUp, Inbox, Link2, LoaderCircle, Orbit, Plus, Upload, X } from "lucide-react";
 import { InboxItem, Job, localApi, UniverseSummary, waitForJob } from "./api";
@@ -23,6 +23,13 @@ const labels = {
     optionalTitle: "Optional title",
     collection: "Collection",
     optionalCollection: "Optional provenance label",
+    galaxy: "Knowledge galaxy",
+    optionalGalaxy: "Optional; your agent can classify it during maintenance",
+    createGalaxy: "New galaxy",
+    createInitialGalaxy: "Create initial galaxy",
+    galaxyNamePlaceholder: "Broad, durable knowledge domain",
+    galaxyCreated: "Initial galaxy created",
+    emptyGalaxy: "Initial galaxy · no Wiki planets yet",
     capture: "Add to Inbox",
     chooseFile: "Choose a file",
     chooseFolder: "Choose a folder",
@@ -88,6 +95,13 @@ const labels = {
     optionalTitle: "可选标题",
     collection: "来源集合",
     optionalCollection: "可选的来源标记",
+    galaxy: "知识星系",
+    optionalGalaxy: "可选；不选择时由 Agent 在维护时判断",
+    createGalaxy: "新增星系",
+    createInitialGalaxy: "新增初始星系",
+    galaxyNamePlaceholder: "建议使用宽泛、长期稳定的知识分类",
+    galaxyCreated: "初始星系已创建",
+    emptyGalaxy: "初始星系 · 暂无 Wiki 星球",
     capture: "添加到 Inbox",
     chooseFile: "选择文件",
     chooseFolder: "选择文件夹",
@@ -179,6 +193,9 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
   const [collection, setCollection] = useState("");
+  const [suggestedUniverse, setSuggestedUniverse] = useState("");
+  const [universes, setUniverses] = useState<UniverseSummary[]>([]);
+  const [showUniverseDialog, setShowUniverseDialog] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [folderFiles, setFolderFiles] = useState<File[]>([]);
   const [zipFile, setZipFile] = useState<File | null>(null);
@@ -207,6 +224,7 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
 
   useEffect(() => {
     localApi.collections().then(({ collections: values }) => setCollections(values.map((item) => item.name))).catch(() => {});
+    localApi.universes().then(({ universes: values }) => setUniverses(values)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -231,13 +249,13 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
     try {
       let captured: Record<string, any>;
       if (tab === "link") {
-        captured = await localApi.captureUrl({ url: url.trim(), title: title.trim(), collection: collection.trim() });
+        captured = await localApi.captureUrl({ url: url.trim(), title: title.trim(), collection: collection.trim(), suggestedUniverse });
       } else if (tab === "folder") {
         const items: Job[] = [];
         const failures = [];
         for (const item of uploadableFolderFiles) {
           try {
-            items.push(await localApi.captureFile(item, { collection: collection.trim(), sourcePath: item.webkitRelativePath || item.name }));
+            items.push(await localApi.captureFile(item, { collection: collection.trim(), suggestedUniverse, sourcePath: item.webkitRelativePath || item.name }));
           } catch (nextError) {
             failures.push({ path: item.webkitRelativePath || item.name, error: errorMessage(nextError) });
           }
@@ -251,7 +269,7 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
         const selected = tab === "zip" ? zipFile! : file!;
         await localApi.captureFile(
           selected,
-          { title: title.trim(), collection: collection.trim() },
+          { title: title.trim(), collection: collection.trim(), suggestedUniverse },
           (uploaded, total) => setUploadProgress(Math.round(uploaded / total * 100))
         );
         setFile(null);
@@ -275,6 +293,7 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
     setUrl("");
     setTitle("");
     setCollection("");
+    setSuggestedUniverse("");
     setFile(null);
     setFolderFiles([]);
     setZipFile(null);
@@ -308,6 +327,7 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
               <div><dt>{l.pdfText}</dt><dd>{(representative.extractionStatus || representative.textExtraction) === "complete" ? `${Number(representative.extractedPages || 0)} ${language === "zh" ? "页" : "pages"} / ${Number(representative.extractedCharacters || 0).toLocaleString()} ${language === "zh" ? "字符" : "characters"}` : String(representative.extractionMessage || l.pdfNeedsOcr)}</dd></div>
             ) : null}
             <div><dt>{l.collection}</dt><dd>{String(representative?.collection || "-")}</dd></div>
+            <div><dt>{l.galaxy}</dt><dd>{String(representative?.suggestedUniverse || suggestedUniverse || "-")}</dd></div>
             {result.failures?.length ? <div><dt>{l.failedFiles}</dt><dd>{Number(result.failures.length)}</dd></div> : null}
           </dl>
           <div className="dialog-footer"><button type="button" onClick={reset}>{l.addAnother}</button><button className="primary-button" type="button" onClick={onClose}>{l.close}</button></div>
@@ -334,6 +354,7 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
                   </div>
                   <div><dt>{l.source}</dt><dd>{item.sourceType || "-"}</dd></div>
                   <div><dt>{l.collection}</dt><dd>{item.collection || "-"}</dd></div>
+                  <div><dt>{l.galaxy}</dt><dd>{item.suggestedUniverse || "-"}</dd></div>
                 </dl>
               </article>
             ))}
@@ -369,21 +390,26 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
             {tab !== "folder" && tab !== "zip" ? <label className="field"><span>{l.title}</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={l.optionalTitle} /></label> : null}
             <label className={tab === "folder" || tab === "zip" ? "field full" : "field"}><span>{l.collection}</span><input list="my-wiki-collections" value={collection} onChange={(event) => setCollection(event.target.value)} placeholder={l.optionalCollection} /></label>
             <datalist id="my-wiki-collections">{collections.map((item) => <option key={item} value={item} />)}</datalist>
+            <div className="field full"><span>{l.galaxy}</span><div className="field-with-action"><select aria-label={l.galaxy} value={suggestedUniverse} onChange={(event) => setSuggestedUniverse(event.target.value)}><option value="">{l.optionalGalaxy}</option>{universes.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select><button type="button" onClick={() => setShowUniverseDialog(true)}><Plus size={15} />{l.createGalaxy}</button></div></div>
           </div>
           {error ? <p className="dialog-error">{error}</p> : null}
           <div className="dialog-footer"><button type="button" onClick={onClose}>{l.close}</button><button className="primary-button" type="button" disabled={busy} onClick={submit}>{busy ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />}{busy && uploadProgress !== null ? `${l.uploading} ${uploadProgress}%` : l.capture}</button></div>
         </>
       )}
       {tab === "inbox" && error ? <p className="dialog-error">{error}</p> : null}
+      {showUniverseDialog ? <UniverseDialog language={language} onClose={() => setShowUniverseDialog(false)} onCreated={(universe) => { setUniverses((current) => [...current.filter((item) => item.name !== universe.name), universe].sort((a, b) => a.name.localeCompare(b.name))); setSuggestedUniverse(universe.name); setShowUniverseDialog(false); }} /> : null}
     </Dialog>
   );
 }
 
-function UniverseDialog({ language, onClose }: { language: Language; onClose: () => void }) {
+function UniverseDialog({ language, onClose, onCreated }: { language: Language; onClose: () => void; onCreated?: (universe: UniverseSummary) => void }) {
   const l = labels[language];
   const [universes, setUniverses] = useState<UniverseSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [newUniverse, setNewUniverse] = useState("");
+  const [creatingUniverse, setCreatingUniverse] = useState(false);
+  const [createdMessage, setCreatedMessage] = useState("");
   const [activeExport, setActiveExport] = useState("");
   const [download, setDownload] = useState<{ name: string; url: string } | null>(null);
   const [packageFile, setPackageFile] = useState<File | null>(null);
@@ -407,6 +433,25 @@ function UniverseDialog({ language, onClose }: { language: Language; onClose: ()
       setError(errorMessage(nextError));
     } finally {
       setActiveExport("");
+    }
+  };
+
+  const createInitialUniverse = async () => {
+    setError("");
+    setCreatedMessage("");
+    setCreatingUniverse(true);
+    try {
+      const created = await localApi.createUniverse(newUniverse.trim());
+      const summary: UniverseSummary = { name: created.name, wiki: created.wiki, raw: created.raw, declared: true };
+      setUniverses((current) => [...current.filter((item) => item.name !== summary.name), summary].sort((a, b) => b.wiki - a.wiki || a.name.localeCompare(b.name)));
+      setNewUniverse("");
+      setCreatedMessage(`${l.galaxyCreated}: ${created.name}`);
+      window.dispatchEvent(new Event("my-wiki:graph-updated"));
+      onCreated?.(summary);
+    } catch (nextError) {
+      setError(errorMessage(nextError));
+    } finally {
+      setCreatingUniverse(false);
     }
   };
 
@@ -443,12 +488,17 @@ function UniverseDialog({ language, onClose }: { language: Language; onClose: ()
     <Dialog title={l.universeTitle} description={l.universeDescription} onClose={onClose} wide>
       <div className="universe-manager">
         <section className="universe-list-section">
+          <div className="universe-create">
+            <h3>{l.createInitialGalaxy}</h3>
+            <div className="field-with-action"><input aria-label={l.createInitialGalaxy} value={newUniverse} onChange={(event) => setNewUniverse(event.target.value)} placeholder={l.galaxyNamePlaceholder} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) void createInitialUniverse(); }} /><button className="primary-button" type="button" disabled={creatingUniverse || !newUniverse.trim()} onClick={createInitialUniverse}>{creatingUniverse ? <LoaderCircle className="spin" size={15} /> : <Plus size={15} />}{l.createGalaxy}</button></div>
+            {createdMessage ? <p className="inline-success">{createdMessage}</p> : null}
+          </div>
           {loading ? <p className="dialog-empty">{l.loading}</p> : null}
           <div className="universe-list">
             {universes.map((universe) => (
               <article className="universe-row" key={universe.name}>
-                <div><strong>{universe.name}</strong><span>{template(l.wikiPages, universe.wiki)} · {template(l.rawSources, universe.raw)}</span></div>
-                <button type="button" disabled={Boolean(activeExport)} onClick={() => exportOne(universe.name)}>
+                <div><strong>{universe.name}</strong><span>{universe.wiki === 0 ? l.emptyGalaxy : `${template(l.wikiPages, universe.wiki)} · ${template(l.rawSources, universe.raw)}`}</span></div>
+                <button type="button" disabled={Boolean(activeExport) || universe.wiki === 0} onClick={() => exportOne(universe.name)}>
                   {activeExport === universe.name ? <LoaderCircle className="spin" size={15} /> : <Download size={15} />}
                   {activeExport === universe.name ? l.exporting : l.export}
                 </button>
@@ -499,10 +549,11 @@ function ImportSummary({ language, summary }: { language: Language; summary: any
 }
 
 function Dialog({ title, description, onClose, wide = false, children }: { title: string; description: string; onClose: () => void; wide?: boolean; children: React.ReactNode }) {
+  const titleId = useId();
   return createPortal(
     <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className={`workspace-dialog ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby="workspace-dialog-title">
-        <header><div><h2 id="workspace-dialog-title">{title}</h2><p>{description}</p></div><button type="button" className="icon-button" aria-label={labels.en.close} onClick={onClose}><X size={18} /></button></header>
+      <section className={`workspace-dialog ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <header><div><h2 id={titleId}>{title}</h2><p>{description}</p></div><button type="button" className="icon-button" aria-label={labels.en.close} onClick={onClose}><X size={18} /></button></header>
         {children}
       </section>
     </div>,

@@ -59,6 +59,7 @@ Galaxy packages use names rather than package IDs or galaxy IDs. The package sch
 - Keep mirrored images and `image-index.json` in `raw/assets/<source>/`; the source-level directory is required to prevent images from different articles mixing.
 - Keep snapshots and binary originals directly in `raw/snapshots/`; encode source identity in the filename when needed. A raw note with no `source_url`, especially a PDF or local attachment, must retain a snapshot field pointing to its original file.
 - Treat source classifications such as `collection` as optional metadata only. They must not control file paths or wiki relationships.
+- Treat `suggested_universe` as an optional user preference for maintenance. Reuse it when it fits the evidence, but do not let a misleading suggestion override accurate broad classification; an empty value leaves galaxy assignment entirely to the Agent.
 - Do not reorganize raw notes by current wiki topic. Topic understanding belongs in `wiki/` and can evolve without moving evidence.
 - Use `organize-raw` for a dry-run report before applying legacy layout cleanup with `organize-raw --apply`.
 
@@ -73,6 +74,8 @@ The local Dashboard can perform deterministic vault operations without calling a
 - Upload a folder as a batch of independent documents. Preserve each browser-relative path as provenance while keeping raw storage flat.
 - Upload a ZIP bundle containing one or more Markdown files and their relative images. Create one raw note per Markdown file, preserve literal Markdown/HTML references while resolving decoded archive paths, rewrite every occurrence into that raw note's asset directory with portable URL encoding, preserve the ZIP snapshot, reject unsafe archive paths, and enforce entry and expanded-size limits.
 - List inbox, follow-up, and stale raw notes.
+- Declare an empty initial knowledge galaxy without creating a placeholder Wiki page. Store the declaration as local vault runtime metadata until maintained Wiki pages adopt it.
+- Optionally select an existing galaxy while capturing a source, or create one from the capture dialog. Preserve the choice as `suggested_universe`; leaving it blank must not block capture.
 - Export a named knowledge galaxy and download its `.mywiki` package.
 - Upload a `.mywiki` package, review the dry-run summary, and explicitly confirm the import.
 

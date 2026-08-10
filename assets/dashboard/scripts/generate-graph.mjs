@@ -6,6 +6,7 @@ import {
   wikiTopicPeerMap,
   wikiUniverseNames
 } from "../../../scripts/core/wiki-lib.mjs";
+import { readDeclaredUniverses } from "../../../scripts/core/universe-registry.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(here, "..");
@@ -228,6 +229,7 @@ function buildResolver(nodes) {
 }
 
 async function main() {
+  const declaredUniverses = await readDeclaredUniverses(vaultRoot);
   const scannedFiles = await Promise.all(scanRoots.map((root) => walk(path.join(vaultRoot, root))));
   const files = scannedFiles.flat()
     .filter((file) => {
@@ -342,6 +344,7 @@ async function main() {
   const graph = {
     generatedAt: new Date().toISOString(),
     vaultRoot,
+    declaredUniverses,
     nodes,
     edges,
     typedRelations,

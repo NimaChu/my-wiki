@@ -9,6 +9,7 @@ export type InboxItem = {
   sourceUrl: string;
   snapshotPath: string;
   collection: string;
+  suggestedUniverse: string;
   captured: string;
   preview: string;
 };
@@ -17,6 +18,7 @@ export type UniverseSummary = {
   name: string;
   wiki: number;
   raw: number;
+  declared?: boolean;
 };
 
 export type Job = {
@@ -191,6 +193,15 @@ export const localApi = {
     return response.json() as Promise<{ universes: UniverseSummary[] }>;
   },
 
+  async createUniverse(name: string) {
+    const response = await apiFetch("/api/v1/universes", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name })
+    });
+    return response.json() as Promise<UniverseSummary & { created: boolean; graphRefreshed: boolean }>;
+  },
+
   async agent() {
     const response = await apiFetch("/api/v1/agent");
     return response.json() as Promise<AgentInfo>;
@@ -240,7 +251,7 @@ export const localApi = {
     return response.json() as Promise<{ cancelled: boolean; job: Job | null }>;
   },
 
-  async captureUrl(input: { url: string; title?: string; collection?: string }) {
+  async captureUrl(input: { url: string; title?: string; collection?: string; suggestedUniverse?: string }) {
     const response = await apiFetch("/api/v1/inbox/url", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -251,7 +262,7 @@ export const localApi = {
 
   async captureFile(
     file: File,
-    input: { title?: string; collection?: string; sourcePath?: string },
+    input: { title?: string; collection?: string; suggestedUniverse?: string; sourcePath?: string },
     onProgress?: (uploaded: number, total: number) => void
   ) {
     if (file.size >= CHUNKED_UPLOAD_THRESHOLD) {
@@ -264,6 +275,7 @@ export const localApi = {
             filename: file.name,
             title: input.title || "",
             collection: input.collection || "",
+            suggestedUniverse: input.suggestedUniverse || "",
             sourcePath: input.sourcePath || "",
             size: file.size
           })
@@ -296,6 +308,7 @@ export const localApi = {
     const params = new URLSearchParams({ filename: file.name });
     if (input.title) params.set("title", input.title);
     if (input.collection) params.set("collection", input.collection);
+    if (input.suggestedUniverse) params.set("suggestedUniverse", input.suggestedUniverse);
     if (input.sourcePath) params.set("sourcePath", input.sourcePath);
     const response = await apiFetch(`/api/v1/inbox/file?${params}`, {
       method: "POST",

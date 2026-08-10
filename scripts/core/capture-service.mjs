@@ -9,6 +9,7 @@ import {
   yamlList,
   yamlString
 } from "./wiki-lib.mjs";
+import { validateUniverseName } from "./universe-registry.mjs";
 
 const DEFAULT_FETCH_BYTES = 100 * 1024 * 1024;
 
@@ -22,6 +23,7 @@ export async function captureSource({
   sourceQuality = url ? "primary-url" : "captured",
   captureMethod = "",
   collection = "",
+  suggestedUniverse = "",
   snapshotFile = "",
   snapshotReference = "",
   content = "",
@@ -53,6 +55,9 @@ export async function captureSource({
   const capturedAt = new Date().toISOString();
   const rawDir = path.join(vault, "raw", "sources");
   const resolvedCollection = inferRawCollection({ collection, sourceUrl: url, sourceType, captureMethod });
+  const resolvedSuggestedUniverse = String(suggestedUniverse || "").trim()
+    ? validateUniverseName(suggestedUniverse)
+    : "";
   const noteSlug = slugify(title);
   await fs.mkdir(rawDir, { recursive: true });
 
@@ -115,6 +120,7 @@ title: ${yamlString(title)}
 type: raw-source
 source_type: ${yamlString(sourceType)}
 collection: ${yamlString(resolvedCollection)}
+suggested_universe: ${yamlString(resolvedSuggestedUniverse)}
 status: ${resolvedStatus}
 needs_followup: ${requiresFollowup}
 followup_reasons:${followupReasons.length ? `\n${yamlList(followupReasons)}` : " []"}
@@ -164,6 +170,7 @@ ${[...embedded.images, ...explicitImages].length ? [...embedded.images, ...expli
 ## Processing Notes
 
 - Status: ${resolvedStatus}
+- Suggested galaxy: ${resolvedSuggestedUniverse || "not specified; infer during maintenance"}
 - Follow-up reasons: ${followupReasons.length ? followupReasons.join("; ") : "none"}
 ${extractionNote}- Mirrored inline images: ${mirroredContent.copied}
 - Embedded local assets: ${embedded.copied}
@@ -179,6 +186,7 @@ ${warningsNote}${attachmentNote}- Image mirror failures: ${mirroredContent.failu
     vaultRelative: path.relative(vault, target).replace(/\\/g, "/"),
     title,
     collection: resolvedCollection,
+    suggestedUniverse: resolvedSuggestedUniverse,
     originalFilename,
     sourcePath,
     snapshot: snapshot?.path || "",

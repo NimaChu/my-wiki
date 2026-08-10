@@ -52,6 +52,7 @@ type WikiEdge = {
 type WikiGraph = {
   generatedAt: string;
   vaultRoot: string;
+  declaredUniverses?: string[];
   nodes: WikiNode[];
   edges: WikiEdge[];
   typedRelations: WikiEdge[];
@@ -428,13 +429,19 @@ function App() {
     if (!graph) return [];
     const needle = filters.query.trim().toLowerCase();
     const hasSearch = needle !== "";
-    return graph.nodes.filter((node) => {
+    const wikiNodes = graph.nodes.filter((node) => {
       if (!node.id.startsWith("wiki/")) return false;
       if (!hasSearch) return true;
       const universes = nodeUniverses(node);
       const searchable = [node.title, node.path, node.type, node.status, ...universes, ...node.tags].join(" ").toLowerCase();
       return searchable.includes(needle);
     });
+    const represented = new Set(wikiNodes.map((node) => nodeUniverses(node)[0]).filter(Boolean).map((item) => item.toLocaleLowerCase()));
+    const placeholders = (graph.declaredUniverses ?? [])
+      .filter((universe) => !represented.has(universe.toLocaleLowerCase()))
+      .filter((universe) => !hasSearch || universe.toLocaleLowerCase().includes(needle))
+      .map(declaredUniversePlaceholder);
+    return [...wikiNodes, ...placeholders];
   }, [graph, filters]);
 
   const evidenceCenterId = useMemo(() => {
@@ -1327,6 +1334,7 @@ function GraphView({
       </g>
       <g className="node-layer">
         {displayNodes.map((node) => {
+          if (node.type === "declared-universe") return null;
           const isSelected = node.id === selectedId;
           const isDim = Boolean(selectedId && highlighted.size > 0 && !highlighted.has(node.id));
           const isHovered = node.id === hoveredId;
@@ -2671,14 +2679,28 @@ function buildGroupLabels(layout: LayoutNode[], language: Language): GroupLabel[
         label: groupLabelText(group, language),
         x,
         y,
-        count: nodes.length,
+        count: nodes.filter((node) => node.type !== "declared-universe").length,
         color: colorForGroup(group),
         radius
       };
     })
-    .filter((label) => label.count > 0)
     .sort((a, b) => b.count - a.count || a.group.localeCompare(b.group))
     .slice(0, 16);
+}
+
+function declaredUniversePlaceholder(universe: string): WikiNode {
+  return {
+    id: `wiki/__declared_universe__/${stableHash(universe)}`,
+    path: "",
+    title: universe,
+    type: "declared-universe",
+    group: `Wiki / ${universe}`,
+    universes: [universe],
+    status: "declared",
+    tags: [],
+    out: [],
+    backlinks: []
+  };
 }
 
 function colorForGroup(group: string) {

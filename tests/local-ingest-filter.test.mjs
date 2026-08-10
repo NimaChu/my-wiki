@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { ingestLocalFile, isIgnoredLocalEntry } from "../scripts/core/local-ingest.mjs";
+import { captureSource } from "../scripts/core/capture-service.mjs";
 
 test("local ingest ignores operating-system and dependency metadata", () => {
   for (const value of [
@@ -43,4 +44,23 @@ test("single-file ingest rejects ignored browser folder entries before creating 
   assert.deepEqual(result.items, []);
   assert.deepEqual(result.ignored, ["uploaded-folder/.DS_Store"]);
   assert.deepEqual(await readdir(path.join(vault, "raw")).catch(() => []), []);
+});
+
+test("captured raw evidence preserves an optional maintenance galaxy suggestion", async (context) => {
+  const vault = await mkdtemp(path.join(os.tmpdir(), "my-wiki-galaxy-suggestion-"));
+  context.after(() => rm(vault, { recursive: true, force: true }));
+  await mkdir(path.join(vault, "wiki"), { recursive: true });
+
+  const result = await captureSource({
+    vault,
+    title: "Linear algebra notes",
+    content: "A vector space is closed under vector addition and scalar multiplication.",
+    suggestedUniverse: "数学",
+    shouldSnapshot: false
+  });
+
+  const note = await readFile(result.path, "utf8");
+  assert.match(note, /^suggested_universe: "数学"$/m);
+  assert.match(note, /^- Suggested galaxy: 数学$/m);
+  assert.equal(result.suggestedUniverse, "数学");
 });

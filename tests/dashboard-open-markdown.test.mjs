@@ -316,6 +316,44 @@ test("Dashboard exposes the bundled smooth QoderWork pet manifest", async (conte
   }]);
 });
 
+test("Dashboard can declare an empty knowledge galaxy without creating Wiki pages", async (context) => {
+  const fixture = await createFixture(context);
+  const server = http.createServer(createDashboardApi({
+    dashboardRoot: fixture.dashboard,
+    port: 0,
+    agentRunner: { info: async () => ({}) }
+  }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+  const body = JSON.stringify({ name: "数学" });
+
+  const created = await request(port, "POST", "/api/v1/universes", {
+    headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(body) },
+    body
+  });
+  assert.equal(created.status, 201);
+  assert.deepEqual({ name: created.body.name, wiki: created.body.wiki, raw: created.body.raw, created: created.body.created }, {
+    name: "数学",
+    wiki: 0,
+    raw: 0,
+    created: true
+  });
+
+  const universes = await request(port, "GET", "/api/v1/universes", { headers: auth });
+  assert.deepEqual(universes.body.universes.find((item) => item.name === "数学"), {
+    name: "数学",
+    wiki: 0,
+    raw: 0,
+    declared: true
+  });
+  const registry = JSON.parse(await readFile(path.join(fixture.vault, ".my-wiki", "galaxies.json"), "utf8"));
+  assert.deepEqual(registry.galaxies, ["数学"]);
+});
+
 test("File uploads enter the Inbox queue before extraction completes", async (context) => {
   const fixture = await createFixture(context);
   let finishExtraction;
@@ -368,11 +406,14 @@ test("File uploads enter the Inbox queue before extraction completes", async (co
 test("Chunked uploads assemble the original bytes before entering the Inbox queue", async (context) => {
   const fixture = await createFixture(context);
   let received = null;
+  let receivedInput = null;
   const server = http.createServer(createDashboardApi({
     dashboardRoot: fixture.dashboard,
     port: 0,
     agentRunner: { info: async () => ({}) },
-    localFileIngestor: async ({ file }) => {
+    localFileIngestor: async (input) => {
+      receivedInput = input;
+      const { file } = input;
       received = await readFile(file);
       return { kind: "zip", count: 1, items: [{ status: "inbox", path: "raw/sources/chunked.md" }] };
     }
@@ -387,6 +428,7 @@ test("Chunked uploads assemble the original bytes before entering the Inbox queu
   const metadata = JSON.stringify({
     filename: "notes.zip",
     title: "Chunked notes",
+    suggestedUniverse: "数学",
     size: uploaded.length
   });
 
@@ -439,6 +481,7 @@ test("Chunked uploads assemble the original bytes before entering the Inbox queu
   }
   assert.equal(completed.body.status, "complete");
   assert.deepEqual(received, uploaded);
+  assert.equal(receivedInput.suggestedUniverse, "数学");
 });
 
 test("Maintenance uses a total timeout without an idle timeout", async (context) => {
