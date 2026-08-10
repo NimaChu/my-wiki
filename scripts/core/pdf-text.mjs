@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { assessPdfPage, qualityWarnings, summarizePdfQuality } from "./pdf-quality.mjs";
 
 const DEFAULT_MAX_BYTES = 200 * 1024 * 1024;
 
@@ -26,21 +27,29 @@ export async function extractPdfMarkdown({ file, dependencyRoot, maxBytes = DEFA
       useSystemFonts: true
     }).promise;
     const sections = [];
+    const pageResults = [];
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
       const page = await document.getPage(pageNumber);
-      sections.push(`### Page ${pageNumber}\n\n${await renderPageText(page)}`);
+      const result = assessPdfPage({ page: pageNumber, text: await renderPageText(page), method: "pdf-text" });
+      pageResults.push(result);
+      sections.push(`### Page ${pageNumber}\n\n${result.text}`);
     }
     const text = normalizeExtractedText(sections.join("\n\n"));
     const characters = text.replace(/^### Page \d+\s*$/gm, "").trim().length;
     if (characters === 0) {
       return extractionFailure("unavailable", "No extractable text was found. The PDF may require OCR.", document.numPages);
     }
+    const quality = summarizePdfQuality(pageResults, { method: "pdf-text" });
+    const warnings = qualityWarnings(quality);
     return {
-      status: "complete",
+      status: quality.level === "poor" ? "low-quality" : "complete",
       pages: document.numPages,
       characters,
       content: `> Extracted locally from ${document.numPages} PDF pages. The preserved PDF remains the layout reference.\n\n${text}`,
-      message: ""
+      confidence: quality.score,
+      quality,
+      warnings,
+      message: warnings.join("; ")
     };
   } catch (error) {
     return extractionFailure("failed", `PDF text extraction failed: ${cleanError(error)}`);

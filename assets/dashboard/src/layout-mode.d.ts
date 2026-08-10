@@ -8,3 +8,9 @@ export function shouldUseDegreeCenteredUniverseLayout(state: {
   isUniverseOverview: boolean;
   groupCount: number;
 }): boolean;
+
+export function rankUniverseGroupsByConnectivity(
+  groups: string[],
+  connections: Array<{ source: string; target: string; weight?: number }>,
+  groupSizes?: Record<string, number>
+): string[];

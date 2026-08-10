@@ -1,8 +1,11 @@
 import { promises as fs } from "node:fs";
 import { createRequire } from "node:module";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { extractPdfWithMineru } from "./mineru-extractor.mjs";
 import { extractPdfMarkdown } from "./pdf-text.mjs";
+import { assessPdfPage, qualityWarnings, summarizePdfQuality } from "./pdf-quality.mjs";
 
 const TEXT_EXTENSIONS = new Set([".md", ".markdown", ".txt", ".csv", ".json", ".xml", ".html", ".htm", ".yaml", ".yml"]);
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"]);
@@ -10,6 +13,8 @@ const LEGACY_OFFICE_EXTENSIONS = new Set([".doc", ".ppt", ".xls"]);
 const DEFAULT_MAX_BYTES = 200 * 1024 * 1024;
 const MIN_MEANINGFUL_CHARACTERS = 24;
 const DEFAULT_MIN_OCR_CONFIDENCE = 40;
+const DEFAULT_MAX_OCR_PDF_PAGES = 1000;
+const DEFAULT_OCR_PDF_BATCH_PAGES = 24;
 
 export function sourceTypeForLocalFile(filename) {
   const extension = path.extname(filename).toLowerCase();
@@ -56,11 +61,28 @@ export async function extractLocalDocument({ file, filename = path.basename(file
 }
 
 async function extractPdfWithOcrFallback({ file, dependencyRoot, cacheRoot }) {
+  const engine = String(process.env.MY_WIKI_PDF_ENGINE || "auto").trim().toLowerCase();
   const parsed = await extractPdfMarkdown({ file, dependencyRoot });
-  if (parsed.status === "complete" && isMeaningful(parsed.content)) {
-    return success({ ...parsed, method: "pdf-text", units: parsed.pages, unitLabel: "pages" });
+  if (engine === "mineru") return normalizeMineruResult(await extractPdfWithMineru({ file, pages: parsed.pages, cacheRoot }));
+  if (parsed.status === "complete" && isMeaningful(parsed.content) && parsed.quality?.level === "good") {
+    return success({ ...parsed, engine: "pdfjs", method: "pdf-text", units: parsed.pages, unitLabel: "pages" });
+  }
+  if (engine === "auto") {
+    const mineru = await extractPdfWithMineru({ file, pages: parsed.pages, cacheRoot });
+    if (mineru.status === "complete") return success(mineru);
+    if (parsed.status === "complete" && isMeaningful(parsed.content)) {
+      const warnings = [...(parsed.warnings || []), mineru.status === "unavailable" ? "MinerU is not installed; degraded pages use the lightweight PDF text layer." : mineru.message].filter(Boolean);
+      return success({ ...parsed, engine: "pdfjs", method: "pdf-text", units: parsed.pages, unitLabel: "pages", warnings });
+    }
+  } else if (parsed.status === "complete" && isMeaningful(parsed.content)) {
+    return success({ ...parsed, engine: "pdfjs", method: "pdf-text", units: parsed.pages, unitLabel: "pages" });
   }
   return extractScannedPdfOcr({ file, dependencyRoot, cacheRoot, parserMessage: parsed.message });
+}
+
+function normalizeMineruResult(result) {
+  if (result.status === "complete") return success(result);
+  return failure(result.status || "failed", "mineru", result.message || "MinerU extraction failed.", result);
 }
 
 async function extractScannedPdfOcr({ file, dependencyRoot, cacheRoot, parserMessage = "" }) {
@@ -72,38 +94,89 @@ async function extractScannedPdfOcr({ file, dependencyRoot, cacheRoot, parserMes
   const pdfjs = await import(pathToFileURL(require.resolve("pdfjs-dist/legacy/build/pdf.mjs")).href);
   const bytes = await fs.readFile(file);
   const document = await pdfjs.getDocument({ data: new Uint8Array(bytes), disableWorker: true, isEvalSupported: false, useSystemFonts: true }).promise;
-  const maxPages = Math.max(1, Number(process.env.MY_WIKI_OCR_MAX_PDF_PAGES || 120));
-  if (document.numPages > maxPages) {
-    return failure("skipped-large", "pdf-ocr", `The PDF has ${document.numPages} pages; automatic OCR is limited to ${maxPages} pages. Increase MY_WIKI_OCR_MAX_PDF_PAGES to process it locally.`, { pages: document.numPages });
-  }
-
-  const worker = await createOcrWorker({ dependencyRoot, cacheRoot });
+  const settings = pdfOcrSettings();
+  const fingerprint = createHash("sha256")
+    .update(bytes)
+    .update(`\0${settings.languages}\0${settings.scale}\0v2`)
+    .digest("hex");
+  const pageCacheRoot = path.join(cacheRoot || path.join(dependencyRoot, ".ocr-cache"), "pdf-pages", fingerprint);
   const sections = [];
   const confidences = [];
+  const pageResults = [];
   try {
-    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-      const page = await document.getPage(pageNumber);
-      const viewport = page.getViewport({ scale: Number(process.env.MY_WIKI_OCR_PDF_SCALE || 1.8) });
-      const canvas = canvasRuntime.createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
-      const recognized = await worker.recognize(canvas.toBuffer("image/png"));
-      const text = normalizeText(recognized.data?.text || "");
-      sections.push(`### Page ${pageNumber}\n\n${text || "_No text recognized on this page._"}`);
-      if (text && Number.isFinite(Number(recognized.data?.confidence))) confidences.push(Number(recognized.data.confidence));
+    if (settings.maxPages > 0 && document.numPages > settings.maxPages) {
+      return failure("skipped-large", "pdf-ocr", `The PDF has ${document.numPages} pages; automatic OCR is limited to ${settings.maxPages} pages. Set MY_WIKI_OCR_MAX_PDF_PAGES=0 for no page limit.`, { pages: document.numPages });
+    }
+    await fs.mkdir(pageCacheRoot, { recursive: true });
+    for (let batchStart = 1; batchStart <= document.numPages; batchStart += settings.batchPages) {
+      const batchEnd = Math.min(document.numPages, batchStart + settings.batchPages - 1);
+      let worker = null;
+      try {
+        for (let pageNumber = batchStart; pageNumber <= batchEnd; pageNumber += 1) {
+          const cacheFile = path.join(pageCacheRoot, `${String(pageNumber).padStart(6, "0")}.json`);
+          const cached = await readOcrPageCache(cacheFile, pageNumber);
+          let result = cached;
+          if (!result) {
+            worker ||= await createOcrWorker({ dependencyRoot, cacheRoot });
+            const page = await document.getPage(pageNumber);
+            const viewport = page.getViewport({ scale: settings.scale });
+            const canvas = canvasRuntime.createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+            await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+            const recognized = await worker.recognize(canvas.toBuffer("image/png"));
+            const recognizedPage = assessPdfPage({
+              page: pageNumber,
+              text: normalizeText(recognized.data?.text || ""),
+              confidence: Number(recognized.data?.confidence || 0),
+              method: "pdf-ocr"
+            });
+            result = { page: pageNumber, text: recognizedPage.text, confidence: recognizedPage.confidence, quality: recognizedPage };
+            await fs.writeFile(cacheFile, `${JSON.stringify(result)}\n`, "utf8");
+          }
+          result.quality ||= assessPdfPage({ page: pageNumber, text: result.text, confidence: result.confidence, method: "pdf-ocr" });
+          sections.push(`### Page ${pageNumber}\n\n${result.text || "_No text recognized on this page._"}`);
+          if (result.text && Number.isFinite(result.confidence)) confidences.push(result.confidence);
+          pageResults.push(result.quality);
+        }
+      } finally {
+        await worker?.terminate();
+      }
     }
   } finally {
-    await worker.terminate();
     await document.destroy();
   }
 
   const content = `> Text recovered locally with OCR from ${sections.length} scanned PDF pages. The preserved PDF remains the layout reference.\n\n${sections.join("\n\n")}`;
   const characters = meaningfulCharacterCount(sections.join("\n"));
   const confidence = average(confidences);
-  if (characters < MIN_MEANINGFUL_CHARACTERS || confidence < minimumOcrConfidence()) {
-    const message = `OCR output did not meet the readable-evidence threshold (${round(confidence)} confidence).${parserMessage ? ` Initial text extraction: ${parserMessage}` : ""}`;
-    return failure("unavailable", "pdf-ocr", message, { content, pages: sections.length, characters, confidence });
+  const quality = summarizePdfQuality(pageResults, { method: "pdf-ocr" });
+  const warnings = qualityWarnings(quality);
+  if (characters < MIN_MEANINGFUL_CHARACTERS || confidence < minimumOcrConfidence() || quality.level === "poor") {
+    const message = `OCR output did not meet the readable-evidence threshold (${round(confidence)} confidence, ${quality.score} quality).${warnings.length ? ` ${warnings.join("; ")}.` : ""}${parserMessage ? ` Initial text extraction: ${parserMessage}` : ""}`;
+    return failure("low-quality", "pdf-ocr", message, { content, pages: sections.length, characters, confidence, quality, warnings, engine: "tesseract" });
   }
-  return success({ content, method: "pdf-ocr", pages: sections.length, units: sections.length, unitLabel: "pages", characters, confidence });
+  return success({ content, method: "pdf-ocr", engine: "tesseract", pages: sections.length, units: sections.length, unitLabel: "pages", characters, confidence, quality, warnings });
+}
+
+export function pdfOcrSettings(environment = process.env) {
+  const maxPagesValue = Number(environment.MY_WIKI_OCR_MAX_PDF_PAGES ?? DEFAULT_MAX_OCR_PDF_PAGES);
+  const batchPagesValue = Number(environment.MY_WIKI_OCR_PDF_BATCH_PAGES ?? DEFAULT_OCR_PDF_BATCH_PAGES);
+  const scaleValue = Number(environment.MY_WIKI_OCR_PDF_SCALE ?? 1.8);
+  return {
+    maxPages: Number.isFinite(maxPagesValue) ? Math.max(0, Math.floor(maxPagesValue)) : DEFAULT_MAX_OCR_PDF_PAGES,
+    batchPages: Number.isFinite(batchPagesValue) ? Math.max(1, Math.floor(batchPagesValue)) : DEFAULT_OCR_PDF_BATCH_PAGES,
+    scale: Number.isFinite(scaleValue) && scaleValue > 0 ? scaleValue : 1.8,
+    languages: String(environment.MY_WIKI_OCR_LANGS || "eng+chi_sim")
+  };
+}
+
+async function readOcrPageCache(file, expectedPage) {
+  try {
+    const value = JSON.parse(await fs.readFile(file, "utf8"));
+    if (Number(value.page) !== expectedPage || typeof value.text !== "string" || !Number.isFinite(Number(value.confidence))) return null;
+    return { page: expectedPage, text: value.text, confidence: Number(value.confidence), quality: value.quality || null };
+  } catch {
+    return null;
+  }
 }
 
 async function extractImageOcr({ file, dependencyRoot, cacheRoot }) {
@@ -237,22 +310,24 @@ function extractSvgText(value) {
   return success({ content: `> Accessible text extracted locally from SVG. The preserved image remains the visual reference.\n\n${text}`, method: "svg-text", characters: meaningfulCharacterCount(text), units: 1, unitLabel: "images" });
 }
 
-function success({ content, method, pages = 0, characters = 0, units = 0, unitLabel = "items", confidence = 0, assets = [], warnings = [] }) {
-  return { status: "complete", method, content, pages, characters: characters || meaningfulCharacterCount(content), units, unitLabel, confidence: round(confidence), assets, warnings, message: warnings.join("; ") };
+function success({ content, method, engine = method, pages = 0, characters = 0, units = 0, unitLabel = "items", confidence = 0, quality = null, assets = [], warnings = [] }) {
+  return { status: "complete", method, engine, content, pages, characters: characters || meaningfulCharacterCount(content), units, unitLabel, confidence: round(confidence), quality, assets, warnings, message: warnings.join("; ") };
 }
 
 function failure(status, method, message, values = {}) {
   return {
     status,
     method,
+    engine: values.engine || method,
     content: values.content || `> ${message} The original file is preserved. Keep this source in needs-followup until readable evidence is available.`,
     pages: Number(values.pages || 0),
     characters: Number(values.characters || 0),
     units: Number(values.units || values.pages || 0),
     unitLabel: values.unitLabel || "items",
     confidence: round(values.confidence || 0),
-    assets: [],
-    warnings: [],
+    quality: values.quality || null,
+    assets: values.assets || [],
+    warnings: values.warnings || [],
     message
   };
 }

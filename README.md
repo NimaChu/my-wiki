@@ -167,9 +167,20 @@ My Wiki 不是给每份文档生成一段摘要。一份资料可以更新多个
 - **面向复用而非堆积**：资料被整理成原子 Wiki 和关系，而不是只进入一个搜索黑盒。
 - **网页应用可操作**：不仅看图谱，还能添加资料、处理维护队列、问 Viki、导入和导出知识星系。
 - **支持多种本地文档**：文本 PDF、扫描 PDF、图片、DOCX、PPTX、XLSX、文件夹批次和 ZIP 图文包。
+- **质量感知的 PDF 解析**：逐页检查乱码、稀疏文本和公式版面风险；中文 OCR 会清理逐字空格，低质量页面不会静默进入维护。
 - **失败不会伪装成功**：空内容、低置信度或不完整解析会锁定为 `needs-followup`，不会被当成已读资料。
 - **开放且可迁移**：知识可以移动、备份、用任意 Markdown 编辑器打开，也可以以后接入 Obsidian 或 RAG。
 - **零成本起步**：只需要 Node.js 和一个已经可用的本地 Agent 客户端。
+
+### 可选的高保真 PDF 解析
+
+默认轻量解析无需额外安装。教材、论文、扫描件或公式密集 PDF 建议安装 [MinerU](https://github.com/opendatalab/mineru)，My Wiki 会在原生文本层质量不足时自动调用它，并保留 PDF.js/Tesseract 回退路径。安装 `uv` 后，在 macOS、Windows 或 Linux 项目目录运行：
+
+```bash
+npm run pdf:setup
+```
+
+该命令安装项目验证过的 MinerU 版本，模型文件由 MinerU 首次使用时下载。MinerU 默认使用 `hybrid-engine` 的 `medium` 档位。可通过 `MY_WIKI_PDF_ENGINE=mineru` 强制使用，通过 `MY_WIKI_PDF_ENGINE=tesseract` 禁用自动调用；`MY_WIKI_MINERU_BACKEND`、`MY_WIKI_MINERU_EFFORT` 和 `MY_WIKI_MINERU_LANGUAGE` 可覆盖后端、精度档位和文档语言。MinerU 是可选外部工具，不影响未安装它的系统使用基础功能；但公式密集或扫描教材应先运行 `npm run pdf:setup`，不要把轻量回退结果当作高保真证据。
 
 ## 与 RAG、LLM + Obsidian 的区别
 

@@ -12,6 +12,7 @@
     "test": "node --test",
     "setup": "node scripts/setup.mjs",
     "setup:all": "node scripts/setup.mjs --install-skill",
+    "pdf:setup": "node scripts/setup-pdf-engine.mjs",
     "npm:pack-check": "node npm-dist/publish-npm-skill.mjs --dry-run",
     "npm:publish": "node npm-dist/publish-npm-skill.mjs",
     "skill:install": "node my-wiki-skill/scripts/install.mjs",

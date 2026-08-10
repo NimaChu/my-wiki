@@ -33,11 +33,15 @@ fi
 
 mkdir -p "$build_context"
 rsync -a --delete \
+  --exclude '.git' \
+  --exclude '.DS_Store' \
+  --exclude '.playwright-mcp' \
   --exclude '.dashboard-server.pid' \
   --exclude '.my-wiki-runtime.json' \
   --exclude 'dist' \
   --exclude 'node_modules' \
   --exclude 'public/wiki-graph.json' \
+  --exclude 'tmp' \
   "$project_root/" "$build_context/"
 
 if [ -n "$container_proxy" ]; then

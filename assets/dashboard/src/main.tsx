@@ -20,7 +20,11 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AgentInfo, localApi, MaintenanceResult, MarkdownDocument, waitForJob } from "./api";
-import { isUniverseOverviewMode, shouldUseDegreeCenteredUniverseLayout } from "./layout-mode.js";
+import {
+  isUniverseOverviewMode,
+  rankUniverseGroupsByConnectivity,
+  shouldUseDegreeCenteredUniverseLayout
+} from "./layout-mode.js";
 import { Viki } from "./Viki";
 import { WorkspaceActions } from "./WorkspaceActions";
 import "./styles.css";
@@ -1971,6 +1975,11 @@ type SimNode = LayoutNode & {
   vy: number;
 };
 
+type UniverseConnection = {
+  weight: number;
+  sharedMembership: boolean;
+};
+
 function buildLayout(
   nodes: WikiNode[],
   edges: WikiEdge[],
@@ -1984,7 +1993,7 @@ function buildLayout(
   const isLocal = scope === "local";
   const degree = new Map(nodes.map((node) => [node.id, node.out.length + node.backlinks.length]));
   if (!isLocal && nodes.every((node) => node.id.startsWith("wiki/"))) {
-    return buildWikiUniverseLayout(nodes, degree, rotation, isUniverseOverview);
+    return buildWikiUniverseLayout(nodes, edges, degree, rotation, isUniverseOverview);
   }
   if (!isLocal && nodes.length > 450) return buildLargeGraphLayout(nodes, degree);
   const groups = unique(nodes.map((node) => primaryUniverse(node)));
@@ -2084,6 +2093,7 @@ function buildLayout(
 
 function buildWikiUniverseLayout(
   nodes: WikiNode[],
+  edges: WikiEdge[],
   degree: Map<string, number>,
   rotation: { x: number; y: number },
   isUniverseOverview: boolean
@@ -2094,13 +2104,17 @@ function buildWikiUniverseLayout(
     groupBuckets.set(group, [...(groupBuckets.get(group) ?? []), node]);
   }
 
-  const groups = Array.from(groupBuckets.keys())
-    .sort((a, b) => (groupBuckets.get(b)?.length ?? 0) - (groupBuckets.get(a)?.length ?? 0) || a.localeCompare(b));
-  const sharedUniversePairs = sharedWikiUniversePairs(nodes);
+  const groupSizes = Object.fromEntries(Array.from(groupBuckets, ([group, bucket]) => [group, bucket.length]));
+  const universeConnections = buildWikiUniverseConnections(nodes, edges);
+  const connectionList = Array.from(universeConnections, ([key, connection]) => {
+    const [source, target] = key.split("\u0000");
+    return { source, target, weight: connection.weight };
+  });
+  const groups = rankUniverseGroupsByConnectivity(Array.from(groupBuckets.keys()), connectionList, groupSizes);
   const isOverview = shouldUseDegreeCenteredUniverseLayout({ isUniverseOverview, groupCount: groups.length });
   const overviewRadius = overviewUniverseRadius(groups.length);
   const overviewRadii = new Map(groups.map((group) => [group, overviewRadius]));
-  const centers = wikiSphereCenters(groups, overviewRadii, sharedUniversePairs);
+  const centers = wikiSphereCenters(groups, overviewRadii, universeConnections);
 
   if (isOverview) {
     return groups.flatMap((group) => {
@@ -2206,7 +2220,11 @@ function rotateSpherePoint(point: { x: number; y: number; z: number }, rotation:
   };
 }
 
-function wikiSphereCenters(groups: string[], universeRadii: Map<string, number>, sharedUniversePairs: Set<string>) {
+function wikiSphereCenters(
+  groups: string[],
+  universeRadii: Map<string, number>,
+  universeConnections: Map<string, UniverseConnection>
+) {
   const centers = new Map<string, { x: number; y: number }>();
   if (groups.length === 0) return centers;
   if (groups.length === 1) {
@@ -2215,40 +2233,52 @@ function wikiSphereCenters(groups: string[], universeRadii: Map<string, number>,
   }
 
   const maxRadius = Math.max(...groups.map((group) => universeRadii.get(group) ?? overviewUniverseRadius(groups.length)));
-  const gap = Math.max(48, maxRadius * 0.3);
-  const cols = groups.length === 4 ? 2 : Math.min(groups.length, Math.max(2, Math.ceil(Math.sqrt(groups.length * 1.45))));
-  const rows = Math.ceil(groups.length / cols);
-  const stepX = maxRadius * 2 + gap;
-  const stepY = maxRadius * 2 + gap;
-  const startX = viewBox.width / 2 - ((cols - 1) * stepX) / 2;
-  const startY = viewBox.height / 2 - ((rows - 1) * stepY) / 2;
+  const shellRadius = overviewUniverseShellRadius(maxRadius);
+  const minimumStep = shellRadius * 2 + 18;
+  const peripheralCount = groups.length - 1;
+  const clusterRadius = peripheralCount <= 2
+    ? minimumStep
+    : Math.max(minimumStep, minimumStep / (2 * Math.sin(Math.PI / peripheralCount)));
+  const center = { x: viewBox.width / 2, y: viewBox.height / 2 };
   groups.forEach((group, index) => {
-    const row = Math.floor(index / cols);
-    const col = index % cols;
-    const rowCount = Math.min(cols, groups.length - row * cols);
-    const rowOffset = ((cols - rowCount) * stepX) / 2;
+    if (index === 0) {
+      centers.set(group, center);
+      return;
+    }
+    const angle = peripheralCount === 1
+      ? 0
+      : peripheralCount === 2
+        ? (index === 1 ? -0.28 : Math.PI + 0.42)
+        : -Math.PI / 2 + ((index - 1) / peripheralCount) * Math.PI * 2;
     centers.set(group, {
-      x: startX + col * stepX + rowOffset,
-      y: startY + row * stepY
+      x: center.x + Math.cos(angle) * clusterRadius,
+      y: center.y + Math.sin(angle) * clusterRadius
     });
   });
-  return settleUniverseCenters(groups, centers, universeRadii, sharedUniversePairs);
+  return settleUniverseCenters(groups, centers, universeRadii, universeConnections);
 }
 
-function settleUniverseCenters(groups: string[], initialCenters: Map<string, { x: number; y: number }>, universeRadii: Map<string, number>, sharedUniversePairs: Set<string>) {
+function settleUniverseCenters(
+  groups: string[],
+  initialCenters: Map<string, { x: number; y: number }>,
+  universeRadii: Map<string, number>,
+  universeConnections: Map<string, UniverseConnection>
+) {
   const centers = new Map(groups.map((group) => {
     const center = initialCenters.get(group) ?? { x: viewBox.width / 2, y: viewBox.height / 2 };
     return [group, { ...center, vx: 0, vy: 0 }];
   }));
   const attractionCenter = { x: viewBox.width / 2, y: viewBox.height / 2 };
+  const centralGroup = groups[0];
 
-  for (let tick = 0; tick < 180; tick += 1) {
-    const alpha = 1 - tick / 180;
+  for (let tick = 0; tick < 260; tick += 1) {
+    const alpha = 1 - tick / 260;
     for (const group of groups) {
       const center = centers.get(group);
       if (!center) continue;
-      center.vx += (attractionCenter.x - center.x) * 0.0026 * alpha;
-      center.vy += (attractionCenter.y - center.y) * 0.0026 * alpha;
+      const centerPull = group === centralGroup ? 0.075 : 0.0012;
+      center.vx += (attractionCenter.x - center.x) * centerPull * alpha;
+      center.vy += (attractionCenter.y - center.y) * centerPull * alpha;
     }
 
     for (let i = 0; i < groups.length; i += 1) {
@@ -2259,10 +2289,11 @@ function settleUniverseCenters(groups: string[], initialCenters: Map<string, { x
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const distance = Math.max(Math.hypot(dx, dy), 0.001);
-        const shared = sharedUniversePairs.has(universePairKey(groups[i], groups[j]));
+        const connection = universeConnections.get(universePairKey(groups[i], groups[j]));
+        const shared = Boolean(connection?.sharedMembership);
         const aRadius = universeRadii.get(groups[i]) ?? overviewUniverseRadius(groups.length);
         const bRadius = universeRadii.get(groups[j]) ?? overviewUniverseRadius(groups.length);
-        const noOverlapDistance = aRadius + bRadius + Math.max(34, Math.min(aRadius, bRadius) * 0.2);
+        const noOverlapDistance = overviewUniverseShellRadius(aRadius) + overviewUniverseShellRadius(bRadius) + 18;
         const sharedOverlapDistance = (aRadius + bRadius) * 0.68;
         const targetDistance = shared ? sharedOverlapDistance : noOverlapDistance;
 
@@ -2274,8 +2305,9 @@ function settleUniverseCenters(groups: string[], initialCenters: Map<string, { x
           a.vy -= py;
           b.vx += px;
           b.vy += py;
-        } else {
-          const pull = (distance - targetDistance) * (shared ? 0.0018 : 0.00055) * alpha;
+        } else if (connection) {
+          const connectionScale = 1 + Math.log1p(connection.weight) * 0.24;
+          const pull = (distance - targetDistance) * (shared ? 0.0022 : 0.00115) * connectionScale * alpha;
           const px = (dx / distance) * pull;
           const py = (dy / distance) * pull;
           a.vx += px;
@@ -2300,18 +2332,40 @@ function settleUniverseCenters(groups: string[], initialCenters: Map<string, { x
   }));
 }
 
-function sharedWikiUniversePairs(nodes: WikiNode[]) {
-  const pairs = new Set<string>();
+function buildWikiUniverseConnections(nodes: WikiNode[], edges: WikiEdge[]) {
+  const connections = new Map<string, UniverseConnection>();
+  const addConnection = (a: string, b: string, weight: number, sharedMembership = false) => {
+    if (!a || !b || a === b) return;
+    const key = universePairKey(a, b);
+    const current = connections.get(key) ?? { weight: 0, sharedMembership: false };
+    connections.set(key, {
+      weight: current.weight + weight,
+      sharedMembership: current.sharedMembership || sharedMembership
+    });
+  };
+
   for (const node of nodes) {
     if (!node.id.startsWith("wiki/")) continue;
     const universes = nodeUniverses(node);
     for (let i = 0; i < universes.length; i += 1) {
       for (let j = i + 1; j < universes.length; j += 1) {
-        pairs.add(universePairKey(universes[i], universes[j]));
+        addConnection(universes[i], universes[j], 2, true);
       }
     }
   }
-  return pairs;
+
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  for (const edge of edges) {
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (!source?.id.startsWith("wiki/") || !target?.id.startsWith("wiki/")) continue;
+    for (const sourceUniverse of nodeUniverses(source)) {
+      for (const targetUniverse of nodeUniverses(target)) {
+        addConnection(sourceUniverse, targetUniverse, 1);
+      }
+    }
+  }
+  return connections;
 }
 
 function universePairKey(a: string, b: string) {
@@ -2319,11 +2373,13 @@ function universePairKey(a: string, b: string) {
 }
 
 function overviewUniverseRadius(groupCount: number) {
-  if (groupCount <= 2) return 232;
-  if (groupCount <= 4) return 174;
-  if (groupCount <= 6) return 148;
-  if (groupCount <= 9) return 126;
-  return clamp(126 - (groupCount - 9) * 4, 88, 126);
+  if (groupCount <= 1) return 232;
+  if (groupCount === 2) return 170;
+  if (groupCount === 3) return 132;
+  if (groupCount === 4) return 96;
+  if (groupCount <= 6) return 82;
+  if (groupCount <= 9) return 68;
+  return clamp(68 - (groupCount - 9) * 2, 52, 68);
 }
 
 function overviewUniverseShellRadius(universeRadius: number) {

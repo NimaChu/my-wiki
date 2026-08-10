@@ -52,6 +52,11 @@ test("project instructions stay a concise router to the canonical Skill", async 
   assert.match(workflows, /Chinese and English, abbreviations, aliases, or translations/);
   assert.match(workflows, /Never substitute model memory for an existing vault page/);
   assert.match(workflows, /Loop 工程是什么/);
+  assert.match(workflows, /broad, durable galaxy names/);
+  assert.match(workflows, /Apply one entity-extraction principle to every Raw/);
+  assert.match(workflows, /webpage, article, note, slide deck, transcript, book/);
+  const packageMetadata = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
+  assert.equal(packageMetadata.scripts["pdf:setup"], "node scripts/setup-pdf-engine.mjs");
 });
 
 test("project setup registers the checkout without creating a vault", async (context) => {

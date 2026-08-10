@@ -34,6 +34,7 @@ const commands = {
   status: ["vault-status.mjs"],
   lint: ["wiki-lint.mjs"],
   capture: ["quick-capture.mjs", ...rest],
+  reextract: ["reextract-source.mjs", ...rest],
   "organize-raw": ["raw-layout.mjs", ...rest],
   images: ["image-assets.mjs", ...rest],
   refresh: ["refresh-dashboard.mjs", ...rest],
@@ -70,6 +71,8 @@ Usage:
   my-wiki capture --title "Title" --url "https://..." --type webpage
   my-wiki capture --file /path/to/document.pdf [--collection "Research"]
   my-wiki capture --directory /path/to/documents [--collection "Research"]
+  my-wiki reextract --source raw/sources/source-note.md
+  my-wiki reextract --all-followup
   my-wiki organize-raw [--apply]
   my-wiki images --source raw/sources/source-note.md
   my-wiki capture --title "Title" --url "https://..." --refresh-dashboard
@@ -87,6 +90,12 @@ Usage:
 Environment:
   MY_WIKI_VAULT=personal-or-/path/to/vault
   MY_WIKI_CONFIG_PATH=/path/to/config.json
+  MY_WIKI_OCR_MAX_PDF_PAGES=1000 (0 disables the page limit)
+  MY_WIKI_OCR_PDF_BATCH_PAGES=24
+  MY_WIKI_PDF_ENGINE=auto|mineru|tesseract
+  MY_WIKI_MINERU_BACKEND=hybrid-engine|pipeline
+  MY_WIKI_MINERU_EFFORT=medium|high
+  MY_WIKI_MINERU_LANGUAGE=ch
   KNOWLEDGE_VAULT_PATH=/path/to/vault
   KARPATHY_OBSIDIAN_VAULT=/path/to/vault
   OBSIDIAN_VAULT_PATH=/path/to/vault

@@ -49,6 +49,8 @@ node <skill-directory>/scripts/my-wiki.mjs --vault personal search "query"
 node <skill-directory>/scripts/my-wiki.mjs --vault personal capture --title "Title" --url "https://example.com"
 node <skill-directory>/scripts/my-wiki.mjs --vault personal capture --file /path/to/document.pdf
 node <skill-directory>/scripts/my-wiki.mjs --vault personal capture --directory /path/to/documents
+node <skill-directory>/scripts/my-wiki.mjs --vault personal reextract --source raw/sources/source-note.md
+node <skill-directory>/scripts/my-wiki.mjs --vault personal reextract --all-followup
 node <skill-directory>/scripts/my-wiki.mjs --vault personal images --source raw/sources/source.md
 node <skill-directory>/scripts/my-wiki.mjs --vault personal organize-raw
 node <skill-directory>/scripts/my-wiki.mjs --vault personal lint
@@ -72,7 +74,7 @@ Read [dashboard-agent.md](references/dashboard-agent.md) when changing Dashboard
 
 ## Knowledge Galaxies
 
-The Dashboard presents the whole vault graph as one knowledge universe, each human-named group as a knowledge galaxy, and each Wiki page as a Wiki planet. Keep galaxy names in each wiki page's existing `universes` list. The first name is primary; additional names let one Wiki planet connect multiple galaxies. Do not create package IDs or galaxy IDs.
+The Dashboard presents the whole vault graph as one knowledge universe, each human-named group as a knowledge galaxy, and each Wiki page as a Wiki planet. Keep galaxy names in each wiki page's existing `universes` list. Prefer broad, durable domains such as `数学`, `AI`, or `FlexSim` over temporary collections, individual courses, projects, book series, or narrow subtopics. Reuse or merge into an existing broad galaxy whenever its meaning fits; create a new galaxy only for a durable top-level boundary. The first name is primary; additional names let one Wiki planet connect multiple galaxies. Do not create package IDs or galaxy IDs.
 
 For backward compatibility, storage, CLI, and package schemas retain the `universes`, `export-universe`, and `import-universe` names. `export-universe` creates one `.mywiki` file containing that galaxy's Wiki pages, linked raw Markdown, available source URLs, related assets, and every snapshot or binary original referenced by those raw notes. `import-universe` previews by default; inspect writes, deduplication, renames, and conflicts, then rerun with `--apply`. Use `--as` only when the recipient wants a different galaxy name. Never start the Dashboard only for sharing.
 
@@ -91,7 +93,8 @@ For backward compatibility, storage, CLI, and package schemas retain the `univer
 - Keep source notes flat in `raw/sources/`. They preserve readable captured evidence, provenance, and links to durable wiki pages.
 - Keep one source-level directory in `raw/assets/` for images and `image-index.json`; never mix images from different sources.
 - Keep snapshots flat in `raw/snapshots/`. Store webpage captures, PDFs, attachments, and other original files here. `source_url` may be empty for local material, but a local or binary source must retain `snapshot_path` or another snapshot field.
-- Keep `wiki/` pages atomic, synthesized, linked, and evidence-backed. Assign one or more human-readable `universes`; do not organize raw storage by evolving wiki topics.
+- Keep `wiki/` pages atomic, synthesized, linked, and evidence-backed. Assign one or more broad, durable human-readable `universes`; do not turn source collections or narrow topics into galaxies, and do not organize raw storage by evolving wiki topics.
+- Apply the same entity-extraction principle to every source format, including webpages, articles, notes, slide decks, transcripts, and books. Distill concepts, people, organizations, products, methods, processes, APIs, models, theorems, comparisons, and other durable claims when they remain useful for independent retrieval, linking, or reuse outside the source. Prefer updating an existing page over creating a duplicate; combine fragments that are too narrow to stand alone and split unrelated knowledge units. A source-summary or collection page may be kept as an index, but it does not replace the durable atomic knowledge represented by the source or by a coherent maintenance batch.
 - Treat `collection` and source classification as optional provenance metadata only. They never control paths, universes, or wiki relationships.
 - Keep `.my-wiki/` for local runtime state, exports, import receipts, backups, and conflicts. Do not treat it as knowledge content.
 - Run `organize-raw` before `organize-raw --apply`; keep source, snapshot, asset, Wiki, and image-index links synchronized.
@@ -103,7 +106,7 @@ Read [ima-local-import.md](references/ima-local-import.md) only when the user ex
 - Keep raw captures factual and preserve source metadata.
 - Keep wiki pages atomic, synthesized, linked, and evidence-backed.
 - Treat `processed` as an evidence-closure state, not a progress label.
-- Require `extraction_status: complete` and substantive `## Capture` content before maintaining any local PDF, image, Office document, or other binary source. Keep every other extraction state locked as `needs-followup`.
+- Require `extraction_status: complete` and substantive `## Capture` content before maintaining any local PDF, image, Office document, or other binary source. Keep every other extraction state locked as `needs-followup`. PDF extraction records page-quality and formula-layout risk summaries; low-quality output must not be treated as readable evidence. Large scanned PDFs use resumable page checkpoints and bounded OCR worker batches; use `reextract` to retry an existing Raw in place instead of capturing a duplicate. MinerU is an optional high-fidelity PDF backend, never a base installation requirement.
 - Verify local Markdown and HTML image references after capture and again before maintenance. Never ask an Agent to distill a raw note with missing attachments.
 - Keep vault data local. Do not commit or push it unless the user explicitly requests that exact action.
 - Do not start the Dashboard during ordinary ingest or maintenance. Open it only for graph/frontend requests.

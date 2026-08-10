@@ -49,6 +49,8 @@ export async function ingestLocalFile({
     extractedUnits: extracted.units,
     extractedUnitLabel: extracted.unitLabel,
     extractionConfidence: extracted.confidence,
+    extractionEngine: extracted.engine,
+    extractionQuality: extracted.quality,
     extractionWarnings: extracted.warnings,
     originalFilename: filename,
     sourcePath,

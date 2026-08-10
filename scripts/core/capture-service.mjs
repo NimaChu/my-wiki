@@ -33,6 +33,8 @@ export async function captureSource({
   extractedUnits = 0,
   extractedUnitLabel = "items",
   extractionConfidence = 0,
+  extractionEngine = "",
+  extractionQuality = null,
   extractionWarnings = [],
   originalFilename = "",
   sourcePath = "",
@@ -100,7 +102,7 @@ export async function captureSource({
   if (mirroredContent.copied > 0 || explicitImages.length > 0 || embedded.copied > 0) tags.push("images");
   if (requiresFollowup) tags.push("needs-followup");
   const extractionFrontmatter = extractionStatus
-    ? `extraction_status: ${yamlString(extractionStatus)}\nextraction_method: ${yamlString(extractionMethod)}\ntext_extraction: ${yamlString(textExtraction || extractionStatus)}\nextracted_pages: ${Number(extractedPages) || 0}\nextracted_characters: ${Number(extractedCharacters) || 0}\nextracted_units: ${Number(extractedUnits) || 0}\nextracted_unit_label: ${yamlString(extractedUnitLabel)}\nextraction_confidence: ${Number(extractionConfidence) || 0}\n`
+    ? `extraction_status: ${yamlString(extractionStatus)}\nextraction_method: ${yamlString(extractionMethod)}\nextraction_engine: ${yamlString(extractionEngine || extractionMethod)}\ntext_extraction: ${yamlString(textExtraction || extractionStatus)}\nextracted_pages: ${Number(extractedPages) || 0}\nextracted_characters: ${Number(extractedCharacters) || 0}\nextracted_units: ${Number(extractedUnits) || 0}\nextracted_unit_label: ${yamlString(extractedUnitLabel)}\nextraction_confidence: ${Number(extractionConfidence) || 0}\nextraction_quality: ${yamlString(extractionQuality?.level || "unknown")}\nextraction_quality_score: ${Number(extractionQuality?.score || 0)}\nextraction_low_quality_pages: ${yamlString(compactPageList(extractionQuality?.lowQualityPages))}\nextraction_degraded_pages: ${yamlString(compactPageList(extractionQuality?.degradedPages))}\nextraction_formula_risk_pages: ${yamlString(compactPageList(extractionQuality?.formulaRiskPages))}\nextraction_repetitive_hallucination_pages: ${yamlString(compactPageList(extractionQuality?.repetitiveHallucinationPages))}\n`
     : "";
   const extractionNote = extractionStatus
     ? `- Content extraction: ${extractionStatus} via ${extractionMethod || "local-parser"} (${Number(extractedCharacters) || 0} characters)\n`
@@ -196,6 +198,10 @@ ${warningsNote}${attachmentNote}- Image mirror failures: ${mirroredContent.failu
     followupReasons,
     status: resolvedStatus
   };
+}
+
+function compactPageList(pages) {
+  return Array.isArray(pages) ? pages.slice(0, 100).join(",") : "";
 }
 
 async function saveSnapshot({ vault, rawBase, url, snapshotFile, snapshotReference, shouldSnapshot, fetchMaxBytes, validateUrl }) {
