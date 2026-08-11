@@ -180,7 +180,7 @@ My Wiki 不是给每份文档生成一段摘要。一份资料可以更新多个
 npm run pdf:setup
 ```
 
-该命令安装项目验证过的 MinerU 版本，模型文件由 MinerU 首次使用时下载。MinerU 默认使用 `hybrid-engine` 的 `medium` 档位。可通过 `MY_WIKI_PDF_ENGINE=mineru` 强制使用，通过 `MY_WIKI_PDF_ENGINE=tesseract` 禁用自动调用；`MY_WIKI_MINERU_BACKEND`、`MY_WIKI_MINERU_EFFORT` 和 `MY_WIKI_MINERU_LANGUAGE` 可覆盖后端、精度档位和文档语言。MinerU 是可选外部工具，不影响未安装它的系统使用基础功能；但公式密集或扫描教材应先运行 `npm run pdf:setup`，不要把轻量回退结果当作高保真证据。
+该命令安装项目验证过的 MinerU 版本，模型文件由 MinerU 首次使用时下载。MinerU 默认使用 `hybrid-engine` 的 `medium` 档位。可通过 `MY_WIKI_PDF_ENGINE=mineru` 强制使用，通过 `MY_WIKI_PDF_ENGINE=tesseract` 禁用自动调用；`MY_WIKI_MINERU_BACKEND`、`MY_WIKI_MINERU_EFFORT` 和 `MY_WIKI_MINERU_LANGUAGE` 可覆盖后端、精度档位和文档语言。MinerU 前会以低分辨率分析扫描页的墨迹覆盖、对比度和相邻页镜像相关性，识别空白污点与背面透印，并结合 OCR 文本密度和模板重复抑制页面级幻觉；可用 `MY_WIKI_PDF_VISUAL_GATE=0` 禁用该门禁，或在一次捕获/重提取前通过 `MY_WIKI_PDF_BLANK_PAGES=9,177` 显式指定已确认的空白页。MinerU 是可选外部工具，不影响未安装它的系统使用基础功能；但公式密集或扫描教材应先运行 `npm run pdf:setup`，不要把轻量回退结果当作高保真证据。
 
 ## 与 RAG、LLM + Obsidian 的区别
 

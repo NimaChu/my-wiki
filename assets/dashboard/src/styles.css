@@ -1704,6 +1704,24 @@ h3 {
   object-fit: contain;
 }
 
+.document-markdown .katex-display {
+  max-width: 100%;
+  margin: 1.25em 0;
+  padding: 2px 0 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.document-markdown .katex-display > .katex {
+  min-width: max-content;
+  text-align: center;
+}
+
+.document-markdown .katex {
+  color: #f3efe7;
+  font-size: 1.04em;
+}
+
 .document-table-scroll {
   width: 100%;
   max-width: 100%;

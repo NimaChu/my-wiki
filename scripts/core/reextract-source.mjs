@@ -76,6 +76,9 @@ export function applyExtractionToRawNote(content, extracted) {
     extraction_degraded_pages: compactPageList(extracted.quality?.degradedPages),
     extraction_formula_risk_pages: compactPageList(extracted.quality?.formulaRiskPages),
     extraction_repetitive_hallucination_pages: compactPageList(extracted.quality?.repetitiveHallucinationPages),
+    extraction_suppressed_hallucination_pages: compactPageList(extracted.quality?.suppressedHallucinationPages),
+    extraction_blank_pages: compactPageList(extracted.quality?.blankPages),
+    extraction_showthrough_pages: compactPageList(extracted.quality?.showthroughPages),
     tags
   });
   updated = replaceMarkdownSection(updated, "Capture", extracted.content || "");

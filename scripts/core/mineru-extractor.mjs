@@ -3,8 +3,9 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { assessPdfPage, qualityWarnings, summarizePdfQuality } from "./pdf-quality.mjs";
+import { analyzePdfVisualPages } from "./pdf-visual-gate.mjs";
 
-export async function extractPdfWithMineru({ file, pages = 0, cacheRoot = "", environment = process.env } = {}) {
+export async function extractPdfWithMineru({ file, pages = 0, cacheRoot = "", dependencyRoot = "", environment = process.env } = {}) {
   const command = String(environment.MY_WIKI_MINERU_COMMAND || "mineru").trim();
   const availability = await commandAvailable(command);
   if (!availability) return { status: "unavailable", method: "mineru", message: `MinerU command is not available: ${command}` };
@@ -17,13 +18,14 @@ export async function extractPdfWithMineru({ file, pages = 0, cacheRoot = "", en
   const language = String(environment.MY_WIKI_MINERU_LANGUAGE || "ch").trim();
   const timeout = Math.max(60_000, Number(environment.MY_WIKI_MINERU_TIMEOUT_MS || 12 * 60 * 60 * 1000));
   try {
+    const visualPages = await analyzePdfVisualPages({ file, dependencyRoot, pages, environment }).catch(() => []);
     const args = ["-p", file, "-o", outputRoot, "-b", backend, "-l", language];
     if (backend.startsWith("hybrid-")) args.push("--effort", effort);
     const result = await runCommand(command, args, { timeout, environment });
     if (result.code !== 0) {
       return { status: "failed", method: "mineru", message: `MinerU failed (${result.code}): ${cleanError(result.stderr || result.stdout)}` };
     }
-    const parsed = await readMineruOutput(outputRoot, pages);
+    const parsed = await readMineruOutput(outputRoot, pages, { visualPages });
     if (!parsed.content.trim()) return { status: "failed", method: "mineru", message: "MinerU completed without readable Markdown output." };
     const quality = summarizePdfQuality(parsed.pageResults, { method: "mineru" });
     const warnings = qualityWarnings(quality);
@@ -55,26 +57,28 @@ export async function extractPdfWithMineru({ file, pages = 0, cacheRoot = "", en
   }
 }
 
-export async function readMineruOutput(outputRoot, expectedPages = 0) {
+export async function readMineruOutput(outputRoot, expectedPages = 0, { visualPages = [] } = {}) {
   const files = await listFiles(outputRoot);
   const contentListFile = files.find((file) => /(?:^|_)content_list\.json$/i.test(path.basename(file)));
   if (contentListFile) {
     const entries = JSON.parse(await fs.readFile(contentListFile, "utf8"));
-    if (Array.isArray(entries)) return mineruEntriesToMarkdown(entries, expectedPages);
+    if (Array.isArray(entries)) return mineruEntriesToMarkdown(entries, expectedPages, { visualPages });
   }
   const markdownFile = files.find((file) => file.toLowerCase().endsWith(".md"));
   if (!markdownFile) return { content: "", pages: expectedPages, pageResults: [] };
   const markdown = await fs.readFile(markdownFile, "utf8");
   const chunks = markdown.split(/^### Page \d+\s*$/m);
   if (chunks.length > 1) {
-    const pageResults = chunks.slice(1).map((text, index) => assessPdfPage({ page: index + 1, text, method: "mineru" }));
-    return { content: markdown, pages: pageResults.length, pageResults };
+    const visualByPage = visualPageMap(visualPages);
+    const pageResults = chunks.slice(1).map((text, index) => assessPdfPage({ page: index + 1, text, method: "mineru", visual: visualByPage.get(index + 1) }));
+    const content = pageResults.map((result) => `### Page ${result.page}\n\n${result.text || "_No text recognized on this page._"}`).join("\n\n");
+    return { content, pages: pageResults.length, pageResults };
   }
-  const result = assessPdfPage({ page: 1, text: markdown, method: "mineru" });
-  return { content: markdown, pages: expectedPages || 1, pageResults: [result] };
+  const result = assessPdfPage({ page: 1, text: markdown, method: "mineru", visual: visualPageMap(visualPages).get(1) });
+  return { content: result.text, pages: expectedPages || 1, pageResults: [result] };
 }
 
-export function mineruEntriesToMarkdown(entries, expectedPages = 0) {
+export function mineruEntriesToMarkdown(entries, expectedPages = 0, { visualPages = [] } = {}) {
   const grouped = new Map();
   for (const entry of entries) {
     const page = Number(entry.page_idx ?? entry.page_index ?? 0) + 1;
@@ -85,13 +89,19 @@ export function mineruEntriesToMarkdown(entries, expectedPages = 0) {
   const pages = Math.max(expectedPages, ...grouped.keys(), 0);
   const sections = [];
   const pageResults = [];
+  const visualByPage = visualPageMap(visualPages);
   for (let page = 1; page <= pages; page += 1) {
     const text = (grouped.get(page) || []).join("\n\n").trim();
-    const result = assessPdfPage({ page, text, method: "mineru" });
+    const result = assessPdfPage({ page, text, method: "mineru", visual: visualByPage.get(page) });
     sections.push(`### Page ${page}\n\n${result.text || "_No text recognized on this page._"}`);
     pageResults.push(result);
   }
   return { content: sections.join("\n\n"), pages, pageResults };
+}
+
+function visualPageMap(values) {
+  if (values instanceof Map) return values;
+  return new Map((Array.isArray(values) ? values : []).map((item) => [Number(item?.page), item]).filter(([page]) => Number.isInteger(page) && page > 0));
 }
 
 function mineruBlock(entry) {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowLeft,
@@ -17,8 +17,6 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { AgentInfo, localApi, MaintenanceResult, MarkdownDocument, waitForJob } from "./api";
 import {
   isUniverseOverviewMode,
@@ -28,6 +26,8 @@ import {
 import { Viki } from "./Viki";
 import { WorkspaceActions } from "./WorkspaceActions";
 import "./styles.css";
+
+const RichMarkdown = lazy(() => import("./RichMarkdown"));
 
 type WikiNode = {
   id: string;
@@ -973,7 +973,9 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
         )}
         {document && mode === "read" && (
           <article className="document-page">
-            <RichMarkdown content={draft} imageUrls={imageUrls} imageFallback={t("imageUnavailable")} />
+            <Suspense fallback={<div className="document-state"><LoaderCircle className="spin" size={24} /></div>}>
+              <RichMarkdown content={draft} imageUrls={imageUrls} imageFallback={t("imageUnavailable")} />
+            </Suspense>
           </article>
         )}
         {document && mode === "edit" && (
@@ -1002,40 +1004,6 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
         )}
       </main>
     </section>
-  );
-}
-
-function RichMarkdown({
-  content,
-  imageUrls,
-  imageFallback
-}: {
-  content: string;
-  imageUrls: Record<string, string>;
-  imageFallback: string;
-}) {
-  const normalized = useMemo(
-    () => content.replace(/\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]/g, (_match, target, label) => label || target),
-    [content]
-  );
-  return (
-    <div className="document-markdown">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
-          table: ({ children }) => <div className="document-table-scroll"><table>{children}</table></div>,
-          img: ({ src, alt }) => {
-            if (!src) return null;
-            const resolved = imageUrls[src] ?? (isLocalMarkdownImageSource(src) ? "" : src);
-            if (!resolved) return <span className="document-image-error">{imageFallback}: {alt || src}</span>;
-            return <img src={resolved} alt={alt ?? ""} loading="lazy" />;
-          }
-        }}
-      >
-        {normalized}
-      </ReactMarkdown>
-    </div>
   );
 }
 

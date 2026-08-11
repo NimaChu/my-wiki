@@ -93,6 +93,8 @@ Environment:
   MY_WIKI_OCR_MAX_PDF_PAGES=1000 (0 disables the page limit)
   MY_WIKI_OCR_PDF_BATCH_PAGES=24
   MY_WIKI_PDF_ENGINE=auto|mineru|tesseract
+  MY_WIKI_PDF_VISUAL_GATE=1 (set 0 to disable blank/show-through analysis)
+  MY_WIKI_PDF_BLANK_PAGES=9,177 (explicit per-capture blank-page override)
   MY_WIKI_MINERU_BACKEND=hybrid-engine|pipeline
   MY_WIKI_MINERU_EFFORT=medium|high
   MY_WIKI_MINERU_LANGUAGE=ch
