@@ -1182,6 +1182,12 @@ h3 {
   padding-right: 84px;
 }
 
+.queue-panel .queue-item-followup {
+  color: #d8a55e;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .queue-item-actions {
   position: absolute;
   top: 50%;

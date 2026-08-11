@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { pdfOcrSettings } from "../scripts/core/document-extractor.mjs";
-import { mineruEntriesToMarkdown } from "../scripts/core/mineru-extractor.mjs";
-import { assessPdfPage, cleanExtractedPageText, summarizePdfQuality } from "../scripts/core/pdf-quality.mjs";
+import { insertPageAssetReferences, mineruEntriesToMarkdown, readMineruOutput, relationshipDiagramPages } from "../scripts/core/mineru-extractor.mjs";
+import { assessPdfPage, cleanExtractedPageText, compactPageRanges, summarizePdfQuality } from "../scripts/core/pdf-quality.mjs";
 import { classifyPdfVisualPages, parsePageRanges, pdfVisualGateSettings } from "../scripts/core/pdf-visual-gate.mjs";
 import { suppressRawPdfPages } from "../scripts/core/pdf-raw-suppression.mjs";
-import { applyExtractionToRawNote } from "../scripts/core/reextract-source.mjs";
+import { applyExtractionToRawNote, reinsertIndexedPageAssets } from "../scripts/core/reextract-source.mjs";
+import { materializeEmbeddedAssets } from "../scripts/core/capture-service.mjs";
 
 test("large PDF OCR defaults cover textbook-sized scans in resumable batches", () => {
   assert.deepEqual(pdfOcrSettings({}), {
@@ -97,6 +101,32 @@ test("visual and text signals suppress implausible output without hiding sparse 
   assert.equal(sparseTitle.text, "Linear Algebra");
 });
 
+test("automatic visual blank and show-through candidates preserve substantive front-side text", () => {
+  const substantive = "本页是矩阵分解章节首页，介绍三角分解、正交三角分解、满秩分解与奇异值分解，并说明这些结构在数值计算中的用途。".repeat(3);
+  for (const classification of ["blank-noise", "reverse-side-showthrough"]) {
+    const result = assessPdfPage({ page: 90, text: substantive, method: "mineru", visual: { classification, darkCoverage: 0.002 } });
+    assert.equal(result.suppressedHallucination, false);
+    assert.equal(result.visualReviewCandidate, true);
+    assert.equal(result.text, substantive);
+  }
+  const empty = assessPdfPage({ page: 9, text: "", method: "mineru", visual: { classification: "blank-noise", darkCoverage: 0.001 } });
+  assert.equal(empty.suppressedHallucination, true);
+  assert.match(empty.text, /blank-page noise/);
+  const diagram = assessPdfPage({
+    page: 21,
+    text: "四、内容结构框图\n\n![第一章内容结构框图](my-wiki-asset:map.png)",
+    method: "mineru",
+    visual: { classification: "blank-noise", darkCoverage: 0.001 }
+  });
+  assert.equal(diagram.suppressedHallucination, false);
+  assert.equal(diagram.visualReviewCandidate, true);
+  assert.match(diagram.text, /my-wiki-asset:map\.png/);
+});
+
+test("page range metadata remains complete beyond one hundred review pages", () => {
+  assert.equal(compactPageRanges(Array.from({ length: 150 }, (_, index) => index + 1), 0), "1-150");
+});
+
 test("visual gate supports explicit blank page ranges", () => {
   assert.deepEqual(parsePageRanges("9, 177, 180-182"), [9, 177, 180, 181, 182]);
   assert.deepEqual(pdfVisualGateSettings({ MY_WIKI_PDF_VISUAL_GATE: "0", MY_WIKI_PDF_BLANK_PAGES: "9,177" }), {
@@ -176,6 +206,60 @@ test("MinerU content list preserves page anchors and LaTeX blocks", () => {
   assert.match(result.content, /### Page 2/);
 });
 
+test("MinerU image blocks retain their files as referenced embedded assets", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-mineru-test-"));
+  try {
+    await fs.mkdir(path.join(root, "images"), { recursive: true });
+    await fs.writeFile(path.join(root, "images", "map.png"), Buffer.from("png-bytes"));
+    await fs.writeFile(path.join(root, "book_content_list.json"), JSON.stringify([
+      { page_idx: 20, type: "text", text: "四、内容结构框图" },
+      { page_idx: 20, type: "image", img_path: "images/map.png", image_caption: ["第一章内容结构框图"] }
+    ]));
+    const result = await readMineruOutput(root, 21);
+    assert.equal(result.assets.length, 1);
+    assert.equal(result.assets[0].page, 21);
+    assert.equal(result.assets[0].status, "extracted-by-mineru");
+    assert.match(result.content, /!\[第一章内容结构框图\]\(my-wiki-asset:mineru-image-1\.png\)/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("sparse relationship diagrams are detected and page assets are inserted in place", () => {
+  assert.deepEqual(relationshipDiagramPages([
+    { page: 21, text: "四、内容结构框图" },
+    { page: 22, text: "普通正文，不是关系图。" }
+  ]), [21]);
+  const updated = insertPageAssetReferences("### Page 21\n\n四、内容结构框图\n\n### Page 22\n\n正文", [
+    { page: 21, reference: "my-wiki-asset:page-21.png", alt: "第一章内容结构框图" }
+  ]);
+  assert.match(updated, /^### Page 21\n\n!\[第一章内容结构框图\]\(my-wiki-asset:page-21\.png\)/m);
+});
+
+test("embedded page assets write an image index and re-extraction can restore their page references", async () => {
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-asset-test-"));
+  try {
+    const notePath = path.join(vault, "raw", "sources", "book.md");
+    await fs.mkdir(path.dirname(notePath), { recursive: true });
+    const materialized = await materializeEmbeddedAssets({
+      vault,
+      notePath,
+      rawBase: "book",
+      markdown: "### Page 21\n\n![框图](my-wiki-asset:map.png)",
+      assets: [{ reference: "my-wiki-asset:map.png", name: "page-021-content-map.png", buffer: Buffer.from("image"), page: 21, alt: "第一章内容结构框图", status: "rendered-diagram-fallback" }]
+    });
+    assert.match(materialized.markdown, /\.\.\/assets\/book\/page-021-content-map\.png/);
+    const index = JSON.parse(await fs.readFile(path.join(vault, "raw", "assets", "book", "image-index.json"), "utf8"));
+    assert.equal(index.images[0].page, 21);
+    const restored = reinsertIndexedPageAssets("### Page 21\n\n四、内容结构框图", index.images);
+    assert.equal(restored.inserted, 1);
+    assert.match(restored.content, /!\[第一章内容结构框图\]\(\.\.\/assets\/book\/page-021-content-map\.png\)/);
+    assert.equal(reinsertIndexedPageAssets(restored.content, index.images).inserted, 0);
+  } finally {
+    await fs.rm(vault, { recursive: true, force: true });
+  }
+});
+
 test("re-extraction updates an existing raw note in place without losing relations", () => {
   const source = `---
 title: "Scanned textbook"
@@ -236,8 +320,10 @@ related:
       repetitiveHallucinationPages: [9],
       suppressedHallucinationPages: [9, 177],
       blankPages: [9],
-      showthroughPages: [177]
-    }
+      showthroughPages: [177],
+      visualReviewPages: [45, 90]
+    },
+    warnings: ["Degraded PDF pages: 2", "Preserved visual review candidates: 45,90"]
   });
 
   assert.match(updated, /^status: "inbox"$/m);
@@ -251,9 +337,53 @@ related:
   assert.match(updated, /^extraction_suppressed_hallucination_pages: "9,177"$/m);
   assert.match(updated, /^extraction_blank_pages: "9"$/m);
   assert.match(updated, /^extraction_showthrough_pages: "177"$/m);
+  assert.match(updated, /^extraction_visual_review_pages: "45,90"$/m);
   assert.match(updated, /^extracted_characters: 12000$/m);
   assert.match(updated, /\[\[大学数学教材\]\]/);
   assert.match(updated, /### Page 1\n\nReadable text/);
   assert.doesNotMatch(updated, /The PDF was too large/);
   assert.doesNotMatch(updated, /"needs-followup"/);
+  assert.match(updated, /Extraction warnings: Degraded PDF pages: 2; Preserved visual review candidates: 45,90/);
+});
+
+test("re-extraction replaces stale warnings and stores complete compressed page ranges", () => {
+  const source = `---
+title: "Book"
+type: raw-source
+status: inbox
+tags:
+  - "raw"
+related:
+---
+
+# Book
+
+## Capture
+
+Old text.
+
+## Processing Notes
+
+- Status: inbox
+- Follow-up reasons: none
+- Content extraction: complete via pdf-ocr (10 characters)
+- Extraction warnings: Low-quality PDF pages: 1-270
+- Embedded local assets: 0
+`;
+  const pages = Array.from({ length: 150 }, (_, index) => index + 1);
+  const updated = applyExtractionToRawNote(source, {
+    status: "complete",
+    method: "mineru",
+    engine: "mineru",
+    content: "### Page 1\n\nReadable text",
+    characters: 100,
+    quality: { level: "degraded", score: 80, formulaRiskPages: pages },
+    warnings: ["Formula/layout review pages: 1-150"],
+    assetCount: 2
+  });
+  assert.match(updated, /^extraction_formula_risk_pages: "1-150"$/m);
+  assert.doesNotMatch(updated, /Low-quality PDF pages: 1-270/);
+  assert.match(updated, /Extraction warnings: Formula\/layout review pages: 1-150/);
+  assert.match(updated, /Embedded local assets: 2/);
+  assert.match(updated, /^  - "images"$/m);
 });

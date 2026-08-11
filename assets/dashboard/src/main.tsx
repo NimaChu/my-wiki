@@ -38,6 +38,7 @@ type WikiNode = {
   universes?: string[];
   status: string;
   tags: string[];
+  followupReasons?: string[];
   content?: string;
   out: string[];
   backlinks: string[];
@@ -185,6 +186,7 @@ const copy = {
     deleteBatchConfirm: "Delete all {count} items awaiting maintenance and their unshared uploaded files? This cannot be undone.",
     deleteBatchPartial: "Deleted {deleted} items; {failed} could not be deleted.",
     processItem: "Maintain this item",
+    resolveFollowupFirst: "Resolve the follow-up before maintenance",
     deleteQueueItem: "Delete this queue item",
     deleteQueueConfirm: "Delete \"{title}\" and its unshared uploaded files? This cannot be undone.",
     processingBatch: "Maintaining",
@@ -268,6 +270,7 @@ const copy = {
     deleteBatchConfirm: "确定删除全部 {count} 条待维护资料及其未被其他条目共享的上传文件吗？此操作无法撤销。",
     deleteBatchPartial: "已删除 {deleted} 条，另有 {failed} 条因引用保护等原因无法删除。",
     processItem: "维护此条知识",
+    resolveFollowupFirst: "请先解决待跟进问题，再进行维护",
     deleteQueueItem: "删除此条待维护资料",
     deleteQueueConfirm: "确定删除“{title}”及其未被其他条目共享的上传文件吗？此操作无法撤销。",
     processingBatch: "正在维护",
@@ -337,6 +340,21 @@ function localizedStatus(value: string, language: Language) {
     unknown: "未知"
   };
   return statuses[value.toLowerCase()] ?? value;
+}
+
+function localizedFollowupReason(value: string, language: Language) {
+  const reason = value.trim().toLowerCase();
+  const messages: Record<string, { en: string; zh: string }> = {
+    "extraction:low-quality": { en: "PDF OCR quality is too low", zh: "PDF OCR 质量不足" },
+    "extraction:failed": { en: "File extraction failed", zh: "文件提取失败" },
+    "extraction:partial": { en: "File extraction is incomplete", zh: "文件提取不完整" },
+    "extraction:empty": { en: "No readable content was extracted", zh: "未提取到可读正文" },
+    "extraction:skipped-large": { en: "File exceeds the automatic extraction limit", zh: "文件超出自动提取范围" },
+    "capture:needs-followup": { en: "The captured source needs review", zh: "来源内容需要人工检查" }
+  };
+  const message = messages[reason];
+  if (message) return message[language];
+  return language === "zh" ? `需要跟进：${value}` : `Follow-up required: ${value}`;
 }
 
 function localizedType(value: string, language: Language) {
@@ -1760,7 +1778,8 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
   const ids = [...new Set([...graph.queues.inbox, ...graph.queues.needsFollowup, ...graph.queues.stale])]
     .filter((id) => id.startsWith("raw/") && !deletedIds.has(id));
   const nodes = ids.map((id) => nodeById.get(id)).filter(Boolean) as WikiNode[];
-  const batchNodes = nodes.slice(0, 8);
+  const isMaintenanceEligible = (node: WikiNode) => ["inbox", "stale"].includes(node.status);
+  const batchNodes = nodes.filter(isMaintenanceEligible).slice(0, 8);
   const [agentState, setAgentState] = useState<AgentInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [activePath, setActivePath] = useState<string | null>(null);
@@ -1774,14 +1793,15 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
   }, []);
 
   const processNodes = async (selectedNodes: WikiNode[]) => {
-    if (selectedNodes.length === 0 || busy || !agentState?.available || agentState.maintenanceBusy) return;
+    const eligibleNodes = selectedNodes.filter(isMaintenanceEligible);
+    if (eligibleNodes.length === 0 || busy || !agentState?.available || agentState.maintenanceBusy) return;
     setBusy(true);
-    setActivePath(selectedNodes.length === 1 ? selectedNodes[0].path : null);
+    setActivePath(eligibleNodes.length === 1 ? eligibleNodes[0].path : null);
     setError("");
     setResult(null);
     try {
       const provider = selectedMaintenanceProvider(agentState);
-      const complete = await waitForJob(await localApi.maintain(selectedNodes.map((node) => node.path), selectedNodes.length, provider));
+      const complete = await waitForJob(await localApi.maintain(eligibleNodes.map((node) => node.path), eligibleNodes.length, provider));
       setResult(complete.result as MaintenanceResult);
       setAgentState(await localApi.agent());
       window.dispatchEvent(new Event("my-wiki:graph-updated"));
@@ -1872,14 +1892,17 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
               <button className="queue-item-main" type="button" onClick={() => onSelect(node.id)}>
                 <strong>{node.title}</strong>
                 <span>{localizedStatus(node.status, language)}</span>
+                {node.status === "needs-followup" && node.followupReasons?.length ? (
+                  <small className="queue-item-followup">{localizedFollowupReason(node.followupReasons[0], language)}</small>
+                ) : null}
               </button>
               <div className="queue-item-actions">
                 <button
                   className="queue-item-process"
                   type="button"
                   aria-label={t("processItem")}
-                  title={agentState?.available === false ? t("agentUnavailable") : t("processItem")}
-                  disabled={busy || Boolean(deletingPath) || deletingBatch || !agentState?.available || agentState.maintenanceBusy}
+                  title={node.status === "needs-followup" ? t("resolveFollowupFirst") : agentState?.available === false ? t("agentUnavailable") : t("processItem")}
+                  disabled={!isMaintenanceEligible(node) || busy || Boolean(deletingPath) || deletingBatch || !agentState?.available || agentState.maintenanceBusy}
                   onClick={() => void processNodes([node])}
                 >
                   {busy && activePath === node.path ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />}

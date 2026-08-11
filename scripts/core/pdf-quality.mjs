@@ -54,14 +54,19 @@ export function assessPdfPage({ page = 0, text = "", confidence = null, method =
   const visualTextDensity = Number.isFinite(visualDarkCoverage) && visualDarkCoverage > 0
     ? meaningful / Math.max(1, visualDarkCoverage * 100_000)
     : 0;
-  const blankPage = visualClassification === "manual-blank" || visualClassification === "blank-noise";
-  const mirroredShowthrough = visualClassification === "reverse-side-showthrough";
+  const manualBlankPage = visualClassification === "manual-blank";
+  const visualBlankCandidate = visualClassification === "blank-noise";
+  const mirroredShowthroughCandidate = visualClassification === "reverse-side-showthrough";
   const lowContrastHallucination = visualClassification === "low-contrast"
     && meaningful >= 800
     && visualTextDensity >= 1.4
     && repetition.compressionRatio < 0.24;
-  const showthroughPage = mirroredShowthrough || lowContrastHallucination;
+  const structuredFrontEvidence = /!\[[^\]]+\]\([^)]+\)|<table\b|^#{1,6}\s+|^\$\$/mi.test(cleaned);
+  const substantiveFrontText = !repetition.hallucination && (meaningful >= 80 || (meaningful >= 8 && structuredFrontEvidence));
+  const blankPage = manualBlankPage || (visualBlankCandidate && !substantiveFrontText);
+  const showthroughPage = (mirroredShowthroughCandidate && !substantiveFrontText) || lowContrastHallucination;
   const visuallySuppressed = blankPage || showthroughPage;
+  const visualReviewCandidate = !visuallySuppressed && (visualBlankCandidate || mirroredShowthroughCandidate);
 
   if (meaningful < 24) {
     score -= 70;
@@ -90,10 +95,14 @@ export function assessPdfPage({ page = 0, text = "", confidence = null, method =
     score -= 100;
     reasons.push("repetitive-ocr-hallucination");
   }
-  if (blankPage) reasons.push(visualClassification === "manual-blank" ? "manual-blank-page" : "blank-page-noise");
-  if (showthroughPage) reasons.push(mirroredShowthrough ? "reverse-side-showthrough" : "visual-text-density-mismatch");
+  if (blankPage) reasons.push(manualBlankPage ? "manual-blank-page" : "blank-page-noise");
+  if (showthroughPage) reasons.push(mirroredShowthroughCandidate ? "reverse-side-showthrough" : "visual-text-density-mismatch");
+  if (visualReviewCandidate) {
+    score -= 20;
+    reasons.push(visualBlankCandidate ? "visual-blank-review" : "visual-showthrough-review");
+  }
 
-  if (visuallySuppressed) score = visualClassification === "manual-blank" ? 100 : blankPage ? 95 : 80;
+  if (visuallySuppressed) score = manualBlankPage ? 100 : blankPage ? 95 : 80;
   const suppressedHallucination = repetition.hallucination || visuallySuppressed;
   const formulaRisk = !suppressedHallucination && (mathSymbols >= 4 || (symbols >= 12 && symbols / Math.max(1, meaningful) >= 0.08));
   if (formulaRisk && method !== "mineru") reasons.push("formula-layout-risk");
@@ -114,6 +123,7 @@ export function assessPdfPage({ page = 0, text = "", confidence = null, method =
     suppressedHallucination,
     blankPage,
     showthroughPage,
+    visualReviewCandidate,
     visualClassification,
     visualTextDensity: round(visualTextDensity),
     formulaRisk,
@@ -130,6 +140,7 @@ export function summarizePdfQuality(pageResults = [], { method = "pdf-text" } = 
   const suppressedHallucinationPages = results.filter((result) => result.suppressedHallucination).map((result) => result.page);
   const blankPages = results.filter((result) => result.blankPage).map((result) => result.page);
   const showthroughPages = results.filter((result) => result.showthroughPage).map((result) => result.page);
+  const visualReviewPages = results.filter((result) => result.visualReviewCandidate).map((result) => result.page);
   const score = results.length ? average(results.map((result) => result.score)) : 0;
   const lowRatio = lowQualityPages.length / Math.max(1, results.length);
   const degradedRatio = (lowQualityPages.length + degradedPages.length) / Math.max(1, results.length);
@@ -156,6 +167,7 @@ export function summarizePdfQuality(pageResults = [], { method = "pdf-text" } = 
     suppressedHallucinationPages,
     blankPages,
     showthroughPages,
+    visualReviewPages,
     reasons: [...new Set(reasons)]
   };
 }
@@ -169,6 +181,7 @@ export function qualityWarnings(quality) {
   if (quality.repetitiveHallucinationPages?.length) warnings.push(`Suppressed repetitive OCR hallucinations: ${compactPageRanges(quality.repetitiveHallucinationPages)}`);
   if (quality.blankPages?.length) warnings.push(`Suppressed blank or dirty scan pages: ${compactPageRanges(quality.blankPages)}`);
   if (quality.showthroughPages?.length) warnings.push(`Suppressed reverse-side show-through pages: ${compactPageRanges(quality.showthroughPages)}`);
+  if (quality.visualReviewPages?.length) warnings.push(`Preserved visual review candidates: ${compactPageRanges(quality.visualReviewPages)}`);
   return warnings;
 }
 
@@ -215,7 +228,9 @@ export function compactPageRanges(pages = [], limit = 80) {
     index += 1;
   }
   const output = ranges.join(",");
-  return output.length <= limit ? output : `${output.slice(0, limit).replace(/,[^,]*$/, "")}…`;
+  return !Number.isFinite(limit) || limit <= 0 || output.length <= limit
+    ? output
+    : `${output.slice(0, limit).replace(/,[^,]*$/, "")}…`;
 }
 
 function countCjkSpaces(value) {
