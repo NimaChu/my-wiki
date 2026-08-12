@@ -386,6 +386,10 @@ test("File uploads enter the Inbox queue before extraction completes", async (co
   assert.equal(queued.status, 202);
   assert.equal(queued.body.type, "capture-file");
   assert.match(queued.body.status, /queued|running/);
+  const receiptFile = path.join(fixture.vault, ".my-wiki", "capture-jobs", `${queued.body.id}.json`);
+  const receipt = JSON.parse(await readFile(receiptFile, "utf8"));
+  assert.equal(receipt.title, "Queued PDF");
+  assert.match(receipt.temporary, /^\.my-wiki\/uploads\//);
 
   const inbox = await request(port, "GET", "/api/v1/inbox", { headers: auth });
   const queueItem = inbox.body.items.find((item) => item.jobId === queued.body.id);
@@ -401,6 +405,69 @@ test("File uploads enter the Inbox queue before extraction completes", async (co
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   assert.equal(completed.body.status, "complete");
+  await assert.rejects(readFile(receiptFile, "utf8"), /ENOENT/);
+});
+
+test("Dashboard recovers a persisted capture job after a service restart", async (context) => {
+  const fixture = await createFixture(context);
+  const jobId = "11111111-1111-4111-8111-111111111111";
+  const uploadFile = path.join(fixture.vault, ".my-wiki", "uploads", `${jobId}-recovered.pdf`);
+  const snapshotFile = path.join(fixture.vault, "raw", "snapshots", "2026-08-12--recovered.pdf");
+  const receiptFile = path.join(fixture.vault, ".my-wiki", "capture-jobs", `${jobId}.json`);
+  await mkdir(path.dirname(uploadFile), { recursive: true });
+  await mkdir(path.dirname(snapshotFile), { recursive: true });
+  await mkdir(path.dirname(receiptFile), { recursive: true });
+  await writeFile(uploadFile, Buffer.from("%PDF-recovered"));
+  await writeFile(snapshotFile, Buffer.from("%PDF-recovered"));
+  await writeFile(receiptFile, `${JSON.stringify({
+    version: 1,
+    id: jobId,
+    createdAt: "2026-08-12T08:03:51.000Z",
+    filename: "recovered.pdf",
+    title: "Recovered PDF",
+    collection: "",
+    suggestedUniverse: "数学",
+    sourcePath: "",
+    temporary: `.my-wiki/uploads/${jobId}-recovered.pdf`,
+    snapshotReference: "raw/snapshots/2026-08-12--recovered.pdf"
+  }, null, 2)}\n`, "utf8");
+
+  let finishExtraction;
+  let receivedInput;
+  const extractionGate = new Promise((resolve) => { finishExtraction = resolve; });
+  const server = http.createServer(createDashboardApi({
+    dashboardRoot: fixture.dashboard,
+    port: 0,
+    agentRunner: { info: async () => ({}) },
+    localFileIngestor: async (input) => {
+      receivedInput = input;
+      await extractionGate;
+      return { kind: "file", count: 1, items: [{ status: "inbox", path: "raw/sources/recovered.md" }] };
+    }
+  }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+
+  const inbox = await request(port, "GET", "/api/v1/inbox", { headers: auth });
+  const recovered = inbox.body.items.find((item) => item.jobId === jobId);
+  assert.equal(recovered.title, "Recovered PDF");
+  assert.match(recovered.jobStatus, /queued|running/);
+  assert.equal(receivedInput.snapshotReference, "raw/snapshots/2026-08-12--recovered.pdf");
+
+  finishExtraction();
+  let completed;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    completed = await request(port, "GET", `/api/v1/jobs/${jobId}`, { headers: auth });
+    if (completed.body.status === "complete") break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(completed.body.status, "complete");
+  await assert.rejects(readFile(receiptFile, "utf8"), /ENOENT/);
+  await assert.rejects(readFile(uploadFile), /ENOENT/);
 });
 
 test("Chunked uploads assemble the original bytes before entering the Inbox queue", async (context) => {

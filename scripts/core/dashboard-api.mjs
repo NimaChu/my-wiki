@@ -107,8 +107,20 @@ export function createDashboardApi({
   const runtimeFile = path.join(dashboardRoot, ".my-wiki-runtime.json");
   const activeAgentJobs = { query: "", maintenance: "" };
   const pendingUploads = new Map();
+  const recoveredCaptureVaults = new Map();
 
-  const queueFileCapture = ({ vault, temporary, filename, title, collection, suggestedUniverse, sourcePath }) => {
+  const queueFileCapture = async ({
+    vault,
+    temporary,
+    filename,
+    title,
+    collection,
+    suggestedUniverse,
+    sourcePath,
+    snapshotReference = "",
+    jobId = "",
+    createdAt = ""
+  }) => {
     const job = createJob("capture-file", {
       filename,
       title,
@@ -116,7 +128,20 @@ export function createDashboardApi({
       suggestedUniverse,
       sourcePath,
       sourceType: sourceTypeFromFilename(filename)
-    }, vault);
+    }, vault, { id: jobId, createdAt });
+    const receipt = {
+      version: 1,
+      id: job.id,
+      createdAt: job.createdAt,
+      filename,
+      title,
+      collection,
+      suggestedUniverse,
+      sourcePath,
+      temporary: slash(path.relative(vault, temporary)),
+      snapshotReference
+    };
+    await writeCaptureReceipt(vault, receipt);
     runJob(job, async () => {
       try {
         const batch = await localFileIngestor({
@@ -129,16 +154,44 @@ export function createDashboardApi({
           sourcePath,
           dependencyRoot: dashboardRoot,
           captureMethod: "dashboard-upload",
+          snapshotReference: receipt.snapshotReference,
+          onSnapshot: async (snapshot) => {
+            receipt.snapshotReference = String(snapshot?.relative || "");
+            await writeCaptureReceipt(vault, receipt);
+          }
         });
         const graphRefreshed = await refreshDashboardGraph(dashboardRoot, vault).catch(() => false);
         return batch.kind === "file"
           ? { ...(batch.items[0] || {}), kind: batch.kind, count: batch.count, total: batch.count, items: batch.items, ignored: batch.ignored || [], graphRefreshed }
           : { ...batch, graphRefreshed };
       } finally {
+        await removeCaptureReceipt(vault, job.id);
         await fs.rm(temporary, { force: true });
       }
     });
     return job;
+  };
+
+  const recoverCaptureJobs = async (vault) => {
+    const key = path.resolve(vault);
+    if (!recoveredCaptureVaults.has(key)) {
+      recoveredCaptureVaults.set(key, (async () => {
+        for (const receipt of await readCaptureReceipts(vault)) {
+          if (jobs.has(receipt.id)) continue;
+          const temporary = resolveCaptureTemporary(vault, receipt.temporary);
+          const stat = await fs.stat(temporary).catch(() => null);
+          if (!stat?.isFile()) {
+            await removeCaptureReceipt(vault, receipt.id);
+            continue;
+          }
+          await queueFileCapture({ ...receipt, vault, temporary, jobId: receipt.id });
+        }
+      })().catch((error) => {
+        recoveredCaptureVaults.delete(key);
+        throw error;
+      }));
+    }
+    await recoveredCaptureVaults.get(key);
   };
 
   return async function handleDashboardApi(req, res) {
@@ -180,6 +233,7 @@ export function createDashboardApi({
       }
 
       const vault = await activeVault(runtimeFile);
+      await recoverCaptureJobs(vault);
 
       if (requestUrl.pathname === "/api/v1/vault" && req.method === "GET") {
         const scan = await scanVault(vault);
@@ -484,7 +538,7 @@ export function createDashboardApi({
         const suggestedUniverse = optionalUniverseName(requestUrl.searchParams.get("suggestedUniverse"));
         const sourcePath = String(requestUrl.searchParams.get("sourcePath") || "").replace(/\\/g, "/").slice(0, 1000);
         const temporary = await receiveUpload(req, vault, filename);
-        const job = queueFileCapture({ vault, temporary, filename, title, collection, suggestedUniverse, sourcePath });
+        const job = await queueFileCapture({ vault, temporary, filename, title, collection, suggestedUniverse, sourcePath });
         sendJson(res, 202, publicJob(job));
         return true;
       }
@@ -546,7 +600,7 @@ export function createDashboardApi({
           throw httpError(409, `Upload is incomplete; received ${upload.offset} of ${upload.size} bytes`);
         }
         pendingUploads.delete(upload.id);
-        const job = queueFileCapture(upload);
+        const job = await queueFileCapture(upload);
         sendJson(res, 202, publicJob(job));
         return true;
       }
@@ -801,14 +855,14 @@ async function universeSummaries(vault) {
     .sort((a, b) => b.wiki - a.wiki || a.name.localeCompare(b.name));
 }
 
-function createJob(type, meta, vault = "") {
+function createJob(type, meta, vault = "", { id = "", createdAt = "" } = {}) {
   const job = {
-    id: randomUUID(),
+    id: validCaptureJobId(id) ? id : randomUUID(),
     type,
     meta,
     vault,
     status: "queued",
-    createdAt: new Date().toISOString(),
+    createdAt: /^\d{4}-\d{2}-\d{2}T/.test(String(createdAt || "")) ? String(createdAt) : new Date().toISOString(),
     completedAt: "",
     result: null,
     error: "",
@@ -817,6 +871,69 @@ function createJob(type, meta, vault = "") {
   };
   jobs.set(job.id, job);
   return job;
+}
+
+function captureReceiptRoot(vault) {
+  return path.join(vault, ".my-wiki", "capture-jobs");
+}
+
+function validCaptureJobId(value) {
+  return /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(String(value || ""));
+}
+
+function captureReceiptFile(vault, id) {
+  if (!validCaptureJobId(id)) throw new Error("Invalid capture job receipt id");
+  return path.join(captureReceiptRoot(vault), `${id}.json`);
+}
+
+function resolveCaptureTemporary(vault, reference) {
+  const normalized = slash(String(reference || "")).replace(/^\/+/, "");
+  if (!normalized.startsWith(".my-wiki/uploads/")) throw new Error("Capture job upload path is invalid");
+  const root = path.resolve(vault, ".my-wiki", "uploads");
+  const file = path.resolve(vault, ...normalized.split("/"));
+  if (!isWithin(root, file) || file === root) throw new Error("Capture job upload path escapes the vault upload directory");
+  return file;
+}
+
+async function writeCaptureReceipt(vault, receipt) {
+  resolveCaptureTemporary(vault, receipt.temporary);
+  const file = captureReceiptFile(vault, receipt.id);
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+}
+
+async function readCaptureReceipts(vault) {
+  const root = captureReceiptRoot(vault);
+  const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => []);
+  const receipts = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !/^[a-f0-9-]+\.json$/i.test(entry.name)) continue;
+    try {
+      const value = JSON.parse(await fs.readFile(path.join(root, entry.name), "utf8"));
+      if (Number(value?.version) !== 1 || !validCaptureJobId(value?.id)) continue;
+      const receipt = {
+        version: 1,
+        id: String(value.id),
+        createdAt: String(value.createdAt || ""),
+        filename: safeFilename(value.filename || "upload.bin"),
+        title: String(value.title || path.basename(value.filename || "upload.bin", path.extname(value.filename || ""))).trim().slice(0, 1000) || "Uploaded Source",
+        collection: String(value.collection || "").slice(0, 500),
+        suggestedUniverse: String(value.suggestedUniverse || "").slice(0, 200),
+        sourcePath: slash(String(value.sourcePath || "")).slice(0, 1000),
+        temporary: slash(String(value.temporary || "")),
+        snapshotReference: slash(String(value.snapshotReference || ""))
+      };
+      resolveCaptureTemporary(vault, receipt.temporary);
+      receipts.push(receipt);
+    } catch {
+      // Ignore malformed recovery receipts; they never authorize paths outside the upload directory.
+    }
+  }
+  return receipts.sort((left, right) => String(left.createdAt).localeCompare(String(right.createdAt)));
+}
+
+async function removeCaptureReceipt(vault, id) {
+  await fs.rm(captureReceiptFile(vault, id), { force: true });
 }
 
 function captureQueueItems(vault) {
