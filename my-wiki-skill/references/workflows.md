@@ -21,6 +21,8 @@ Before distilling or marking a scanned mathematical or technical PDF as processe
 4. Verify every key formula used in a Wiki page against the preserved PDF. Do not promote damaged exercise formulas, numerical answers, subscripts, inequality signs, inverse markers, or Greek symbols into durable claims without visual corroboration.
 5. When OCR cannot retain the nodes and edges of a content map, flowchart, relationship diagram, mind map, or organization chart, preserve the figure as a page-local image asset, insert it beneath the matching `### Page N`, and record it in `image-index.json`.
 6. After re-extraction, confirm that current quality warnings replaced prior-engine warnings and that indexed page assets were restored. Run `lint` and require zero raw attachment issues before evidence closure.
+7. Require formula-aware MinerU or formula-risk output to pass the shared KaTeX parse and strict-warning gate. Treat parse failures, array-column mismatches, unsupported math Unicode, and math/text command misuse as blocking follow-up work with page and line details. Keep formulas that pass deterministic KaTeX checks but remain semantically suspicious in visual review.
+8. A `needs-followup` Raw may enter the single-source repair Agent flow only after an explicit user action. The Agent edits only that Raw; the service owns status metadata, reruns deterministic extraction, attachment, and formula gates, and changes the Raw to `inbox` only when every blocking reason is cleared.
 
 ## Query
 

@@ -240,6 +240,7 @@ function executableInvocation(command, args) {
 }
 
 function providerInvocation({ provider, command, vault, mode, prompt, schema, outputFile, schemaFile, providerConfigFile, model }) {
+  const writeMode = isWriteAgentMode(mode);
   if (provider === "codex") {
     return {
       command,
@@ -248,7 +249,7 @@ function providerInvocation({ provider, command, vault, mode, prompt, schema, ou
         "--skip-git-repo-check",
         "--ephemeral",
         "--color", "never",
-        "--sandbox", mode === "maintenance" ? "workspace-write" : "read-only",
+        "--sandbox", writeMode ? "workspace-write" : "read-only",
         "-C", vault,
         ...(model ? ["--model", model] : []),
         "--output-schema", schemaFile,
@@ -278,7 +279,7 @@ function providerInvocation({ provider, command, vault, mode, prompt, schema, ou
   }
 
   if (provider === "qoder") {
-    const tools = mode === "maintenance"
+    const tools = writeMode
       ? ["Read", "Grep", "Glob", "Edit", "Write"]
       : ["Read", "Grep", "Glob"];
     return {
@@ -288,7 +289,7 @@ function providerInvocation({ provider, command, vault, mode, prompt, schema, ou
         "--output-format", "text",
         "--no-session-persistence",
         "--cwd", vault,
-        "--permission-mode", mode === "maintenance" ? "accept_edits" : "dont_ask",
+        "--permission-mode", writeMode ? "accept_edits" : "dont_ask",
         ...(model ? ["--model", model] : []),
         "--tools", ...tools,
         "--",
@@ -304,7 +305,7 @@ function providerInvocation({ provider, command, vault, mode, prompt, schema, ou
     args: [
       "-p",
       "--output-format", "text",
-      "--permission-mode", mode === "maintenance" ? "acceptEdits" : "plan",
+      "--permission-mode", writeMode ? "acceptEdits" : "plan",
       ...(model ? ["--model", model] : []),
       promptWithSchema(prompt, schema)
     ],
@@ -464,7 +465,7 @@ function openCodeConfig(mode, env, configuredProvider = "") {
       grep: "allow",
       list: "allow",
       lsp: "allow",
-      edit: mode === "maintenance" ? "allow" : "deny",
+      edit: isWriteAgentMode(mode) ? "allow" : "deny",
       bash: "deny",
       task: "deny",
       external_directory: "deny",
@@ -472,6 +473,10 @@ function openCodeConfig(mode, env, configuredProvider = "") {
       websearch: "deny"
     }
   };
+}
+
+function isWriteAgentMode(mode) {
+  return mode === "maintenance" || mode === "repair";
 }
 
 function openCodeFallbackModels(env, primaryModel) {

@@ -1216,6 +1216,12 @@ h3 {
   color: #dce3ff;
 }
 
+.queue-panel .queue-item-repair {
+  border-color: rgba(216, 165, 94, 0.32);
+  background: rgba(216, 165, 94, 0.16);
+  color: #f0c27d;
+}
+
 .queue-panel .queue-item-delete {
   border-color: rgba(228, 142, 134, 0.2);
   background: rgba(228, 142, 134, 0.1);
@@ -1606,6 +1612,50 @@ h3 {
   margin-top: 0;
 }
 
+.queue-panel .queue-item-repair:hover,
+.queue-panel .queue-item-repair:focus-visible {
+  border-color: rgba(216, 165, 94, 0.62);
+  background: rgba(216, 165, 94, 0.3);
+}
+
+.document-render-progress {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  width: 100%;
+  margin: 1.25rem 0 0;
+  padding: 0.75rem;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.document-render-progress:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.document-render-progress strong {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.document-render-progress-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: document-render-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes document-render-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
 .document-markdown h1,
 .document-markdown h2,
 .document-markdown h3,
@@ -1726,6 +1776,35 @@ h3 {
 .document-markdown .katex {
   color: #f3efe7;
   font-size: 1.04em;
+}
+
+.document-markdown .document-formula-error {
+  display: inline-flex;
+  max-width: 100%;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.2rem 0;
+  padding: 0.55rem 0.7rem;
+  overflow-x: auto;
+  border: 1px solid color-mix(in srgb, #dc2626 45%, transparent);
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, #dc2626 8%, transparent);
+  color: inherit;
+}
+
+.document-markdown .document-formula-error strong {
+  color: #dc2626;
+  font-size: 0.78rem;
+}
+
+.document-markdown .document-formula-error code {
+  color: inherit;
+  white-space: pre-wrap;
+}
+
+.document-markdown .document-formula-error small {
+  color: var(--muted);
+  white-space: normal;
 }
 
 .document-table-scroll {

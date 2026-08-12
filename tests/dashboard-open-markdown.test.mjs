@@ -561,6 +561,118 @@ This source contains substantive readable evidence for a maintenance timeout tes
   assert.doesNotMatch(runOptions.prompt, /Follow the installed My Wiki Skill/);
 });
 
+test("Repair Agent fixes a needs-followup Raw and unlocks it only after formula revalidation", async (context) => {
+  const fixture = await createFixture(context);
+  const sourceFile = path.join(fixture.vault, "raw", "sources", "formula-repair.md");
+  const snapshotFile = path.join(fixture.vault, "raw", "snapshots", "formula-repair.pdf");
+  await mkdir(path.dirname(snapshotFile), { recursive: true });
+  await writeFile(snapshotFile, Buffer.from("preserved-pdf"));
+  await writeFile(sourceFile, `---
+title: Formula Repair
+type: raw-source
+source_type: pdf
+status: needs-followup
+needs_followup: true
+followup_reasons:
+  - "formula-strict-warning:pages=4"
+extraction_status: complete
+extraction_method: mineru
+extracted_characters: 240
+extraction_formula_risk_pages: "4"
+extraction_formula_strict_warning_pages: "4"
+extraction_formula_strict_warning_count: 1
+capture_method: dashboard-upload
+snapshot_path: raw/snapshots/formula-repair.pdf
+tags:
+  - raw
+  - needs-followup
+---
+
+# Formula Repair
+
+## Capture
+
+This page contains a substantive matrix example whose OCR layout must be repaired before maintenance.
+
+### Page 4
+
+$$
+\\begin{array}{c c} 1 & 2 & 3 \\end{array}
+$$
+
+## Processing Notes
+
+- Status: needs-followup
+- Follow-up reasons: formula-strict-warning:pages=4
+`, "utf8");
+
+  let runOptions;
+  const agentRunner = {
+    info: async () => ({
+      available: true,
+      provider: "opencode",
+      label: "OpenCode",
+      defaultProvider: "opencode",
+      providers: [{ provider: "opencode", label: "OpenCode" }],
+      message: ""
+    }),
+    run: async (options) => {
+      runOptions = options;
+      const current = await readFile(sourceFile, "utf8");
+      await writeFile(sourceFile, current.replace("\\begin{array}{c c}", "\\begin{array}{c c c}"), "utf8");
+      return {
+        summary: "Corrected the matrix column declaration.",
+        repairedIssues: ["Page 4 array column count"],
+        remainingIssues: []
+      };
+    }
+  };
+  const server = http.createServer(createDashboardApi({
+    dashboardRoot: fixture.dashboard,
+    formulaDependencyRoot: path.resolve("assets", "dashboard"),
+    port: 0,
+    agentRunner
+  }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+  const body = JSON.stringify({ path: "raw/sources/formula-repair.md", provider: "opencode" });
+  const queued = await request(port, "POST", "/api/v1/agent/repair", {
+    headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(body) },
+    body
+  });
+  assert.equal(queued.status, 202);
+  assert.equal(queued.body.type, "agent-repair");
+
+  let completed;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    completed = await request(port, "GET", `/api/v1/jobs/${queued.body.id}`, { headers: auth });
+    if (completed.body.status === "complete") break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  assert.equal(completed.body.status, "complete");
+  assert.equal(completed.body.result.unlocked, true, JSON.stringify(completed.body.result));
+  assert.equal(completed.body.result.status, "inbox");
+  assert.deepEqual(completed.body.result.remainingReasons, []);
+  assert.equal(runOptions.mode, "repair");
+  assert.equal(runOptions.idleTimeoutMs, 0);
+  assert.match(runOptions.prompt, /strict-warning/);
+  assert.match(runOptions.prompt, /Too few columns/);
+  assert.match(runOptions.prompt, /Edit only raw\/sources\/formula-repair\.md/);
+
+  const repaired = await readFile(sourceFile, "utf8");
+  assert.match(repaired, /^status: "?inbox"?$/m);
+  assert.match(repaired, /^needs_followup: false$/m);
+  assert.match(repaired, /^followup_reasons: \[\]$/m);
+  assert.match(repaired, /^extraction_formula_strict_warning_pages:\s*$/m);
+  assert.match(repaired, /^extraction_formula_strict_warning_count: 0$/m);
+  assert.match(repaired, /- Repair gate: passed and unlocked for maintenance/);
+});
+
 test("Viki binds a question to its dispatched provider and pauses only the matching job", async (context) => {
   const fixture = await createFixture(context);
   let runOptions;

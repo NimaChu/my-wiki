@@ -11,6 +11,7 @@ import {
 } from "./wiki-lib.mjs";
 import { validateUniverseName } from "./universe-registry.mjs";
 import { compactPageRanges } from "./pdf-quality.mjs";
+import { checkMarkdownFormulas, formulaGateFollowupReasons, shouldGateExtractedFormulas } from "./formula-gate.mjs";
 
 const DEFAULT_FETCH_BYTES = 100 * 1024 * 1024;
 
@@ -91,7 +92,10 @@ export async function captureSource({
     fetchMaxBytes,
     validateUrl
   });
-  const bodyContent = mirroredContent.markdown || originalFileNotice(snapshot?.path);
+  const formulaGate = extractionStatus && shouldGateExtractedFormulas({ extractionMethod, extractionQuality })
+    ? await checkMarkdownFormulas(mirroredContent.markdown, { repairSafeDelimiters: true })
+    : null;
+  const bodyContent = formulaGate?.markdown || mirroredContent.markdown || originalFileNotice(snapshot?.path);
   const attachmentFailures = requireLocalAttachments
     ? await localImageAttachmentFailures(target, bodyContent)
     : [];
@@ -100,6 +104,7 @@ export async function captureSource({
   const followupReasons = [];
   if (extractionStatus && extractionStatus !== "complete") followupReasons.push(`extraction:${extractionStatus}`);
   if (initialStatus === "needs-followup" && followupReasons.length === 0) followupReasons.push("capture:needs-followup");
+  followupReasons.push(...formulaGateFollowupReasons(formulaGate));
   for (const failure of attachmentFailures) followupReasons.push(`missing-attachment:${failure}`);
   const requiresFollowup = followupReasons.length > 0;
   const resolvedStatus = requiresFollowup ? "needs-followup" : "inbox";
@@ -108,13 +113,16 @@ export async function captureSource({
   if (mirroredContent.copied > 0 || explicitImages.length > 0 || embedded.copied > 0) tags.push("images");
   if (requiresFollowup) tags.push("needs-followup");
   const extractionFrontmatter = extractionStatus
-    ? `extraction_status: ${yamlString(extractionStatus)}\nextraction_method: ${yamlString(extractionMethod)}\nextraction_engine: ${yamlString(extractionEngine || extractionMethod)}\ntext_extraction: ${yamlString(textExtraction || extractionStatus)}\nextracted_pages: ${Number(extractedPages) || 0}\nextracted_characters: ${Number(extractedCharacters) || 0}\nextracted_units: ${Number(extractedUnits) || 0}\nextracted_unit_label: ${yamlString(extractedUnitLabel)}\nextraction_confidence: ${Number(extractionConfidence) || 0}\nextraction_quality: ${yamlString(extractionQuality?.level || "unknown")}\nextraction_quality_score: ${Number(extractionQuality?.score || 0)}\nextraction_low_quality_pages: ${yamlString(compactPageList(extractionQuality?.lowQualityPages))}\nextraction_degraded_pages: ${yamlString(compactPageList(extractionQuality?.degradedPages))}\nextraction_formula_risk_pages: ${yamlString(compactPageList(extractionQuality?.formulaRiskPages))}\nextraction_repetitive_hallucination_pages: ${yamlString(compactPageList(extractionQuality?.repetitiveHallucinationPages))}\nextraction_suppressed_hallucination_pages: ${yamlString(compactPageList(extractionQuality?.suppressedHallucinationPages))}\nextraction_blank_pages: ${yamlString(compactPageList(extractionQuality?.blankPages))}\nextraction_showthrough_pages: ${yamlString(compactPageList(extractionQuality?.showthroughPages))}\nextraction_visual_review_pages: ${yamlString(compactPageList(extractionQuality?.visualReviewPages))}\n`
+    ? `extraction_status: ${yamlString(extractionStatus)}\nextraction_method: ${yamlString(extractionMethod)}\nextraction_engine: ${yamlString(extractionEngine || extractionMethod)}\ntext_extraction: ${yamlString(textExtraction || extractionStatus)}\nextracted_pages: ${Number(extractedPages) || 0}\nextracted_characters: ${Number(extractedCharacters) || 0}\nextracted_units: ${Number(extractedUnits) || 0}\nextracted_unit_label: ${yamlString(extractedUnitLabel)}\nextraction_confidence: ${Number(extractionConfidence) || 0}\nextraction_quality: ${yamlString(extractionQuality?.level || "unknown")}\nextraction_quality_score: ${Number(extractionQuality?.score || 0)}\nextraction_low_quality_pages: ${yamlString(compactPageList(extractionQuality?.lowQualityPages))}\nextraction_degraded_pages: ${yamlString(compactPageList(extractionQuality?.degradedPages))}\nextraction_formula_risk_pages: ${yamlString(compactPageList(extractionQuality?.formulaRiskPages))}\nextraction_formula_syntax_error_pages: ${yamlString(compactPageList(formulaGate?.syntaxErrorPages))}\nextraction_formula_strict_warning_pages: ${yamlString(compactPageList(formulaGate?.strictWarningPages))}\nextraction_formula_repair_pages: ${yamlString(compactPageList(formulaGate?.repairPages))}\nextraction_formula_syntax_error_count: ${Number(formulaGate?.errors?.length || 0)}\nextraction_formula_strict_warning_count: ${Number(formulaGate?.strictWarnings?.length || 0)}\nextraction_repetitive_hallucination_pages: ${yamlString(compactPageList(extractionQuality?.repetitiveHallucinationPages))}\nextraction_suppressed_hallucination_pages: ${yamlString(compactPageList(extractionQuality?.suppressedHallucinationPages))}\nextraction_blank_pages: ${yamlString(compactPageList(extractionQuality?.blankPages))}\nextraction_showthrough_pages: ${yamlString(compactPageList(extractionQuality?.showthroughPages))}\nextraction_visual_review_pages: ${yamlString(compactPageList(extractionQuality?.visualReviewPages))}\n`
     : "";
   const extractionNote = extractionStatus
     ? `- Content extraction: ${extractionStatus} via ${extractionMethod || "local-parser"} (${Number(extractedCharacters) || 0} characters)\n`
     : "";
   const warningsNote = extractionWarnings.length ? `- Extraction warnings: ${extractionWarnings.join("; ")}\n` : "";
   const attachmentNote = attachmentFailures.length ? `- Missing local attachments: ${attachmentFailures.join("; ")}\n` : "";
+  const formulaNote = formulaGate
+    ? `- Formula gate: ${formulaGate.errors.length || formulaGate.strictWarnings.length ? `blocked (${formulaGate.errors.length} syntax errors, ${formulaGate.strictWarnings.length} strict warnings)` : "passed"}; checked ${formulaGate.checked}, safely repaired ${formulaGate.repairs.length}\n`
+    : "";
 
   const body = `---
 title: ${yamlString(title)}
@@ -175,7 +183,7 @@ ${[...embedded.images, ...explicitImages].length ? [...embedded.images, ...expli
 - Follow-up reasons: ${followupReasons.length ? followupReasons.join("; ") : "none"}
 ${extractionNote}- Mirrored inline images: ${mirroredContent.copied}
 - Embedded local assets: ${embedded.copied}
-${warningsNote}${attachmentNote}- Image mirror failures: ${mirroredContent.failures.length}
+${formulaNote}${warningsNote}${attachmentNote}- Image mirror failures: ${mirroredContent.failures.length}
 - Next action: compile durable ideas into wiki pages, close core related links, then mark processed.
 `;
 
@@ -204,6 +212,7 @@ ${warningsNote}${attachmentNote}- Image mirror failures: ${mirroredContent.failu
     extractionConfidence: Number(extractionConfidence) || 0,
     embeddedAssets: embedded.copied,
     attachmentFailures,
+    formulaGate,
     followupReasons,
     status: resolvedStatus
   };

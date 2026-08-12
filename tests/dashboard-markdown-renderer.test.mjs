@@ -15,7 +15,12 @@ test("Dashboard Markdown reader supports math and sanitized GFM or HTML tables",
   assert.match(component, /remarkPlugins=\{\[remarkGfm, remarkMath\]\}/);
   assert.match(component, /rehypePlugins=\{\[rehypeRaw, rehypeSanitize, rehypeKatex\]\}/);
   assert.match(component, /document-table-scroll/);
-  assert.match(main, /lazy\(\(\) => import\("\.\/RichMarkdown"\)\)/);
+  assert.match(main, /const richMarkdownModule = import\("\.\/RichMarkdown"\)/);
+  assert.match(main, /lazy\(\(\) => richMarkdownModule\)/);
+  assert.match(component, /markdownRenderChunks/);
+  assert.match(component, /startTransition/);
+  assert.match(component, /IntersectionObserver/);
+  assert.match(component, /document-render-progress/);
   assert.match(styles, /\.document-markdown \.katex-display/);
   for (const dependency of ["katex", "rehype-katex", "rehype-raw", "rehype-sanitize", "remark-gfm", "remark-math"]) {
     assert.ok(packageMetadata.dependencies[dependency], `missing Markdown renderer dependency: ${dependency}`);

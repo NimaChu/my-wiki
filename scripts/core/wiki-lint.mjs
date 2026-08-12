@@ -8,6 +8,7 @@ import {
   statsFromScan,
   wikiTopicPeerMap
 } from "./wiki-lib.mjs";
+import { checkMarkdownFormulas, shouldGateExtractedFormulas } from "./formula-gate.mjs";
 
 const scan = await scanVault();
 const stats = statsFromScan(scan);
@@ -27,6 +28,48 @@ const orphanedWiki = scan.nodes.filter((node) =>
   isWikiKnowledgeNode(node) &&
   wikiTopicPeers.get(node.id).size === 0
 );
+const formulaSyntaxIssues = [];
+const formulaStrictIssues = [];
+for (const node of scan.nodes.filter((candidate) =>
+  candidate.content.includes("$") &&
+  candidate.id.startsWith("raw/sources/") &&
+  shouldGateExtractedFormulas({
+    extractionMethod: candidate.frontmatter.extraction_method,
+    formulaRiskPages: candidate.frontmatter.extraction_formula_risk_pages
+  })
+)) {
+  const result = await checkMarkdownFormulas(node.content);
+  if (result.errors.length > 0) {
+    formulaSyntaxIssues.push({
+      source: node.path,
+      count: result.errors.length,
+      pages: result.syntaxErrorPages,
+      errors: result.errors.slice(0, 20).map((error) => ({
+        page: error.page || undefined,
+        line: error.line,
+        column: error.column,
+        message: error.message
+      })),
+      truncated: result.errors.length > 20
+    });
+  }
+  if (result.strictWarnings.length > 0) {
+    formulaStrictIssues.push({
+      source: node.path,
+      count: result.strictWarnings.length,
+      pages: result.strictWarningPages,
+      warnings: result.strictWarnings.slice(0, 50).map((warning) => ({
+        page: warning.page || undefined,
+        line: warning.line,
+        column: warning.column,
+        code: warning.code,
+        message: warning.message,
+        tex: String(warning.tex || "").slice(0, 500)
+      })),
+      truncated: result.strictWarnings.length > 50
+    });
+  }
+}
 
 const report = {
   vault: scan.vault,
@@ -36,6 +79,8 @@ const report = {
   processedRawIssues: processedRawIssues(scan),
   rawLayoutIssues: rawLayoutIssues(scan),
   rawAttachmentIssues: await rawAttachmentIssues(scan),
+  formulaSyntaxIssues,
+  formulaStrictIssues,
   orphanedWiki: orphanedWiki.map((node) => node.path),
   weakWiki: weakWiki.map((node) => node.path),
   missingClaimSources: missingClaimSources.map((node) => node.path),

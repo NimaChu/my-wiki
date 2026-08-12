@@ -23,7 +23,7 @@ export type UniverseSummary = {
 
 export type Job = {
   id: string;
-  type: "capture-file" | "export" | "import-preview" | "import-apply" | "agent-maintenance" | "agent-answer";
+  type: "capture-file" | "export" | "import-preview" | "import-apply" | "agent-maintenance" | "agent-repair" | "agent-answer";
   meta: Record<string, any>;
   status: "queued" | "running" | "complete" | "failed" | "cancelled";
   createdAt: string;
@@ -83,6 +83,17 @@ export type MaintenanceResult = {
   createdWiki: string[];
   updatedWiki: string[];
   remainingNotes: string;
+  lintIssues: number;
+};
+
+export type RepairResult = {
+  summary: string;
+  path: string;
+  unlocked: boolean;
+  status: "inbox" | "needs-followup";
+  repairedIssues: string[];
+  remainingIssues: string[];
+  remainingReasons: string[];
   lintIssues: number;
 };
 
@@ -225,6 +236,15 @@ export const localApi = {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ paths, batchSize, provider })
+    });
+    return response.json() as Promise<Job>;
+  },
+
+  async repair(path: string, provider = "") {
+    const response = await apiFetch("/api/v1/agent/repair", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path, provider })
     });
     return response.json() as Promise<Job>;
   },
