@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { TOOL_ROOT, resolveVaultPath } from "./vault-config.mjs";
+import { unicodeReplacementReport } from "./content-integrity.mjs";
 
 export const DEFAULT_VAULT = TOOL_ROOT;
 
@@ -102,6 +103,77 @@ export function parseFrontmatter(content) {
     }
   }
   return data;
+}
+
+const GUARDED_FRONTMATTER_FIELDS = new Set(["title", "universes", "universe", "group"]);
+
+function frontmatterScalarIssue(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (/\\["']|["']\\/.test(text)) return "escaped-quote";
+  if (/^\\|\\$/.test(text)) return "boundary-backslash";
+  if (text.startsWith("[") && text.endsWith("]")) {
+    for (const item of text.slice(1, -1).split(",")) {
+      const reason = frontmatterScalarIssue(item);
+      if (reason) return reason;
+    }
+    return "";
+  }
+  const first = text[0];
+  const last = text[text.length - 1];
+  const firstQuote = first === '"' || first === "'";
+  const lastQuote = last === '"' || last === "'";
+  if (firstQuote !== lastQuote || (firstQuote && first !== last)) return "unbalanced-quote";
+  return "";
+}
+
+export function frontmatterMetadataIssues(scan, { paths } = {}) {
+  const allowedPaths = paths ? new Set(paths) : null;
+  const issues = [];
+  for (const node of scan.nodes || []) {
+    if (!node.id.startsWith("wiki/") || (allowedPaths && !allowedPaths.has(node.path))) continue;
+    const bounds = frontmatterBounds(node.content);
+    if (!bounds) continue;
+    let key = "";
+    for (const line of node.content.slice(bounds.dataStart, bounds.dataEnd).split(/\r?\n/)) {
+      const keyMatch = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+      if (keyMatch) {
+        key = keyMatch[1];
+        const raw = keyMatch[2].trim();
+        if (raw && GUARDED_FRONTMATTER_FIELDS.has(key)) {
+          const reason = frontmatterScalarIssue(raw);
+          if (reason) issues.push({ source: node.path, field: key, value: raw, reason });
+        }
+        continue;
+      }
+      const item = line.match(/^\s*-\s+(.*)$/);
+      if (item && GUARDED_FRONTMATTER_FIELDS.has(key)) {
+        const raw = item[1].trim();
+        const reason = frontmatterScalarIssue(raw);
+        if (reason) issues.push({ source: node.path, field: key, value: raw, reason });
+      }
+    }
+  }
+  return issues;
+}
+
+export function normalizeEscapedFrontmatterQuotes(content) {
+  const bounds = frontmatterBounds(content);
+  if (!bounds) return content;
+  const newline = content.includes("\r\n") ? "\r\n" : "\n";
+  const lines = content.slice(bounds.dataStart, bounds.dataEnd).split(/\r?\n/);
+  let changed = false;
+  const normalized = lines.map((line) => {
+    const match = line.match(/^(\s*(?:[A-Za-z0-9_-]+:\s*|-\s+))(.*)$/);
+    if (!match) return line;
+    const value = match[2].trim();
+    const escaped = value.match(/^\\(["'])([\s\S]*)\\\1$/);
+    if (!escaped) return line;
+    changed = true;
+    return match[1] + escaped[1] + escaped[2] + escaped[1];
+  });
+  if (!changed) return content;
+  return content.slice(0, bounds.dataStart) + normalized.join(newline) + content.slice(bounds.dataEnd);
 }
 
 export function parseScalar(value) {
@@ -389,6 +461,15 @@ export function processedRawIssues(scan) {
       if (resolvedRelated.length > 0 && !hasWikiBacklink) issues.push({ source: node.id, reason: "missing-wiki-backlink" });
       if (String(node.frontmatter.needs_followup || "") === "true") issues.push({ source: node.id, reason: "explicit-followup" });
       if (!rawHasReadableContent(node)) issues.push({ source: node.id, reason: "missing-readable-content" });
+      const unicodeReplacementGate = unicodeReplacementReport(node.content, { captureOnly: true });
+      if (unicodeReplacementGate.blocked) {
+        issues.push({
+          source: node.id,
+          reason: "unicode-replacement-character",
+          count: unicodeReplacementGate.count,
+          pages: unicodeReplacementGate.pages
+        });
+      }
       return issues;
     });
 }

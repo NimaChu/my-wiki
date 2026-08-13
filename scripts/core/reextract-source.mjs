@@ -6,6 +6,7 @@ import { extractLocalDocument } from "./document-extractor.mjs";
 import { materializeEmbeddedAssets } from "./capture-service.mjs";
 import { compactPageRanges } from "./pdf-quality.mjs";
 import { checkMarkdownFormulas, formulaGateBlocked, formulaGateFollowupReasons, shouldGateExtractedFormulas } from "./formula-gate.mjs";
+import { unicodeReplacementFollowupReasons, unicodeReplacementNote, unicodeReplacementReport } from "./content-integrity.mjs";
 import { appendLog, asArray, scanVault, upsertFrontmatterValues, vaultPath } from "./wiki-lib.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -49,18 +50,21 @@ export async function reextractSources({ vault = vaultPath(), source = "", allFo
     const formulaGate = shouldGateExtractedFormulas({ extractionMethod: extracted.method, extractionQuality: extracted.quality })
       ? await checkMarkdownFormulas(restored.content, { dependencyRoot, repairSafeDelimiters: true })
       : null;
+    const finalContent = formulaGatedMarkdown(restored.content, formulaGate);
+    const unicodeReplacementGate = unicodeReplacementReport(finalContent);
     const updated = applyExtractionToRawNote(node.content, {
       ...extracted,
-      content: formulaGatedMarkdown(restored.content, formulaGate),
+      content: finalContent,
       assetCount: Math.max(indexedImages.length, materialized.copied),
       restoredAssetReferences: restored.inserted,
-      formulaGate
+      formulaGate,
+      unicodeReplacementGate
     });
     await fs.writeFile(node.file, updated, "utf8");
     await appendLog(`REEXTRACT_RAW source="${node.path}" status="${extracted.status}" method="${extracted.method}"`, vault);
     results.push({
       path: node.path,
-      status: extracted.status === "complete" && !formulaGateBlocked(formulaGate) ? "inbox" : "needs-followup",
+      status: extracted.status === "complete" && !formulaGateBlocked(formulaGate) && !unicodeReplacementGate.blocked ? "inbox" : "needs-followup",
       extractionStatus: extracted.status,
       extractionMethod: extracted.method,
       extractedPages: extracted.pages,
@@ -82,7 +86,9 @@ export function formulaGatedMarkdown(content, formulaGate) {
 export function applyExtractionToRawNote(content, extracted) {
   const extractionComplete = extracted.status === "complete";
   const formulaReasons = formulaGateFollowupReasons(extracted.formulaGate);
-  const complete = extractionComplete && formulaReasons.length === 0;
+  const unicodeReplacementGate = extracted.unicodeReplacementGate || unicodeReplacementReport(extracted.content || "");
+  const encodingReasons = unicodeReplacementFollowupReasons(unicodeReplacementGate);
+  const complete = extractionComplete && formulaReasons.length === 0 && encodingReasons.length === 0;
   const existingTags = asArray(frontmatterValue(content, "tags"));
   const tags = [...new Set(existingTags.filter((tag) => tag !== "needs-followup"))];
   if (!complete) tags.push("needs-followup");
@@ -92,7 +98,7 @@ export function applyExtractionToRawNote(content, extracted) {
     needs_followup: !complete,
     followup_reasons: complete
       ? []
-      : [...(!extractionComplete ? [`extraction:${extracted.status}`] : []), ...formulaReasons],
+      : [...(!extractionComplete ? [`extraction:${extracted.status}`] : []), ...formulaReasons, ...encodingReasons],
     extraction_status: extracted.status,
     extraction_method: extracted.method,
     text_extraction: extracted.status,
@@ -106,6 +112,8 @@ export function applyExtractionToRawNote(content, extracted) {
     extraction_quality_score: Number(extracted.quality?.score || 0),
     extraction_low_quality_pages: compactPageList(extracted.quality?.lowQualityPages),
     extraction_degraded_pages: compactPageList(extracted.quality?.degradedPages),
+    extraction_unicode_replacement_pages: compactPageList(unicodeReplacementGate.pages),
+    extraction_unicode_replacement_count: Number(unicodeReplacementGate.count || 0),
     extraction_formula_risk_pages: compactPageList(extracted.quality?.formulaRiskPages),
     extraction_formula_syntax_error_pages: compactPageList(extracted.formulaGate?.syntaxErrorPages),
     extraction_formula_strict_warning_pages: compactPageList(extracted.formulaGate?.strictWarningPages),
@@ -158,15 +166,18 @@ function replaceMarkdownSection(content, heading, body) {
 function updateProcessingNotes(content, extracted, complete) {
   const status = complete ? "inbox" : "needs-followup";
   const formulaReasons = formulaGateFollowupReasons(extracted.formulaGate);
+  const unicodeReplacementGate = extracted.unicodeReplacementGate || unicodeReplacementReport(extracted.content || "");
+  const encodingReasons = unicodeReplacementFollowupReasons(unicodeReplacementGate);
   const reasons = complete
     ? "none"
-    : [...(extracted.status !== "complete" ? [`extraction:${extracted.status}`] : []), ...formulaReasons].join("; ");
+    : [...(extracted.status !== "complete" ? [`extraction:${extracted.status}`] : []), ...formulaReasons, ...encodingReasons].join("; ");
   const warnings = [...new Set((Array.isArray(extracted.warnings) ? extracted.warnings : []).map(String).filter(Boolean))];
   const deterministic = [
     `- Status: ${status}`,
     `- Follow-up reasons: ${reasons}`,
     `- Content extraction: ${extracted.status} via ${extracted.method || "local-parser"} (${Number(extracted.characters || 0)} characters)`,
     `- Formula gate: ${formulaGateBlocked(extracted.formulaGate) ? `blocked (${Number(extracted.formulaGate?.errors?.length || 0)} syntax errors, ${Number(extracted.formulaGate?.strictWarnings?.length || 0)} strict warnings)` : "passed"}; checked ${Number(extracted.formulaGate?.checked || 0)}, safely repaired ${Number(extracted.formulaGate?.repairs?.length || 0)}`,
+    `- Encoding gate: ${unicodeReplacementNote(unicodeReplacementGate)}`,
     ...(warnings.length ? [`- Extraction warnings: ${warnings.join("; ")}`] : []),
     `- Embedded local assets: ${Number(extracted.assetCount || 0)}`
   ];
@@ -178,7 +189,7 @@ function updateProcessingNotes(content, extracted, complete) {
   const bodyEnd = nextHeading < 0 ? content.length : bodyStart + nextHeading;
   const preserved = content.slice(bodyStart, bodyEnd)
     .split(/\r?\n/)
-    .filter((line) => !/^-(?: Status| Follow-up reasons| Content extraction| Formula(?: syntax)? gate| Extraction warnings| Embedded local assets):/.test(line))
+    .filter((line) => !/^-(?: Status| Follow-up reasons| Content extraction| Formula(?: syntax)? gate| Encoding gate| Extraction warnings| Embedded local assets):/.test(line))
     .join("\n")
     .trim();
   const replacement = `${marker[0]}\n\n${deterministic.join("\n")}${preserved ? `\n${preserved}` : ""}\n\n`;

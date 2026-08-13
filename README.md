@@ -180,7 +180,9 @@ My Wiki 不是给每份文档生成一段摘要。一份资料可以更新多个
 npm run pdf:setup
 ```
 
-该命令安装项目验证过的 MinerU 版本，模型文件由 MinerU 首次使用时下载。MinerU 默认使用 `hybrid-engine` 的 `medium` 档位。可通过 `MY_WIKI_PDF_ENGINE=mineru` 强制使用，通过 `MY_WIKI_PDF_ENGINE=tesseract` 禁用自动调用；`MY_WIKI_MINERU_BACKEND`、`MY_WIKI_MINERU_EFFORT` 和 `MY_WIKI_MINERU_LANGUAGE` 可覆盖后端、精度档位和文档语言。MinerU 前会以低分辨率分析扫描页的墨迹覆盖、对比度和相邻页镜像相关性，识别空白污点与背面透印，并结合 OCR 文本密度和模板重复抑制页面级幻觉；可用 `MY_WIKI_PDF_VISUAL_GATE=0` 禁用该门禁，或在一次捕获/重提取前通过 `MY_WIKI_PDF_BLANK_PAGES=9,177` 显式指定已确认的空白页。MinerU 是可选外部工具，不影响未安装它的系统使用基础功能；但公式密集或扫描教材应先运行 `npm run pdf:setup`，不要把轻量回退结果当作高保真证据。
+该命令安装项目验证过的 MinerU 版本，模型文件由 MinerU 首次使用时下载。检测到 MinerU 后，自动 PDF 提取会优先采用它的版面、公式和表格解析结果，只有 MinerU 不可用或失败时才回退轻量解析器。MinerU 默认使用 `hybrid-engine` 的 `medium` 档位。可通过 `MY_WIKI_PDF_ENGINE=mineru` 强制使用，通过 `MY_WIKI_PDF_ENGINE=tesseract` 禁用自动调用；`MY_WIKI_MINERU_BACKEND`、`MY_WIKI_MINERU_EFFORT` 和 `MY_WIKI_MINERU_LANGUAGE` 可覆盖后端、精度档位和文档语言。MinerU 前会以低分辨率分析扫描页的墨迹覆盖、对比度和相邻页镜像相关性，识别空白污点与背面透印，并结合 OCR 文本密度和模板重复抑制页面级幻觉；可用 `MY_WIKI_PDF_VISUAL_GATE=0` 禁用该门禁，或在一次捕获/重提取前通过 `MY_WIKI_PDF_BLANK_PAGES=9,177` 显式指定已确认的空白页。MinerU 是可选外部工具，不影响未安装它的系统使用基础功能；但公式密集或扫描教材应先运行 `npm run pdf:setup`，不要把轻量回退结果当作高保真证据。
+
+最终写入 Raw 的 `## Capture` 正文还会执行编码完整性门禁。任何 U+FFFD 替换字符都会按页记录并将 Raw 锁定为 `needs-followup`；捕获、重提取、Agent 修复、维护预检和 `lint` 都会重复验证，避免后续写回造成的乱码沿用旧质量分数。
 
 ## 与 RAG、LLM + Obsidian 的区别
 

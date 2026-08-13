@@ -60,15 +60,21 @@ export async function extractLocalDocument({ file, filename = path.basename(file
   }
 }
 
-async function extractPdfWithOcrFallback({ file, dependencyRoot, cacheRoot }) {
-  const engine = String(process.env.MY_WIKI_PDF_ENGINE || "auto").trim().toLowerCase();
-  const parsed = await extractPdfMarkdown({ file, dependencyRoot });
-  if (engine === "mineru") return normalizeMineruResult(await extractPdfWithMineru({ file, pages: parsed.pages, cacheRoot, dependencyRoot }));
-  if (parsed.status === "complete" && isMeaningful(parsed.content) && parsed.quality?.level === "good") {
-    return success({ ...parsed, engine: "pdfjs", method: "pdf-text", units: parsed.pages, unitLabel: "pages" });
+export async function extractPdfWithOcrFallback({
+  file,
+  dependencyRoot,
+  cacheRoot,
+  environment = process.env,
+  extractPdf = extractPdfMarkdown,
+  extractMineru = extractPdfWithMineru
+}) {
+  const engine = String(environment.MY_WIKI_PDF_ENGINE || "auto").trim().toLowerCase();
+  const parsed = await extractPdf({ file, dependencyRoot });
+  if (engine === "mineru") {
+    return normalizeMineruResult(await extractMineru({ file, pages: parsed.pages, cacheRoot, dependencyRoot, environment }));
   }
   if (engine === "auto") {
-    const mineru = await extractPdfWithMineru({ file, pages: parsed.pages, cacheRoot, dependencyRoot });
+    const mineru = await extractMineru({ file, pages: parsed.pages, cacheRoot, dependencyRoot, environment });
     if (mineru.status === "complete") return success(mineru);
     if (parsed.status === "complete" && isMeaningful(parsed.content)) {
       const warnings = [...(parsed.warnings || []), mineru.status === "unavailable" ? "MinerU is not installed; degraded pages use the lightweight PDF text layer." : mineru.message].filter(Boolean);

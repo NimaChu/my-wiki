@@ -3,7 +3,7 @@ import test from "node:test";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pdfOcrSettings } from "../scripts/core/document-extractor.mjs";
+import { extractPdfWithOcrFallback, pdfOcrSettings } from "../scripts/core/document-extractor.mjs";
 import { insertPageAssetReferences, mineruEntriesToMarkdown, readMineruOutput, relationshipDiagramPages } from "../scripts/core/mineru-extractor.mjs";
 import { assessPdfPage, cleanExtractedPageText, compactPageRanges, summarizePdfQuality } from "../scripts/core/pdf-quality.mjs";
 import { classifyPdfVisualPages, parsePageRanges, pdfVisualGateSettings } from "../scripts/core/pdf-visual-gate.mjs";
@@ -49,6 +49,45 @@ test("page quality gate suppresses extreme repetitive OCR hallucinations", () =>
   assert.equal(hallucinated.repetitiveHallucination, true);
   assert.match(hallucinated.text, /output suppressed/);
   assert.deepEqual(summary.repetitiveHallucinationPages, [9]);
+});
+
+test("automatic PDF extraction prefers an available MinerU result even when PDF.js reports good text", async () => {
+  const calls = [];
+  const result = await extractPdfWithOcrFallback({
+    file: "textbook.pdf",
+    dependencyRoot: "dependencies",
+    cacheRoot: "cache",
+    environment: {},
+    extractPdf: async () => {
+      calls.push("pdfjs");
+      return {
+        status: "complete",
+        content: "Readable but structurally flattened PDF.js textbook content.",
+        pages: 10,
+        quality: { level: "good" }
+      };
+    },
+    extractMineru: async ({ pages, environment }) => {
+      calls.push("mineru");
+      assert.equal(pages, 10);
+      assert.deepEqual(environment, {});
+      return {
+        status: "complete",
+        method: "mineru",
+        engine: "mineru",
+        content: "## Structured MinerU textbook content with formulas and tables.",
+        pages: 10,
+        characters: 58,
+        quality: { level: "good", score: 96 }
+      };
+    }
+  });
+
+  assert.deepEqual(calls, ["pdfjs", "mineru"]);
+  assert.equal(result.status, "complete");
+  assert.equal(result.engine, "mineru");
+  assert.equal(result.method, "mineru");
+  assert.match(result.content, /Structured MinerU/);
 });
 
 test("page quality gate catches templated repetition with changing numbers", () => {

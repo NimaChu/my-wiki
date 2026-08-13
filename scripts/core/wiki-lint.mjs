@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {
+  frontmatterMetadataIssues,
   isWikiKnowledgeNode,
   processedRawIssues,
   rawAttachmentIssues,
@@ -9,12 +10,14 @@ import {
   wikiTopicPeerMap
 } from "./wiki-lib.mjs";
 import { checkMarkdownFormulas, shouldGateExtractedFormulas } from "./formula-gate.mjs";
+import { unicodeReplacementReport } from "./content-integrity.mjs";
 
 const scan = await scanVault();
 const stats = statsFromScan(scan);
 const missingFrontmatter = scan.nodes.filter((node) => Object.keys(node.frontmatter).length === 0);
 const missingStatus = scan.nodes.filter((node) => !node.frontmatter.status);
 const missingType = scan.nodes.filter((node) => !node.frontmatter.type);
+const malformedFrontmatterMetadata = frontmatterMetadataIssues(scan);
 const missingClaimSources = scan.nodes.filter((node) =>
   isWikiKnowledgeNode(node) &&
   node.sourceLinks.length === 0
@@ -30,6 +33,18 @@ const orphanedWiki = scan.nodes.filter((node) =>
 );
 const formulaSyntaxIssues = [];
 const formulaStrictIssues = [];
+const unicodeReplacementIssues = [];
+for (const node of scan.nodes.filter((candidate) => candidate.id.startsWith("raw/sources/"))) {
+  const result = unicodeReplacementReport(node.content, { captureOnly: true });
+  if (!result.blocked) continue;
+  unicodeReplacementIssues.push({
+    source: node.path,
+    count: result.count,
+    pages: result.pages,
+    affectedPages: result.affectedPages,
+    unpagedCount: result.unpagedCount
+  });
+}
 for (const node of scan.nodes.filter((candidate) =>
   candidate.content.includes("$") &&
   candidate.id.startsWith("raw/sources/") &&
@@ -81,6 +96,8 @@ const report = {
   rawAttachmentIssues: await rawAttachmentIssues(scan),
   formulaSyntaxIssues,
   formulaStrictIssues,
+  unicodeReplacementIssues,
+  malformedFrontmatterMetadata,
   orphanedWiki: orphanedWiki.map((node) => node.path),
   weakWiki: weakWiki.map((node) => node.path),
   missingClaimSources: missingClaimSources.map((node) => node.path),

@@ -628,6 +628,108 @@ This source contains substantive readable evidence for a maintenance timeout tes
   assert.doesNotMatch(runOptions.prompt, /Follow the installed My Wiki Skill/);
 });
 
+test("Maintenance normalizes escaped Wiki metadata and rejects residual malformed frontmatter", async (context) => {
+  const fixture = await createFixture(context);
+  const sourceFile = path.join(fixture.vault, "raw", "sources", "metadata-gate-source.md");
+  const normalizedWikiFile = path.join(fixture.vault, "wiki", "normalized-topic.md");
+  const rejectedWikiFile = path.join(fixture.vault, "wiki", "rejected-topic.md");
+  await writeFile(sourceFile, [
+    "---",
+    "title: Metadata Gate Source",
+    "status: inbox",
+    "type: raw-source",
+    "source_type: webpage",
+    "capture_method: dashboard-url",
+    "captured: 2026-08-12T00:00:00.000Z",
+    "---",
+    "# Metadata Gate Source",
+    "",
+    "## Capture",
+    "",
+    "This source contains substantive readable evidence for metadata postflight testing.",
+    ""
+  ].join("\n"), "utf8");
+  const agentRunner = {
+    info: async () => ({
+      available: true,
+      provider: "opencode",
+      label: "OpenCode",
+      defaultProvider: "opencode",
+      providers: [{ provider: "opencode", label: "OpenCode" }],
+      message: ""
+    }),
+    run: async () => {
+      const raw = await readFile(sourceFile, "utf8");
+      await writeFile(sourceFile, raw.replace("status: inbox", "status: processed"), "utf8");
+      await writeFile(normalizedWikiFile, [
+        "---",
+        "title: \\\"Calculus\\\"",
+        "type: concept",
+        "status: active",
+        "universes:",
+        "  - \\\"数学\\\"",
+        "sources:",
+        "  - \\\"[[raw/sources/metadata-gate-source]]\\\"",
+        "---",
+        "# Calculus",
+        ""
+      ].join("\n"), "utf8");
+      await writeFile(rejectedWikiFile, [
+        "---",
+        "title: \\\\Rejected",
+        "type: concept",
+        "status: active",
+        "universes:",
+        "  - \"数学\"",
+        "---",
+        "# Rejected",
+        ""
+      ].join("\n"), "utf8");
+      return {
+        summary: "Created Wiki pages.",
+        processed: ["raw/sources/metadata-gate-source.md"],
+        createdWiki: ["wiki/normalized-topic.md", "wiki/rejected-topic.md"],
+        updatedWiki: [],
+        remainingNotes: ""
+      };
+    }
+  };
+  const server = http.createServer(createDashboardApi({ dashboardRoot: fixture.dashboard, port: 0, agentRunner }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+  const body = JSON.stringify({ paths: ["raw/sources/metadata-gate-source.md"], batchSize: 1, provider: "opencode" });
+  const queued = await request(port, "POST", "/api/v1/agent/maintenance", {
+    headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(body) },
+    body
+  });
+
+  let completed;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    completed = await request(port, "GET", "/api/v1/jobs/" + queued.body.id, { headers: auth });
+    if (completed.body.status === "complete") break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  assert.equal(completed.body.status, "complete");
+  assert.equal(completed.body.result.postflightPassed, false);
+  assert.deepEqual(completed.body.result.processed, []);
+  assert.deepEqual(completed.body.result.createdWiki, []);
+  assert.equal(completed.body.result.frontmatterMetadataIssues.length, 1);
+  assert.equal(completed.body.result.frontmatterMetadataIssues[0].reason, "boundary-backslash");
+  assert.match(completed.body.result.summary, /postflight rejected malformed Wiki frontmatter/);
+  assert.match(await readFile(sourceFile, "utf8"), /^status: "inbox"$|^status: inbox$/m);
+
+  const normalized = await readFile(normalizedWikiFile, "utf8");
+  assert.match(normalized, /^title: "Calculus"$/m);
+  assert.match(normalized, /^  - "数学"$/m);
+  assert.match(normalized, /^  - "\[\[raw\/sources\/metadata-gate-source\]\]"$/m);
+  assert.doesNotMatch(normalized, /\\"/);
+});
+
 test("Repair Agent fixes a needs-followup Raw and unlocks it only after formula revalidation", async (context) => {
   const fixture = await createFixture(context);
   const sourceFile = path.join(fixture.vault, "raw", "sources", "formula-repair.md");
@@ -642,6 +744,7 @@ status: needs-followup
 needs_followup: true
 followup_reasons:
   - "formula-strict-warning:pages=4"
+  - "encoding:unicode-replacement-character:count=1:pages=4"
 extraction_status: complete
 extraction_method: mineru
 extracted_characters: 240
@@ -659,7 +762,7 @@ tags:
 
 ## Capture
 
-This page contains a substantive matrix example whose OCR layout must be repaired before maintenance.
+This page contains a substantive matrix exa�mple whose OCR layout must be repaired before maintenance.
 
 ### Page 4
 
@@ -686,7 +789,9 @@ $$
     run: async (options) => {
       runOptions = options;
       const current = await readFile(sourceFile, "utf8");
-      await writeFile(sourceFile, current.replace("\\begin{array}{c c}", "\\begin{array}{c c c}"), "utf8");
+      await writeFile(sourceFile, current
+        .replace("\\begin{array}{c c}", "\\begin{array}{c c c}")
+        .replace("exa�mple", "example"), "utf8");
       return {
         summary: "Corrected the matrix column declaration.",
         repairedIssues: ["Page 4 array column count"],
@@ -737,6 +842,9 @@ $$
   assert.match(repaired, /^followup_reasons: \[\]$/m);
   assert.match(repaired, /^extraction_formula_strict_warning_pages:\s*$/m);
   assert.match(repaired, /^extraction_formula_strict_warning_count: 0$/m);
+  assert.match(repaired, /^extraction_unicode_replacement_pages:\s*$/m);
+  assert.match(repaired, /^extraction_unicode_replacement_count: 0$/m);
+  assert.match(repaired, /- Encoding gate: passed \(0 U\+FFFD characters\)/);
   assert.match(repaired, /- Repair gate: passed and unlocked for maintenance/);
 });
 
