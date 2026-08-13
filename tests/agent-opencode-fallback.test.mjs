@@ -338,7 +338,7 @@ process.exit(1);
   }
 });
 
-test("Qoder uses bounded read-only tools for Viki and workspace edits for maintenance", async () => {
+test("Qoder uses bounded read-only tools for Viki and workspace edits for maintenance or repair", async () => {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-qoder-test-"));
   const command = path.join(temporary, "qoderclicn-test.cjs");
   const attempts = path.join(temporary, "attempts.log");
@@ -383,8 +383,9 @@ process.stdout.write(JSON.stringify({ answer: "qoder worked" }));
     };
     assert.deepEqual(await runner.run({ ...options, mode: "query" }), { answer: "qoder worked" });
     assert.deepEqual(await runner.run({ ...options, mode: "maintenance" }), { answer: "qoder worked" });
+    assert.deepEqual(await runner.run({ ...options, mode: "repair" }), { answer: "qoder worked" });
 
-    const [queryArgs, maintenanceArgs] = (await fs.readFile(attempts, "utf8"))
+    const [queryArgs, maintenanceArgs, repairArgs] = (await fs.readFile(attempts, "utf8"))
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
@@ -402,6 +403,11 @@ process.stdout.write(JSON.stringify({ answer: "qoder worked" }));
       ["--tools", "Read", "Grep", "Glob", "Edit", "Write"]
     );
     assert.equal(maintenanceArgs[maintenanceArgs.indexOf("--permission-mode") + 1], "accept_edits");
+    assert.deepEqual(
+      repairArgs.slice(10, repairArgs.indexOf("--")),
+      ["--tools", "Read", "Grep", "Glob", "Edit", "Write"]
+    );
+    assert.equal(repairArgs[repairArgs.indexOf("--permission-mode") + 1], "accept_edits");
   } finally {
     await fs.rm(temporary, { recursive: true, force: true });
   }

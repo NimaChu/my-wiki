@@ -251,6 +251,7 @@ async function main() {
         universes: inferUniverses(id, frontmatter, group),
         status: String(frontmatter.status || "unknown"),
         tags: asArray(frontmatter.tags),
+        followupReasons: asArray(frontmatter.followup_reasons),
         content: wikiContentForGraph(id, content),
         supersededBy: String(frontmatter.superseded_by || ""),
         aliases: asArray(frontmatter.aliases),

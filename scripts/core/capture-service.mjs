@@ -10,6 +10,9 @@ import {
   yamlString
 } from "./wiki-lib.mjs";
 import { validateUniverseName } from "./universe-registry.mjs";
+import { compactPageRanges } from "./pdf-quality.mjs";
+import { checkMarkdownFormulas, formulaGateFollowupReasons, shouldGateExtractedFormulas } from "./formula-gate.mjs";
+import { unicodeReplacementFollowupReasons, unicodeReplacementNote, unicodeReplacementReport } from "./content-integrity.mjs";
 
 const DEFAULT_FETCH_BYTES = 100 * 1024 * 1024;
 
@@ -90,7 +93,11 @@ export async function captureSource({
     fetchMaxBytes,
     validateUrl
   });
-  const bodyContent = mirroredContent.markdown || originalFileNotice(snapshot?.path);
+  const formulaGate = extractionStatus && shouldGateExtractedFormulas({ extractionMethod, extractionQuality })
+    ? await checkMarkdownFormulas(mirroredContent.markdown, { repairSafeDelimiters: true })
+    : null;
+  const bodyContent = formulaGate?.markdown || mirroredContent.markdown || originalFileNotice(snapshot?.path);
+  const unicodeReplacementGate = extractionStatus ? unicodeReplacementReport(bodyContent) : null;
   const attachmentFailures = requireLocalAttachments
     ? await localImageAttachmentFailures(target, bodyContent)
     : [];
@@ -99,6 +106,8 @@ export async function captureSource({
   const followupReasons = [];
   if (extractionStatus && extractionStatus !== "complete") followupReasons.push(`extraction:${extractionStatus}`);
   if (initialStatus === "needs-followup" && followupReasons.length === 0) followupReasons.push("capture:needs-followup");
+  followupReasons.push(...formulaGateFollowupReasons(formulaGate));
+  followupReasons.push(...unicodeReplacementFollowupReasons(unicodeReplacementGate));
   for (const failure of attachmentFailures) followupReasons.push(`missing-attachment:${failure}`);
   const requiresFollowup = followupReasons.length > 0;
   const resolvedStatus = requiresFollowup ? "needs-followup" : "inbox";
@@ -107,13 +116,19 @@ export async function captureSource({
   if (mirroredContent.copied > 0 || explicitImages.length > 0 || embedded.copied > 0) tags.push("images");
   if (requiresFollowup) tags.push("needs-followup");
   const extractionFrontmatter = extractionStatus
-    ? `extraction_status: ${yamlString(extractionStatus)}\nextraction_method: ${yamlString(extractionMethod)}\nextraction_engine: ${yamlString(extractionEngine || extractionMethod)}\ntext_extraction: ${yamlString(textExtraction || extractionStatus)}\nextracted_pages: ${Number(extractedPages) || 0}\nextracted_characters: ${Number(extractedCharacters) || 0}\nextracted_units: ${Number(extractedUnits) || 0}\nextracted_unit_label: ${yamlString(extractedUnitLabel)}\nextraction_confidence: ${Number(extractionConfidence) || 0}\nextraction_quality: ${yamlString(extractionQuality?.level || "unknown")}\nextraction_quality_score: ${Number(extractionQuality?.score || 0)}\nextraction_low_quality_pages: ${yamlString(compactPageList(extractionQuality?.lowQualityPages))}\nextraction_degraded_pages: ${yamlString(compactPageList(extractionQuality?.degradedPages))}\nextraction_formula_risk_pages: ${yamlString(compactPageList(extractionQuality?.formulaRiskPages))}\nextraction_repetitive_hallucination_pages: ${yamlString(compactPageList(extractionQuality?.repetitiveHallucinationPages))}\n`
+    ? `extraction_status: ${yamlString(extractionStatus)}\nextraction_method: ${yamlString(extractionMethod)}\nextraction_engine: ${yamlString(extractionEngine || extractionMethod)}\ntext_extraction: ${yamlString(textExtraction || extractionStatus)}\nextracted_pages: ${Number(extractedPages) || 0}\nextracted_characters: ${Number(extractedCharacters) || 0}\nextracted_units: ${Number(extractedUnits) || 0}\nextracted_unit_label: ${yamlString(extractedUnitLabel)}\nextraction_confidence: ${Number(extractionConfidence) || 0}\nextraction_quality: ${yamlString(extractionQuality?.level || "unknown")}\nextraction_quality_score: ${Number(extractionQuality?.score || 0)}\nextraction_low_quality_pages: ${yamlString(compactPageList(extractionQuality?.lowQualityPages))}\nextraction_degraded_pages: ${yamlString(compactPageList(extractionQuality?.degradedPages))}\nextraction_unicode_replacement_pages: ${yamlString(compactPageList(unicodeReplacementGate?.pages))}\nextraction_unicode_replacement_count: ${Number(unicodeReplacementGate?.count || 0)}\nextraction_formula_risk_pages: ${yamlString(compactPageList(extractionQuality?.formulaRiskPages))}\nextraction_formula_syntax_error_pages: ${yamlString(compactPageList(formulaGate?.syntaxErrorPages))}\nextraction_formula_strict_warning_pages: ${yamlString(compactPageList(formulaGate?.strictWarningPages))}\nextraction_formula_repair_pages: ${yamlString(compactPageList(formulaGate?.repairPages))}\nextraction_formula_syntax_error_count: ${Number(formulaGate?.errors?.length || 0)}\nextraction_formula_strict_warning_count: ${Number(formulaGate?.strictWarnings?.length || 0)}\nextraction_repetitive_hallucination_pages: ${yamlString(compactPageList(extractionQuality?.repetitiveHallucinationPages))}\nextraction_suppressed_hallucination_pages: ${yamlString(compactPageList(extractionQuality?.suppressedHallucinationPages))}\nextraction_blank_pages: ${yamlString(compactPageList(extractionQuality?.blankPages))}\nextraction_showthrough_pages: ${yamlString(compactPageList(extractionQuality?.showthroughPages))}\nextraction_visual_review_pages: ${yamlString(compactPageList(extractionQuality?.visualReviewPages))}\n`
     : "";
   const extractionNote = extractionStatus
     ? `- Content extraction: ${extractionStatus} via ${extractionMethod || "local-parser"} (${Number(extractedCharacters) || 0} characters)\n`
     : "";
   const warningsNote = extractionWarnings.length ? `- Extraction warnings: ${extractionWarnings.join("; ")}\n` : "";
   const attachmentNote = attachmentFailures.length ? `- Missing local attachments: ${attachmentFailures.join("; ")}\n` : "";
+  const formulaNote = formulaGate
+    ? `- Formula gate: ${formulaGate.errors.length || formulaGate.strictWarnings.length ? `blocked (${formulaGate.errors.length} syntax errors, ${formulaGate.strictWarnings.length} strict warnings)` : "passed"}; checked ${formulaGate.checked}, safely repaired ${formulaGate.repairs.length}\n`
+    : "";
+  const encodingNote = unicodeReplacementGate
+    ? `- Encoding gate: ${unicodeReplacementNote(unicodeReplacementGate)}\n`
+    : "";
 
   const body = `---
 title: ${yamlString(title)}
@@ -174,7 +189,7 @@ ${[...embedded.images, ...explicitImages].length ? [...embedded.images, ...expli
 - Follow-up reasons: ${followupReasons.length ? followupReasons.join("; ") : "none"}
 ${extractionNote}- Mirrored inline images: ${mirroredContent.copied}
 - Embedded local assets: ${embedded.copied}
-${warningsNote}${attachmentNote}- Image mirror failures: ${mirroredContent.failures.length}
+${formulaNote}${encodingNote}${warningsNote}${attachmentNote}- Image mirror failures: ${mirroredContent.failures.length}
 - Next action: compile durable ideas into wiki pages, close core related links, then mark processed.
 `;
 
@@ -203,13 +218,14 @@ ${warningsNote}${attachmentNote}- Image mirror failures: ${mirroredContent.failu
     extractionConfidence: Number(extractionConfidence) || 0,
     embeddedAssets: embedded.copied,
     attachmentFailures,
+    formulaGate,
     followupReasons,
     status: resolvedStatus
   };
 }
 
 function compactPageList(pages) {
-  return Array.isArray(pages) ? pages.slice(0, 100).join(",") : "";
+  return Array.isArray(pages) ? compactPageRanges(pages, 0) : "";
 }
 
 async function saveSnapshot({ vault, rawBase, url, snapshotFile, snapshotReference, shouldSnapshot, fetchMaxBytes, validateUrl }) {
@@ -298,14 +314,15 @@ async function copyExplicitImages({ vault, target, rawBase, imageInputs, shouldM
   return explicitImages;
 }
 
-async function materializeEmbeddedAssets({ vault, notePath, rawBase, markdown, assets }) {
-  if (!assets.length) return { markdown, copied: 0, images: [] };
+export async function materializeEmbeddedAssets({ vault, notePath, rawBase, markdown, assets }) {
+  if (!assets.length) return { markdown, copied: 0, images: [], written: [] };
   const assetDir = path.join(vault, "raw", "assets", rawBase);
   await fs.mkdir(assetDir, { recursive: true });
   const used = new Set();
   const images = [];
   let rewritten = markdown;
   let copied = 0;
+  const written = [];
   for (const [index, asset] of assets.entries()) {
     if (!asset?.buffer) continue;
     const basename = uniqueAssetName(safeAssetName(asset.name || `asset-${index + 1}.bin`), used);
@@ -316,9 +333,52 @@ async function materializeEmbeddedAssets({ vault, notePath, rawBase, markdown, a
     const referencedInCapture = references.some((reference) => rewritten.includes(reference));
     for (const reference of references) rewritten = rewritten.split(reference).join(relative);
     if (!referencedInCapture) images.push(isImageFilename(basename) ? `![${basename}](${relative})` : `- [${basename}](${relative})`);
+    written.push({
+      name: basename,
+      target,
+      relative,
+      bytes: asset.buffer.length,
+      page: Number(asset.page || 0),
+      id: String(asset.id || path.basename(basename, path.extname(basename))),
+      alt: String(asset.alt || basename),
+      status: String(asset.status || "extracted-from-source")
+    });
     copied += 1;
   }
-  return { markdown: rewritten, copied, images };
+  await updateEmbeddedImageIndex({ vault, notePath, rawBase, written });
+  return { markdown: rewritten, copied, images, written };
+}
+
+async function updateEmbeddedImageIndex({ vault, notePath, rawBase, written }) {
+  const images = written.filter((item) => isImageFilename(item.name));
+  if (!images.length) return;
+  const assetDir = path.join(vault, "raw", "assets", rawBase);
+  const indexFile = path.join(assetDir, "image-index.json");
+  let current = { source_note: path.relative(vault, notePath).replace(/\\/g, "/"), images: [] };
+  try {
+    const parsed = JSON.parse(await fs.readFile(indexFile, "utf8"));
+    if (parsed && typeof parsed === "object") current = { ...current, ...parsed, images: Array.isArray(parsed.images) ? parsed.images : [] };
+  } catch {}
+  const byPath = new Map(current.images.map((item) => [String(item?.local_path || ""), item]).filter(([key]) => key));
+  for (const item of images) {
+    const localPath = path.relative(vault, item.target).replace(/\\/g, "/");
+    byPath.set(localPath, {
+      id: item.id,
+      page: item.page || undefined,
+      alt: item.alt,
+      local_path: localPath,
+      local_note_path: item.relative,
+      bytes: item.bytes,
+      status: item.status
+    });
+  }
+  const indexed = [...byPath.values()].map((item, index) => ({ ...item, index: index + 1 }));
+  await fs.writeFile(indexFile, `${JSON.stringify({
+    ...current,
+    source_note: path.relative(vault, notePath).replace(/\\/g, "/"),
+    generated_at: new Date().toISOString(),
+    images: indexed
+  }, null, 2)}\n`, "utf8");
 }
 
 async function localImageAttachmentFailures(notePath, markdown) {

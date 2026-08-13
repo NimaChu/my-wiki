@@ -27,7 +27,7 @@ export function cleanExtractedPageText(value) {
     .trim();
 }
 
-export function assessPdfPage({ page = 0, text = "", confidence = null, method = "pdf-text" } = {}) {
+export function assessPdfPage({ page = 0, text = "", confidence = null, method = "pdf-text", visual = null } = {}) {
   const original = String(text || "");
   const cleaned = cleanExtractedPageText(original);
   const repetition = repetitionMetrics(cleaned);
@@ -49,6 +49,24 @@ export function assessPdfPage({ page = 0, text = "", confidence = null, method =
     : null;
   const reasons = [];
   let score = 100;
+  const visualClassification = String(visual?.classification || "normal");
+  const visualDarkCoverage = Number(visual?.darkCoverage);
+  const visualTextDensity = Number.isFinite(visualDarkCoverage) && visualDarkCoverage > 0
+    ? meaningful / Math.max(1, visualDarkCoverage * 100_000)
+    : 0;
+  const manualBlankPage = visualClassification === "manual-blank";
+  const visualBlankCandidate = visualClassification === "blank-noise";
+  const mirroredShowthroughCandidate = visualClassification === "reverse-side-showthrough";
+  const lowContrastHallucination = visualClassification === "low-contrast"
+    && meaningful >= 800
+    && visualTextDensity >= 1.4
+    && repetition.compressionRatio < 0.24;
+  const structuredFrontEvidence = /!\[[^\]]+\]\([^)]+\)|<table\b|^#{1,6}\s+|^\$\$/mi.test(cleaned);
+  const substantiveFrontText = !repetition.hallucination && (meaningful >= 80 || (meaningful >= 8 && structuredFrontEvidence));
+  const blankPage = manualBlankPage || (visualBlankCandidate && !substantiveFrontText);
+  const showthroughPage = (mirroredShowthroughCandidate && !substantiveFrontText) || lowContrastHallucination;
+  const visuallySuppressed = blankPage || showthroughPage;
+  const visualReviewCandidate = !visuallySuppressed && (visualBlankCandidate || mirroredShowthroughCandidate);
 
   if (meaningful < 24) {
     score -= 70;
@@ -77,22 +95,37 @@ export function assessPdfPage({ page = 0, text = "", confidence = null, method =
     score -= 100;
     reasons.push("repetitive-ocr-hallucination");
   }
+  if (blankPage) reasons.push(manualBlankPage ? "manual-blank-page" : "blank-page-noise");
+  if (showthroughPage) reasons.push(mirroredShowthroughCandidate ? "reverse-side-showthrough" : "visual-text-density-mismatch");
+  if (visualReviewCandidate) {
+    score -= 20;
+    reasons.push(visualBlankCandidate ? "visual-blank-review" : "visual-showthrough-review");
+  }
 
-  const formulaRisk = !repetition.hallucination && (mathSymbols >= 4 || (symbols >= 12 && symbols / Math.max(1, meaningful) >= 0.08));
+  if (visuallySuppressed) score = manualBlankPage ? 100 : blankPage ? 95 : 80;
+  const suppressedHallucination = repetition.hallucination || visuallySuppressed;
+  const formulaRisk = !suppressedHallucination && (mathSymbols >= 4 || (symbols >= 12 && symbols / Math.max(1, meaningful) >= 0.08));
   if (formulaRisk && method !== "mineru") reasons.push("formula-layout-risk");
   const cjkSpacingRate = cjkCharacters ? cjkSpaces / cjkCharacters : 0;
 
   return {
     page,
-    text: repetition.hallucination ? "_OCR output suppressed because extreme repetition indicates a page-level recognition hallucination._" : cleaned,
+    text: suppressionMessage({ repetition, blankPage, showthroughPage, visualClassification }) || cleaned,
     score: round(Math.max(0, score)),
     level: score < 45 ? "poor" : score < 70 ? "degraded" : "good",
     reasons: [...new Set(reasons)],
     meaningfulCharacters: meaningful,
     cjkSpacingRate: round(cjkSpacingRate * 100),
     repetitionCompressionRatio: repetition.compressionRatio,
+    repetitionPatternCompressionRatio: repetition.patternCompressionRatio,
     repetitionUniqueChunkRatio: repetition.uniqueChunkRatio,
     repetitiveHallucination: repetition.hallucination,
+    suppressedHallucination,
+    blankPage,
+    showthroughPage,
+    visualReviewCandidate,
+    visualClassification,
+    visualTextDensity: round(visualTextDensity),
     formulaRisk,
     confidence: normalizedConfidence
   };
@@ -104,6 +137,10 @@ export function summarizePdfQuality(pageResults = [], { method = "pdf-text" } = 
   const degradedPages = results.filter((result) => result.level === "degraded").map((result) => result.page);
   const formulaRiskPages = results.filter((result) => result.formulaRisk).map((result) => result.page);
   const repetitiveHallucinationPages = results.filter((result) => result.repetitiveHallucination).map((result) => result.page);
+  const suppressedHallucinationPages = results.filter((result) => result.suppressedHallucination).map((result) => result.page);
+  const blankPages = results.filter((result) => result.blankPage).map((result) => result.page);
+  const showthroughPages = results.filter((result) => result.showthroughPage).map((result) => result.page);
+  const visualReviewPages = results.filter((result) => result.visualReviewCandidate).map((result) => result.page);
   const score = results.length ? average(results.map((result) => result.score)) : 0;
   const lowRatio = lowQualityPages.length / Math.max(1, results.length);
   const degradedRatio = (lowQualityPages.length + degradedPages.length) / Math.max(1, results.length);
@@ -127,6 +164,10 @@ export function summarizePdfQuality(pageResults = [], { method = "pdf-text" } = 
     degradedPages,
     formulaRiskPages,
     repetitiveHallucinationPages,
+    suppressedHallucinationPages,
+    blankPages,
+    showthroughPages,
+    visualReviewPages,
     reasons: [...new Set(reasons)]
   };
 }
@@ -138,22 +179,42 @@ export function qualityWarnings(quality) {
   if (quality.degradedPages?.length) warnings.push(`Degraded PDF pages: ${compactPageRanges(quality.degradedPages)}`);
   if (quality.formulaRiskPages?.length) warnings.push(`Formula/layout review pages: ${compactPageRanges(quality.formulaRiskPages)}`);
   if (quality.repetitiveHallucinationPages?.length) warnings.push(`Suppressed repetitive OCR hallucinations: ${compactPageRanges(quality.repetitiveHallucinationPages)}`);
+  if (quality.blankPages?.length) warnings.push(`Suppressed blank or dirty scan pages: ${compactPageRanges(quality.blankPages)}`);
+  if (quality.showthroughPages?.length) warnings.push(`Suppressed reverse-side show-through pages: ${compactPageRanges(quality.showthroughPages)}`);
+  if (quality.visualReviewPages?.length) warnings.push(`Preserved visual review candidates: ${compactPageRanges(quality.visualReviewPages)}`);
   return warnings;
 }
 
 function repetitionMetrics(value) {
   const normalized = String(value || "").replace(/\s+/g, " ").trim();
-  if (normalized.length < 1000) return { compressionRatio: 1, uniqueChunkRatio: 1, hallucination: false };
+  if (normalized.length < 1000) return { compressionRatio: 1, patternCompressionRatio: 1, uniqueChunkRatio: 1, hallucination: false };
   const bytes = Buffer.from(normalized, "utf8");
   const compressionRatio = gzipSync(bytes).length / Math.max(1, bytes.length);
+  const pattern = normalized
+    .replace(/\d+(?:[.,]\d+)*/g, "#")
+    .replace(/\\(?:mathrm|mathbf|boldsymbol|pmb)\s*\{[^}]*\}/g, "\\STYLE")
+    .replace(/[a-zA-Z](?:_\s*\{?\s*#?\s*\}?)?/g, "x");
+  const patternBytes = Buffer.from(pattern, "utf8");
+  const patternCompressionRatio = gzipSync(patternBytes).length / Math.max(1, patternBytes.length);
   const chunks = [];
   for (let index = 0; index + 23 < normalized.length; index += 24) chunks.push(normalized.slice(index, index + 24));
   const uniqueChunkRatio = new Set(chunks).size / Math.max(1, chunks.length);
+  const exactRepetition = compressionRatio < 0.08 && uniqueChunkRatio < 0.35;
+  const templatedRepetition = normalized.length >= 1500 && compressionRatio < 0.22 && patternCompressionRatio < 0.08;
   return {
     compressionRatio: roundRatio(compressionRatio),
+    patternCompressionRatio: roundRatio(patternCompressionRatio),
     uniqueChunkRatio: roundRatio(uniqueChunkRatio),
-    hallucination: compressionRatio < 0.08 && uniqueChunkRatio < 0.35
+    hallucination: exactRepetition || templatedRepetition
   };
+}
+
+function suppressionMessage({ repetition, blankPage, showthroughPage, visualClassification }) {
+  if (visualClassification === "manual-blank") return "_Page omitted because it was explicitly marked as blank or reverse-side show-through._";
+  if (blankPage) return "_Page omitted because visual analysis found only blank-page noise._";
+  if (showthroughPage) return "_Page omitted because visual analysis found reverse-side show-through without reliable front-side content._";
+  if (repetition.hallucination) return "_OCR output suppressed because extreme or templated repetition indicates a page-level recognition hallucination._";
+  return "";
 }
 
 export function compactPageRanges(pages = [], limit = 80) {
@@ -167,7 +228,9 @@ export function compactPageRanges(pages = [], limit = 80) {
     index += 1;
   }
   const output = ranges.join(",");
-  return output.length <= limit ? output : `${output.slice(0, limit).replace(/,[^,]*$/, "")}…`;
+  return !Number.isFinite(limit) || limit <= 0 || output.length <= limit
+    ? output
+    : `${output.slice(0, limit).replace(/,[^,]*$/, "")}…`;
 }
 
 function countCjkSpaces(value) {

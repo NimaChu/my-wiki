@@ -19,7 +19,9 @@ export async function ingestLocalFile({
   suggestedUniverse = "",
   sourcePath = "",
   dependencyRoot,
-  captureMethod = "agent-file"
+  captureMethod = "agent-file",
+  snapshotReference = "",
+  onSnapshot = null
 }) {
   const uploadPath = sourcePath || filename;
   if (isIgnoredLocalEntry(uploadPath)) {
@@ -28,7 +30,10 @@ export async function ingestLocalFile({
   if (path.extname(filename).toLowerCase() === ".zip") {
     return ingestZipBundle({ vault, file, filename, collection, suggestedUniverse, dependencyRoot, captureMethod: captureMethod.replace(/file$/, "zip") });
   }
-  const snapshot = await preserveUploadedSnapshot({ vault, file, filename });
+  const snapshot = snapshotReference
+    ? await resolvePreservedSnapshot({ vault, snapshotReference })
+    : await preserveUploadedSnapshot({ vault, file, filename });
+  if (typeof onSnapshot === "function") await onSnapshot(snapshot);
   const extracted = await extractLocalDocument({
     file: snapshot.file,
     filename,
@@ -196,6 +201,20 @@ async function ingestPreservedZipBundle({ vault, filename, collection, suggested
     items.push({ ...result, extractionMessage: extracted.message || "" });
   }
   return { kind: "zip", count: items.length, items, total: markdownEntries.length, failures: [] };
+}
+
+async function resolvePreservedSnapshot({ vault, snapshotReference }) {
+  const normalized = String(snapshotReference || "").replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!normalized.startsWith("raw/snapshots/")) throw new Error("Recovered snapshot must stay inside raw/snapshots");
+  const file = path.resolve(vault, ...normalized.split("/"));
+  const snapshotsRoot = path.resolve(vault, "raw", "snapshots");
+  const relative = path.relative(snapshotsRoot, file);
+  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error("Recovered snapshot path is invalid");
+  }
+  const stat = await fs.stat(file);
+  if (!stat.isFile()) throw new Error("Recovered snapshot is not a file");
+  return { file, relative: normalized };
 }
 
 async function preserveUploadedSnapshot({ vault, file, filename }) {

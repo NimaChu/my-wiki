@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowLeft,
@@ -15,11 +15,10 @@ import {
   Save,
   Sparkles,
   Trash2,
+  Wrench,
   X
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { AgentInfo, localApi, MaintenanceResult, MarkdownDocument, waitForJob } from "./api";
+import { AgentInfo, localApi, MaintenanceResult, MarkdownDocument, RepairResult, waitForJob } from "./api";
 import {
   isUniverseOverviewMode,
   rankUniverseGroupsByConnectivity,
@@ -28,6 +27,9 @@ import {
 import { Viki } from "./Viki";
 import { WorkspaceActions } from "./WorkspaceActions";
 import "./styles.css";
+
+const richMarkdownModule = import("./RichMarkdown");
+const RichMarkdown = lazy(() => richMarkdownModule);
 
 type WikiNode = {
   id: string;
@@ -38,6 +40,7 @@ type WikiNode = {
   universes?: string[];
   status: string;
   tags: string[];
+  followupReasons?: string[];
   content?: string;
   out: string[];
   backlinks: string[];
@@ -185,6 +188,7 @@ const copy = {
     deleteBatchConfirm: "Delete all {count} items awaiting maintenance and their unshared uploaded files? This cannot be undone.",
     deleteBatchPartial: "Deleted {deleted} items; {failed} could not be deleted.",
     processItem: "Maintain this item",
+    resolveFollowupFirst: "Resolve the follow-up before maintenance",
     deleteQueueItem: "Delete this queue item",
     deleteQueueConfirm: "Delete \"{title}\" and its unshared uploaded files? This cannot be undone.",
     processingBatch: "Maintaining",
@@ -199,6 +203,8 @@ const copy = {
     saveDocument: "Save document",
     cancelEditing: "Cancel editing",
     loadingDocument: "Loading document",
+    renderingDocument: "Rendering document",
+    renderMoreDocument: "Render more pages",
     retry: "Retry",
     savingDocument: "Saving",
     documentSaved: "Saved",
@@ -209,7 +215,12 @@ const copy = {
     insertCode: "Inline code",
     insertLink: "Link",
     insertImage: "Image",
-    imageUnavailable: "Local image unavailable"
+    imageUnavailable: "Local image unavailable",
+    repairItem: "Repair this Raw",
+    repairingItem: "Repairing Raw",
+    repairComplete: "Raw repair complete",
+    repairStillBlocked: "Raw still needs follow-up",
+    repairFailed: "Raw repair failed"
   },
   zh: {
     graphUnavailable: "知识图谱不可用",
@@ -268,6 +279,7 @@ const copy = {
     deleteBatchConfirm: "确定删除全部 {count} 条待维护资料及其未被其他条目共享的上传文件吗？此操作无法撤销。",
     deleteBatchPartial: "已删除 {deleted} 条，另有 {failed} 条因引用保护等原因无法删除。",
     processItem: "维护此条知识",
+    resolveFollowupFirst: "请先解决待跟进问题，再进行维护",
     deleteQueueItem: "删除此条待维护资料",
     deleteQueueConfirm: "确定删除“{title}”及其未被其他条目共享的上传文件吗？此操作无法撤销。",
     processingBatch: "正在维护",
@@ -282,6 +294,8 @@ const copy = {
     saveDocument: "保存文档",
     cancelEditing: "取消编辑",
     loadingDocument: "正在加载文档",
+    renderingDocument: "正在渲染文档",
+    renderMoreDocument: "继续渲染后续页面",
     retry: "重试",
     savingDocument: "正在保存",
     documentSaved: "已保存",
@@ -292,7 +306,12 @@ const copy = {
     insertCode: "行内代码",
     insertLink: "链接",
     insertImage: "图片",
-    imageUnavailable: "本地图片不可用"
+    imageUnavailable: "本地图片不可用",
+    repairItem: "修复这条 Raw",
+    repairingItem: "正在修复 Raw",
+    repairComplete: "Raw 修复完成",
+    repairStillBlocked: "Raw 仍需跟进",
+    repairFailed: "Raw 修复失败"
   }
 } as const;
 
@@ -337,6 +356,29 @@ function localizedStatus(value: string, language: Language) {
     unknown: "未知"
   };
   return statuses[value.toLowerCase()] ?? value;
+}
+
+function localizedFollowupReason(value: string, language: Language) {
+  const reason = value.trim().toLowerCase();
+  if (reason.startsWith("formula-syntax-error:")) {
+    const detail = value.slice(value.indexOf(":") + 1).replace(/^pages=/i, language === "zh" ? "页码 " : "pages ");
+    return language === "zh" ? `公式语法无法渲染（${detail}）` : `Formula syntax cannot render (${detail})`;
+  }
+  if (reason.startsWith("formula-strict-warning:")) {
+    const detail = value.slice(value.indexOf(":") + 1).replace(/^pages=/i, language === "zh" ? "页码 " : "pages ");
+    return language === "zh" ? `公式结构可疑（${detail}）` : `Formula structure needs repair (${detail})`;
+  }
+  const messages: Record<string, { en: string; zh: string }> = {
+    "extraction:low-quality": { en: "PDF OCR quality is too low", zh: "PDF OCR 质量不足" },
+    "extraction:failed": { en: "File extraction failed", zh: "文件提取失败" },
+    "extraction:partial": { en: "File extraction is incomplete", zh: "文件提取不完整" },
+    "extraction:empty": { en: "No readable content was extracted", zh: "未提取到可读正文" },
+    "extraction:skipped-large": { en: "File exceeds the automatic extraction limit", zh: "文件超出自动提取范围" },
+    "capture:needs-followup": { en: "The captured source needs review", zh: "来源内容需要人工检查" }
+  };
+  const message = messages[reason];
+  if (message) return message[language];
+  return language === "zh" ? `需要跟进：${value}` : `Follow-up required: ${value}`;
 }
 
 function localizedType(value: string, language: Language) {
@@ -973,7 +1015,15 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
         )}
         {document && mode === "read" && (
           <article className="document-page">
-            <RichMarkdown content={draft} imageUrls={imageUrls} imageFallback={t("imageUnavailable")} />
+            <Suspense fallback={<div className="document-state"><LoaderCircle className="spin" size={24} /></div>}>
+              <RichMarkdown
+                content={draft}
+                imageUrls={imageUrls}
+                imageFallback={t("imageUnavailable")}
+                renderingLabel={t("renderingDocument")}
+                renderMoreLabel={t("renderMoreDocument")}
+              />
+            </Suspense>
           </article>
         )}
         {document && mode === "edit" && (
@@ -1002,40 +1052,6 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
         )}
       </main>
     </section>
-  );
-}
-
-function RichMarkdown({
-  content,
-  imageUrls,
-  imageFallback
-}: {
-  content: string;
-  imageUrls: Record<string, string>;
-  imageFallback: string;
-}) {
-  const normalized = useMemo(
-    () => content.replace(/\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]/g, (_match, target, label) => label || target),
-    [content]
-  );
-  return (
-    <div className="document-markdown">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
-          table: ({ children }) => <div className="document-table-scroll"><table>{children}</table></div>,
-          img: ({ src, alt }) => {
-            if (!src) return null;
-            const resolved = imageUrls[src] ?? (isLocalMarkdownImageSource(src) ? "" : src);
-            if (!resolved) return <span className="document-image-error">{imageFallback}: {alt || src}</span>;
-            return <img src={resolved} alt={alt ?? ""} loading="lazy" />;
-          }
-        }}
-      >
-        {normalized}
-      </ReactMarkdown>
-    </div>
   );
 }
 
@@ -1792,29 +1808,58 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
   const ids = [...new Set([...graph.queues.inbox, ...graph.queues.needsFollowup, ...graph.queues.stale])]
     .filter((id) => id.startsWith("raw/") && !deletedIds.has(id));
   const nodes = ids.map((id) => nodeById.get(id)).filter(Boolean) as WikiNode[];
-  const batchNodes = nodes.slice(0, 8);
+  const isMaintenanceEligible = (node: WikiNode) => ["inbox", "stale"].includes(node.status);
+  const batchNodes = nodes.filter(isMaintenanceEligible).slice(0, 8);
   const [agentState, setAgentState] = useState<AgentInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [deletingPath, setDeletingPath] = useState<string | null>(null);
   const [deletingBatch, setDeletingBatch] = useState(false);
   const [result, setResult] = useState<MaintenanceResult | null>(null);
+  const [repairResult, setRepairResult] = useState<RepairResult | null>(null);
   const [error, setError] = useState("");
+  const [errorAction, setErrorAction] = useState<"maintenance" | "repair">("maintenance");
 
   useEffect(() => {
     localApi.agent().then(setAgentState).catch(() => setAgentState(null));
   }, []);
 
   const processNodes = async (selectedNodes: WikiNode[]) => {
-    if (selectedNodes.length === 0 || busy || !agentState?.available || agentState.maintenanceBusy) return;
+    const eligibleNodes = selectedNodes.filter(isMaintenanceEligible);
+    if (eligibleNodes.length === 0 || busy || !agentState?.available || agentState.maintenanceBusy) return;
     setBusy(true);
-    setActivePath(selectedNodes.length === 1 ? selectedNodes[0].path : null);
+    setActivePath(eligibleNodes.length === 1 ? eligibleNodes[0].path : null);
     setError("");
+    setErrorAction("maintenance");
     setResult(null);
+    setRepairResult(null);
     try {
       const provider = selectedMaintenanceProvider(agentState);
-      const complete = await waitForJob(await localApi.maintain(selectedNodes.map((node) => node.path), selectedNodes.length, provider));
+      const complete = await waitForJob(await localApi.maintain(eligibleNodes.map((node) => node.path), eligibleNodes.length, provider));
       setResult(complete.result as MaintenanceResult);
+      setAgentState(await localApi.agent());
+      window.dispatchEvent(new Event("my-wiki:graph-updated"));
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      localApi.agent().then(setAgentState).catch(() => {});
+    } finally {
+      setBusy(false);
+      setActivePath(null);
+    }
+  };
+
+  const repairNode = async (node: WikiNode) => {
+    if (node.status !== "needs-followup" || busy || !agentState?.available || agentState.maintenanceBusy) return;
+    setBusy(true);
+    setActivePath(node.path);
+    setError("");
+    setErrorAction("repair");
+    setResult(null);
+    setRepairResult(null);
+    try {
+      const provider = selectedMaintenanceProvider(agentState);
+      const complete = await waitForJob(await localApi.repair(node.path, provider));
+      setRepairResult(complete.result as RepairResult);
       setAgentState(await localApi.agent());
       window.dispatchEvent(new Event("my-wiki:graph-updated"));
     } catch (nextError) {
@@ -1832,6 +1877,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
     setDeletingPath(node.path);
     setError("");
     setResult(null);
+    setRepairResult(null);
     try {
       await localApi.deleteQueueItem(node.path);
       setDeletedIds((current) => new Set(current).add(node.id));
@@ -1849,6 +1895,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
     setDeletingBatch(true);
     setError("");
     setResult(null);
+    setRepairResult(null);
     try {
       const outcome = await localApi.deleteQueueItems(nodes.map((node) => node.path));
       const deletedPaths = new Set(outcome.deleted.map((item) => item.path));
@@ -1904,18 +1951,27 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
               <button className="queue-item-main" type="button" onClick={() => onSelect(node.id)}>
                 <strong>{node.title}</strong>
                 <span>{localizedStatus(node.status, language)}</span>
+                {node.status === "needs-followup" && node.followupReasons?.length ? (
+                  <small className="queue-item-followup">{localizedFollowupReason(node.followupReasons[0], language)}</small>
+                ) : null}
               </button>
               <div className="queue-item-actions">
+                {(() => {
+                  const repairing = node.status === "needs-followup";
+                  const actionLabel = repairing ? t("repairItem") : t("processItem");
+                  return (
                 <button
-                  className="queue-item-process"
+                  className={`queue-item-process${repairing ? " queue-item-repair" : ""}`}
                   type="button"
-                  aria-label={t("processItem")}
-                  title={agentState?.available === false ? t("agentUnavailable") : t("processItem")}
+                  aria-label={actionLabel}
+                  title={agentState?.available === false ? t("agentUnavailable") : actionLabel}
                   disabled={busy || Boolean(deletingPath) || deletingBatch || !agentState?.available || agentState.maintenanceBusy}
-                  onClick={() => void processNodes([node])}
+                  onClick={() => void (repairing ? repairNode(node) : processNodes([node]))}
                 >
-                  {busy && activePath === node.path ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />}
+                  {busy && activePath === node.path ? <LoaderCircle className="spin" size={14} /> : repairing ? <Wrench size={14} /> : <Sparkles size={14} />}
                 </button>
+                  );
+                })()}
                 <button
                   className="queue-item-delete"
                   type="button"
@@ -1932,7 +1988,14 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
         </div>
       )}
       {result ? <div className="maintenance-result"><strong>{t("maintenanceComplete")}</strong><p>{result.summary}</p>{result.lintIssues > 0 ? <span>{t("lintRemaining", { count: result.lintIssues })}</span> : null}</div> : null}
-      {error ? <div className="maintenance-error"><strong>{t("maintenanceFailed")}</strong><p>{error}</p></div> : null}
+      {repairResult ? (
+        <div className={repairResult.unlocked ? "maintenance-result" : "maintenance-error"}>
+          <strong>{t(repairResult.unlocked ? "repairComplete" : "repairStillBlocked")}</strong>
+          <p>{repairResult.summary}</p>
+          {repairResult.remainingReasons.length > 0 ? <span>{repairResult.remainingReasons.map((reason) => localizedFollowupReason(reason, language)).join("；")}</span> : null}
+        </div>
+      ) : null}
+      {error ? <div className="maintenance-error"><strong>{t(errorAction === "repair" ? "repairFailed" : "maintenanceFailed")}</strong><p>{error}</p></div> : null}
     </section>
   );
 }
