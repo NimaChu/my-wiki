@@ -94,7 +94,7 @@ Agent 会启动本地网页应用。你可以：
 - 打开 Wiki 页面，继续进入它背后的 raw 原文证据层；
 - 搜索 Wiki、关系和来源，而不破坏当前图谱层级；
 - 输入网页链接，或上传文件、文件夹和 Markdown + 图片 ZIP 图文包；
-- 查看 Inbox 与 `needs-followup`，并批量调用 Agent 蒸馏 Wiki、建立链接和完成维护；
+- 查看统一维护队列：快照保存后即可看到自动提取进度，并可按 Raw 独立蒸馏或修复；批量维护会依据每条状态自动选择动作。提取、蒸馏和修复共用 2 个并发槽位，同一 Raw 不会重复执行；
 - 使用常驻知识伙伴 Viki 基于 Wiki、raw 证据和相关图片进行问答；
 - 在 Viki 中独立选择 Agent CLI 与宠物形态，并调整聊天窗口大小；
 - 导出一个知识星系，或预览并导入别人分享的 `.mywiki` 知识包。
@@ -180,7 +180,7 @@ My Wiki 不是给每份文档生成一段摘要。一份资料可以更新多个
 npm run pdf:setup
 ```
 
-该命令安装项目验证过的 MinerU 版本，模型文件由 MinerU 首次使用时下载。检测到 MinerU 后，自动 PDF 提取会优先采用它的版面、公式和表格解析结果，只有 MinerU 不可用或失败时才回退轻量解析器。MinerU 默认使用 `hybrid-engine` 的 `medium` 档位。可通过 `MY_WIKI_PDF_ENGINE=mineru` 强制使用，通过 `MY_WIKI_PDF_ENGINE=tesseract` 禁用自动调用；`MY_WIKI_MINERU_BACKEND`、`MY_WIKI_MINERU_EFFORT` 和 `MY_WIKI_MINERU_LANGUAGE` 可覆盖后端、精度档位和文档语言。MinerU 前会以低分辨率分析扫描页的墨迹覆盖、对比度和相邻页镜像相关性，识别空白污点与背面透印，并结合 OCR 文本密度和模板重复抑制页面级幻觉；可用 `MY_WIKI_PDF_VISUAL_GATE=0` 禁用该门禁，或在一次捕获/重提取前通过 `MY_WIKI_PDF_BLANK_PAGES=9,177` 显式指定已确认的空白页。MinerU 是可选外部工具，不影响未安装它的系统使用基础功能；但公式密集或扫描教材应先运行 `npm run pdf:setup`，不要把轻量回退结果当作高保真证据。
+该命令安装项目验证过的 MinerU 版本，模型文件由 MinerU 首次使用时下载。检测到 MinerU 后，自动 PDF 提取会优先采用它的版面、公式和表格解析结果。仅当 MinerU 未安装或不可用时才回退轻量解析器；MinerU 一旦实际运行后失败或未通过质量门禁，该 PDF 会保留失败状态并进入 `needs-followup`，不会再由 PDF.js 纯文本覆盖失败。超过 512 页的文档默认按 64 页分批运行 MinerU，再恢复连续页码和合并命名空间隔离后的图片资源；可用 `MY_WIKI_MINERU_BATCH_THRESHOLD_PAGES` 和 `MY_WIKI_MINERU_BATCH_PAGES` 调整。MinerU 默认使用 `hybrid-engine` 的 `medium` 档位。可通过 `MY_WIKI_PDF_ENGINE=mineru` 强制使用，通过 `MY_WIKI_PDF_ENGINE=tesseract` 禁用自动调用；`MY_WIKI_MINERU_BACKEND`、`MY_WIKI_MINERU_EFFORT` 和 `MY_WIKI_MINERU_LANGUAGE` 可覆盖后端、精度档位和文档语言。MinerU 前会以低分辨率分析扫描页的墨迹覆盖、对比度和相邻页镜像相关性，识别空白污点与背面透印，并结合 OCR 文本密度和模板重复抑制页面级幻觉；可用 `MY_WIKI_PDF_VISUAL_GATE=0` 禁用该门禁，或在一次捕获/重提取前通过 `MY_WIKI_PDF_BLANK_PAGES=9,177` 显式指定已确认的空白页。MinerU 是可选外部工具，不影响未安装它的系统使用基础功能；但公式密集或扫描教材应先运行 `npm run pdf:setup`，不要把轻量回退结果当作高保真证据。
 
 最终写入 Raw 的 `## Capture` 正文还会执行编码完整性门禁。任何 U+FFFD 替换字符都会按页记录并将 Raw 锁定为 `needs-followup`；捕获、重提取、Agent 修复、维护预检和 `lint` 都会重复验证，避免后续写回造成的乱码沿用旧质量分数。
 

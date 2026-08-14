@@ -18,7 +18,7 @@ import {
   Wrench,
   X
 } from "lucide-react";
-import { AgentInfo, localApi, MaintenanceResult, MarkdownDocument, RepairResult, waitForJob } from "./api";
+import { AgentInfo, Job, localApi, MaintenanceResult, MarkdownDocument, RepairResult, waitForJob } from "./api";
 import {
   isUniverseOverviewMode,
   rankUniverseGroupsByConnectivity,
@@ -220,7 +220,11 @@ const copy = {
     repairingItem: "Repairing Raw",
     repairComplete: "Raw repair complete",
     repairStillBlocked: "Raw still needs follow-up",
-    repairFailed: "Raw repair failed"
+    repairFailed: "Raw repair failed",
+    queuedTask: "Queued",
+    extractingTask: "Extracting",
+    distillingTask: "Distilling",
+    repairingTask: "Repairing"
   },
   zh: {
     graphUnavailable: "知识图谱不可用",
@@ -311,7 +315,11 @@ const copy = {
     repairingItem: "正在修复 Raw",
     repairComplete: "Raw 修复完成",
     repairStillBlocked: "Raw 仍需跟进",
-    repairFailed: "Raw 修复失败"
+    repairFailed: "Raw 修复失败",
+    queuedTask: "等待执行",
+    extractingTask: "正在提取",
+    distillingTask: "正在蒸馏",
+    repairingTask: "正在修复"
   }
 } as const;
 
@@ -1808,11 +1816,10 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
   const ids = [...new Set([...graph.queues.inbox, ...graph.queues.needsFollowup, ...graph.queues.stale])]
     .filter((id) => id.startsWith("raw/") && !deletedIds.has(id));
   const nodes = ids.map((id) => nodeById.get(id)).filter(Boolean) as WikiNode[];
-  const isMaintenanceEligible = (node: WikiNode) => ["inbox", "stale"].includes(node.status);
-  const batchNodes = nodes.filter(isMaintenanceEligible).slice(0, 8);
+  const batchNodes = nodes.slice(0, 500);
   const [agentState, setAgentState] = useState<AgentInfo | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [activePath, setActivePath] = useState<string | null>(null);
+  const [captureItems, setCaptureItems] = useState<Array<{ jobId?: string; title: string; jobStatus?: string; snapshotPath: string }>>([]);
+  const [activeJobs, setActiveJobs] = useState<Map<string, Job>>(() => new Map());
   const [deletingPath, setDeletingPath] = useState<string | null>(null);
   const [deletingBatch, setDeletingBatch] = useState(false);
   const [result, setResult] = useState<MaintenanceResult | null>(null);
@@ -1821,58 +1828,75 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
   const [errorAction, setErrorAction] = useState<"maintenance" | "repair">("maintenance");
 
   useEffect(() => {
-    localApi.agent().then(setAgentState).catch(() => setAgentState(null));
+    const refresh = async () => {
+      const [agent, inbox] = await Promise.all([localApi.agent(), localApi.inbox()]);
+      setAgentState(agent);
+      setActiveJobs(new Map((agent.activeRawJobs || []).flatMap((job) => rawJobPath(job) ? [[rawJobPath(job), job] as const] : [])));
+      setCaptureItems(inbox.items.filter((item) => item.jobId && item.snapshotPath && ["queued", "running"].includes(item.jobStatus || "")));
+    };
+    void refresh().catch(() => setAgentState(null));
+    const timer = window.setInterval(() => void refresh().catch(() => {}), 1500);
+    return () => window.clearInterval(timer);
   }, []);
 
   const processNodes = async (selectedNodes: WikiNode[]) => {
-    const eligibleNodes = selectedNodes.filter(isMaintenanceEligible);
-    if (eligibleNodes.length === 0 || busy || !agentState?.available || agentState.maintenanceBusy) return;
-    setBusy(true);
-    setActivePath(eligibleNodes.length === 1 ? eligibleNodes[0].path : null);
+    if (selectedNodes.length === 0 || !agentState?.available) return;
     setError("");
     setErrorAction("maintenance");
     setResult(null);
     setRepairResult(null);
     try {
       const provider = selectedMaintenanceProvider(agentState);
-      const complete = await waitForJob(await localApi.maintain(eligibleNodes.map((node) => node.path), eligibleNodes.length, provider));
-      setResult(complete.result as MaintenanceResult);
+      const outcome = selectedNodes.length === 1 && selectedNodes[0].status !== "needs-followup"
+        ? { jobs: [await localApi.maintain([selectedNodes[0].path], 1, provider)] }
+        : await localApi.maintainBatch(selectedNodes.map((node) => node.path), selectedNodes.length, provider);
+      setActiveJobs((current) => new Map([
+        ...current,
+        ...outcome.jobs.flatMap((job) => rawJobPath(job) ? [[rawJobPath(job), job] as const] : [])
+      ]));
+      const settled = await Promise.allSettled(outcome.jobs.map(async (job) => {
+        try {
+          return await waitForJob(job);
+        } finally {
+          window.dispatchEvent(new Event("my-wiki:graph-updated"));
+          const agent = await localApi.agent().catch(() => null);
+          if (agent) setAgentState(agent);
+        }
+      }));
+      const completed = settled.flatMap((item) => item.status === "fulfilled" ? [item.value] : []);
+      const latestMaintenance = [...completed].reverse().find((job) => job.type === "agent-maintenance");
+      if (latestMaintenance?.result) setResult(latestMaintenance.result as MaintenanceResult);
+      const failed = settled.filter((item) => item.status === "rejected");
+      if (failed.length) setError(failed.map((item) => item.status === "rejected" ? item.reason?.message || String(item.reason) : "").join("；"));
       setAgentState(await localApi.agent());
-      window.dispatchEvent(new Event("my-wiki:graph-updated"));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
       localApi.agent().then(setAgentState).catch(() => {});
-    } finally {
-      setBusy(false);
-      setActivePath(null);
     }
   };
 
   const repairNode = async (node: WikiNode) => {
-    if (node.status !== "needs-followup" || busy || !agentState?.available || agentState.maintenanceBusy) return;
-    setBusy(true);
-    setActivePath(node.path);
+    if (node.status !== "needs-followup" || activeJobs.has(node.path) || !agentState?.available) return;
     setError("");
     setErrorAction("repair");
     setResult(null);
     setRepairResult(null);
     try {
       const provider = selectedMaintenanceProvider(agentState);
-      const complete = await waitForJob(await localApi.repair(node.path, provider));
+      const initial = await localApi.repair(node.path, provider);
+      setActiveJobs((current) => new Map(current).set(node.path, initial));
+      const complete = await waitForJob(initial);
       setRepairResult(complete.result as RepairResult);
       setAgentState(await localApi.agent());
       window.dispatchEvent(new Event("my-wiki:graph-updated"));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
       localApi.agent().then(setAgentState).catch(() => {});
-    } finally {
-      setBusy(false);
-      setActivePath(null);
     }
   };
 
   const deleteNode = async (node: WikiNode) => {
-    if (busy || deletingPath || deletingBatch || agentState?.maintenanceBusy) return;
+    if (activeJobs.has(node.path) || deletingPath || deletingBatch) return;
     if (!window.confirm(t("deleteQueueConfirm", { title: node.title }))) return;
     setDeletingPath(node.path);
     setError("");
@@ -1890,7 +1914,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
   };
 
   const deleteAllNodes = async () => {
-    if (nodes.length === 0 || busy || deletingPath || deletingBatch || agentState?.maintenanceBusy) return;
+    if (nodes.length === 0 || deletingPath || deletingBatch) return;
     if (!window.confirm(t("deleteBatchConfirm", { count: nodes.length }))) return;
     setDeletingBatch(true);
     setError("");
@@ -1918,22 +1942,22 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
   return (
     <section className="queue-panel">
       <div className="queue-heading">
-        <h2>{t("maintenanceQueue")} <span className="queue-count">{nodes.length}</span></h2>
+        <h2>{t("maintenanceQueue")} <span className="queue-count">{nodes.length + captureItems.length}</span></h2>
         <div className="queue-heading-actions">
           <button
             type="button"
             className="maintenance-button"
-            disabled={batchNodes.length === 0 || busy || Boolean(deletingPath) || deletingBatch || !agentState?.available || agentState.maintenanceBusy}
+            disabled={batchNodes.length === 0 || Boolean(deletingPath) || deletingBatch || !agentState?.available}
             title={agentState?.available === false ? t("agentUnavailable") : t("processBatch")}
             onClick={() => void processNodes(batchNodes)}
           >
-            {busy || agentState?.maintenanceBusy ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />}
-            {busy || agentState?.maintenanceBusy ? t("processingBatch") : t("processBatch")}
+            <Sparkles size={14} />
+            {t("processBatch")}
           </button>
           <button
             type="button"
             className="batch-delete-button"
-            disabled={nodes.length === 0 || busy || Boolean(deletingPath) || deletingBatch || agentState?.maintenanceBusy}
+            disabled={nodes.length === 0 || Boolean(deletingPath) || deletingBatch}
             title={t("deleteBatch")}
             onClick={() => void deleteAllNodes()}
           >
@@ -1942,15 +1966,24 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
           </button>
         </div>
       </div>
-      {nodes.length === 0 ? (
+      {nodes.length === 0 && captureItems.length === 0 ? (
         <p className="muted">{t("noPendingRaw")}</p>
       ) : (
         <div className="queue-list">
+          {captureItems.map((item) => (
+            <div className="queue-item queue-item-extracting" key={`capture:${item.jobId}`}>
+              <div className="queue-item-main">
+                <strong>{item.title}</strong>
+                <span>{item.jobStatus === "queued" ? t("queuedTask") : t("extractingTask")}</span>
+              </div>
+              <div className="queue-item-actions"><LoaderCircle className="spin" size={14} /></div>
+            </div>
+          ))}
           {nodes.map((node) => (
             <div className="queue-item" key={node.id}>
               <button className="queue-item-main" type="button" onClick={() => onSelect(node.id)}>
                 <strong>{node.title}</strong>
-                <span>{localizedStatus(node.status, language)}</span>
+                <span>{rawTaskLabel(activeJobs.get(node.path), language) || localizedStatus(node.status, language)}</span>
                 {node.status === "needs-followup" && node.followupReasons?.length ? (
                   <small className="queue-item-followup">{localizedFollowupReason(node.followupReasons[0], language)}</small>
                 ) : null}
@@ -1965,10 +1998,10 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
                   type="button"
                   aria-label={actionLabel}
                   title={agentState?.available === false ? t("agentUnavailable") : actionLabel}
-                  disabled={busy || Boolean(deletingPath) || deletingBatch || !agentState?.available || agentState.maintenanceBusy}
+                  disabled={activeJobs.has(node.path) || Boolean(deletingPath) || deletingBatch || !agentState?.available}
                   onClick={() => void (repairing ? repairNode(node) : processNodes([node]))}
                 >
-                  {busy && activePath === node.path ? <LoaderCircle className="spin" size={14} /> : repairing ? <Wrench size={14} /> : <Sparkles size={14} />}
+                  {activeJobs.has(node.path) ? <LoaderCircle className="spin" size={14} /> : repairing ? <Wrench size={14} /> : <Sparkles size={14} />}
                 </button>
                   );
                 })()}
@@ -1977,7 +2010,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
                   type="button"
                   aria-label={t("deleteQueueItem")}
                   title={t("deleteQueueItem")}
-                  disabled={busy || Boolean(deletingPath) || deletingBatch || agentState?.maintenanceBusy}
+                  disabled={activeJobs.has(node.path) || Boolean(deletingPath) || deletingBatch}
                   onClick={() => void deleteNode(node)}
                 >
                   {deletingPath === node.path ? <LoaderCircle className="spin" size={14} /> : <Trash2 size={14} />}
@@ -2010,6 +2043,17 @@ function selectedMaintenanceProvider(agent: AgentInfo) {
   }
   if (agent.defaultProvider && providers.has(agent.defaultProvider)) return agent.defaultProvider;
   return agent.providers[0]?.provider || agent.provider;
+}
+
+function rawJobPath(job: Job) {
+  return String(job.meta.path || (Array.isArray(job.meta.paths) ? job.meta.paths[0] : "") || "");
+}
+
+function rawTaskLabel(job: Job | undefined, language: "en" | "zh") {
+  if (!job) return "";
+  if (job.status === "queued") return language === "zh" ? "等待执行" : "Queued";
+  if (job.meta.action === "repair") return language === "zh" ? "正在修复" : "Repairing";
+  return language === "zh" ? "正在蒸馏" : "Distilling";
 }
 
 function buildUniverseSummary(graph: WikiGraph, group: string) {

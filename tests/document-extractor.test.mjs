@@ -4,7 +4,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { extractPdfWithOcrFallback, pdfOcrSettings } from "../scripts/core/document-extractor.mjs";
-import { insertPageAssetReferences, mineruEntriesToMarkdown, readMineruOutput, relationshipDiagramPages } from "../scripts/core/mineru-extractor.mjs";
+import { insertPageAssetReferences, mergeMineruBatches, mineruBatchRanges, mineruEntriesToMarkdown, readMineruOutput, relationshipDiagramPages, shiftMineruBatch } from "../scripts/core/mineru-extractor.mjs";
 import { assessPdfPage, cleanExtractedPageText, compactPageRanges, summarizePdfQuality } from "../scripts/core/pdf-quality.mjs";
 import { classifyPdfVisualPages, parsePageRanges, pdfVisualGateSettings } from "../scripts/core/pdf-visual-gate.mjs";
 import { suppressRawPdfPages } from "../scripts/core/pdf-raw-suppression.mjs";
@@ -20,6 +20,40 @@ test("large PDF OCR defaults cover textbook-sized scans in resumable batches", (
   });
   assert.equal(pdfOcrSettings({ MY_WIKI_OCR_MAX_PDF_PAGES: "0" }).maxPages, 0);
   assert.equal(pdfOcrSettings({ MY_WIKI_OCR_PDF_BATCH_PAGES: "8" }).batchPages, 8);
+});
+
+test("MinerU splits long documents into bounded zero-based page ranges", () => {
+  assert.deepEqual(mineruBatchRanges(1071, {}), [
+    ...Array.from({ length: 16 }, (_, index) => ({ start: index * 64, end: index * 64 + 63 })),
+    { start: 1024, end: 1070 }
+  ]);
+  assert.deepEqual(mineruBatchRanges(512, {}), []);
+  assert.deepEqual(mineruBatchRanges(513, { MY_WIKI_MINERU_BATCH_PAGES: "128" }), [
+    { start: 0, end: 127 }, { start: 128, end: 255 }, { start: 256, end: 383 }, { start: 384, end: 511 }, { start: 512, end: 512 }
+  ]);
+  assert.deepEqual(mineruBatchRanges(900, { MY_WIKI_MINERU_BATCH_PAGES: "0" }), []);
+});
+
+test("MinerU batch merge shifts page anchors and namespaces embedded assets", () => {
+  const first = shiftMineruBatch({
+    content: "### Page 1\n\n![Map](my-wiki-asset:mineru-image-1.png)",
+    pages: 64,
+    pageResults: [{ page: 1, text: "first" }],
+    assets: [{ reference: "my-wiki-asset:mineru-image-1.png", id: "mineru-image-1", name: "page-001-map.png", page: 1 }]
+  }, 0, 1);
+  const second = shiftMineruBatch({
+    content: "### Page 1\n\n![Map](my-wiki-asset:mineru-image-1.png)",
+    pages: 47,
+    pageResults: [{ page: 1, text: "last" }],
+    assets: [{ reference: "my-wiki-asset:mineru-image-1.png", id: "mineru-image-1", name: "page-001-map.png", page: 1 }]
+  }, 1024, 17);
+  const merged = mergeMineruBatches([first, second], 1071);
+  assert.match(merged.content, /^### Page 1/m);
+  assert.match(merged.content, /^### Page 1025/m);
+  assert.match(merged.content, /my-wiki-asset:mineru-batch-17-mineru-image-1\.png/);
+  assert.deepEqual(merged.pageResults.map((item) => item.page), [1, 1025]);
+  assert.deepEqual(merged.assets.map((item) => item.page), [1, 1025]);
+  assert.notEqual(merged.assets[0].reference, merged.assets[1].reference);
 });
 
 test("PDF cleanup removes OCR spaces only between Chinese characters and punctuation", () => {
@@ -88,6 +122,94 @@ test("automatic PDF extraction prefers an available MinerU result even when PDF.
   assert.equal(result.engine, "mineru");
   assert.equal(result.method, "mineru");
   assert.match(result.content, /Structured MinerU/);
+});
+
+test("automatic PDF extraction does not hide a MinerU failure behind PDF.js text", async () => {
+  const result = await extractPdfWithOcrFallback({
+    file: "textbook.pdf",
+    dependencyRoot: "dependencies",
+    cacheRoot: "cache",
+    environment: {},
+    extractPdf: async () => ({
+      status: "complete",
+      content: "A large but layout-free PDF.js text stream.",
+      pages: 1071,
+      characters: 3_620_390,
+      quality: { level: "degraded", score: 85.1 }
+    }),
+    extractMineru: async () => ({
+      status: "failed",
+      method: "mineru",
+      engine: "mineru",
+      message: "MinerU failed (1): processing window stopped"
+    })
+  });
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.method, "mineru");
+  assert.equal(result.engine, "mineru");
+  assert.equal(result.characters, 0);
+  assert.match(result.message, /MinerU failed \(1\)/);
+  assert.doesNotMatch(result.content, /layout-free PDF\.js/);
+});
+
+test("automatic PDF extraction does not replace low-quality MinerU output with PDF.js text", async () => {
+  const result = await extractPdfWithOcrFallback({
+    file: "textbook.pdf",
+    dependencyRoot: "dependencies",
+    cacheRoot: "cache",
+    environment: {},
+    extractPdf: async () => ({
+      status: "complete",
+      content: "Readable but layout-free PDF.js text.",
+      pages: 300,
+      characters: 800_000,
+      quality: { level: "good", score: 90 }
+    }),
+    extractMineru: async () => ({
+      status: "low-quality",
+      method: "mineru",
+      engine: "mineru",
+      content: "Partial structured evidence for review.",
+      pages: 300,
+      characters: 38,
+      quality: { level: "poor", score: 41 },
+      message: "MinerU output did not meet the page-quality threshold."
+    })
+  });
+
+  assert.equal(result.status, "low-quality");
+  assert.equal(result.method, "mineru");
+  assert.equal(result.engine, "mineru");
+  assert.match(result.content, /Partial structured evidence/);
+  assert.doesNotMatch(result.content, /layout-free PDF\.js/);
+});
+
+test("automatic PDF extraction still uses PDF.js when MinerU is unavailable", async () => {
+  const result = await extractPdfWithOcrFallback({
+    file: "textbook.pdf",
+    dependencyRoot: "dependencies",
+    cacheRoot: "cache",
+    environment: {},
+    extractPdf: async () => ({
+      status: "complete",
+      content: "Readable text-layer evidence.",
+      pages: 12,
+      characters: 29,
+      quality: { level: "good", score: 90 },
+      warnings: []
+    }),
+    extractMineru: async () => ({
+      status: "unavailable",
+      method: "mineru",
+      message: "MinerU command is not available"
+    })
+  });
+
+  assert.equal(result.status, "complete");
+  assert.equal(result.method, "pdf-text");
+  assert.equal(result.engine, "pdfjs");
+  assert.match(result.warnings.join(" "), /MinerU is not installed/);
 });
 
 test("page quality gate catches templated repetition with changing numbers", () => {

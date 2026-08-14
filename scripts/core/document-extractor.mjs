@@ -76,8 +76,9 @@ export async function extractPdfWithOcrFallback({
   if (engine === "auto") {
     const mineru = await extractMineru({ file, pages: parsed.pages, cacheRoot, dependencyRoot, environment });
     if (mineru.status === "complete") return success(mineru);
+    if (mineru.status !== "unavailable") return normalizeMineruResult(mineru);
     if (parsed.status === "complete" && isMeaningful(parsed.content)) {
-      const warnings = [...(parsed.warnings || []), mineru.status === "unavailable" ? "MinerU is not installed; degraded pages use the lightweight PDF text layer." : mineru.message].filter(Boolean);
+      const warnings = [...(parsed.warnings || []), "MinerU is not installed; degraded pages use the lightweight PDF text layer."].filter(Boolean);
       return success({ ...parsed, engine: "pdfjs", method: "pdf-text", units: parsed.pages, unitLabel: "pages", warnings });
     }
   } else if (parsed.status === "complete" && isMeaningful(parsed.content)) {

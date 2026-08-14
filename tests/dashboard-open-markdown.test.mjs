@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import http from "node:http";
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -362,7 +362,8 @@ test("File uploads enter the Inbox queue before extraction completes", async (co
     dashboardRoot: fixture.dashboard,
     port: 0,
     agentRunner: { info: async () => ({}) },
-    localFileIngestor: async () => {
+    localFileIngestor: async (input) => {
+      await input.onSnapshot({ relative: "raw/snapshots/queued.pdf" });
       await extractionGate;
       return { kind: "file", count: 1, items: [{ status: "inbox", path: "raw/sources/queued.md" }] };
     }
@@ -391,6 +392,11 @@ test("File uploads enter the Inbox queue before extraction completes", async (co
   assert.equal(receipt.title, "Queued PDF");
   assert.match(receipt.temporary, /^\.my-wiki\/uploads\//);
 
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const current = await request(port, "GET", "/api/v1/inbox", { headers: auth });
+    if (current.body.items.some((item) => item.jobId === queued.body.id)) break;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
   const inbox = await request(port, "GET", "/api/v1/inbox", { headers: auth });
   const queueItem = inbox.body.items.find((item) => item.jobId === queued.body.id);
   assert.equal(queueItem.title, "Queued PDF");
@@ -441,6 +447,7 @@ test("Dashboard recovers a persisted capture job after a service restart", async
     agentRunner: { info: async () => ({}) },
     localFileIngestor: async (input) => {
       receivedInput = input;
+      await input.onSnapshot({ relative: input.snapshotReference });
       await extractionGate;
       return { kind: "file", count: 1, items: [{ status: "inbox", path: "raw/sources/recovered.md" }] };
     }
@@ -456,6 +463,9 @@ test("Dashboard recovers a persisted capture job after a service restart", async
   const recovered = inbox.body.items.find((item) => item.jobId === jobId);
   assert.equal(recovered.title, "Recovered PDF");
   assert.match(recovered.jobStatus, /queued|running/);
+  for (let attempt = 0; attempt < 20 && !receivedInput; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
   assert.equal(receivedInput.snapshotReference, "raw/snapshots/2026-08-12--recovered.pdf");
 
   finishExtraction();
@@ -551,6 +561,50 @@ test("Chunked uploads assemble the original bytes before entering the Inbox queu
   assert.equal(receivedInput.suggestedUniverse, "数学");
 });
 
+test("Chunked knowledge package uploads bypass single-request proxy limits", async (context) => {
+  const fixture = await createFixture(context);
+  const server = http.createServer(createDashboardApi({
+    dashboardRoot: fixture.dashboard,
+    port: 0,
+    agentRunner: { info: async () => ({}) }
+  }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+  const payload = Buffer.alloc(700_000, 0x61);
+  const createBody = JSON.stringify({ filename: "large.mywiki", as: "Imported", size: payload.length });
+
+  const created = await request(port, "POST", "/api/v1/universe-imports/uploads", {
+    headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(createBody) },
+    body: createBody
+  });
+  assert.equal(created.status, 201);
+  assert.ok(created.body.chunkSize < payload.length);
+
+  let offset = 0;
+  while (offset < payload.length) {
+    const end = Math.min(payload.length, offset + created.body.chunkSize);
+    const chunk = payload.subarray(offset, end);
+    const patched = await request(port, "PATCH", `/api/v1/universe-imports/uploads/${created.body.id}?offset=${offset}`, {
+      headers: { ...auth, "content-type": "application/octet-stream", "content-length": chunk.length },
+      body: chunk
+    });
+    assert.equal(patched.status, 200);
+    assert.equal(patched.body.offset, end);
+    offset = end;
+  }
+
+  const files = await readdir(path.join(fixture.vault, ".my-wiki", "imports-upload"));
+  assert.equal(files.length, 1);
+  assert.deepEqual(await readFile(path.join(fixture.vault, ".my-wiki", "imports-upload", files[0])), payload);
+  const completed = await request(port, "POST", `/api/v1/universe-imports/uploads/${created.body.id}/complete`, { headers: auth });
+  assert.equal(completed.status, 202);
+  assert.equal(completed.body.type, "import-preview");
+});
+
 test("Maintenance uses a total timeout without an idle timeout", async (context) => {
   const fixture = await createFixture(context);
   const sourceFile = path.join(fixture.vault, "raw", "sources", "maintenance-source.md");
@@ -626,6 +680,95 @@ This source contains substantive readable evidence for a maintenance timeout tes
   assert.equal(runOptions.idleTimeoutMs, 0);
   assert.match(runOptions.prompt, /no installed Agent Skill is required/);
   assert.doesNotMatch(runOptions.prompt, /Follow the installed My Wiki Skill/);
+});
+
+test("mixed Raw maintenance runs independently with a shared concurrency limit of two", async (context) => {
+  const fixture = await createFixture(context);
+  const sources = [
+    { name: "distill-a", status: "inbox", reasons: [] },
+    { name: "repair-b", status: "needs-followup", reasons: ["capture:needs-followup"] },
+    { name: "distill-c", status: "inbox", reasons: [] }
+  ];
+  for (const source of sources) {
+    await writeFile(path.join(fixture.vault, "raw", "sources", `${source.name}.md`), [
+      "---",
+      `title: ${source.name}`,
+      "type: raw-source",
+      `status: ${source.status}`,
+      `needs_followup: ${source.status === "needs-followup"}`,
+      source.reasons.length ? `followup_reasons:\n  - "${source.reasons[0]}"` : "followup_reasons: []",
+      "source_type: webpage",
+      "capture_method: dashboard-url",
+      "captured: 2026-08-14T00:00:00.000Z",
+      "---",
+      `# ${source.name}`,
+      "",
+      "## Capture",
+      "",
+      `Substantive evidence for ${source.name}.`,
+      ""
+    ].join("\n"), "utf8");
+  }
+
+  const releases = [];
+  let running = 0;
+  let peak = 0;
+  const started = [];
+  const agentRunner = {
+    info: async () => ({
+      available: true,
+      provider: "opencode",
+      label: "OpenCode",
+      defaultProvider: "opencode",
+      providers: [{ provider: "opencode", label: "OpenCode" }],
+      message: ""
+    }),
+    run: async (options) => {
+      running += 1;
+      peak = Math.max(peak, running);
+      started.push(options.mode);
+      await new Promise((resolve) => releases.push(resolve));
+      running -= 1;
+      return options.mode === "repair"
+        ? { summary: "Still needs review", repairedIssues: [], remainingIssues: ["manual review"] }
+        : { summary: "Left in inbox", processed: [], createdWiki: [], updatedWiki: [], remainingNotes: "pending" };
+    }
+  };
+  const server = http.createServer(createDashboardApi({ dashboardRoot: fixture.dashboard, port: 0, agentRunner }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+  const body = JSON.stringify({ paths: sources.map((source) => `raw/sources/${source.name}.md`), batchSize: 3, provider: "opencode" });
+  const queued = await request(port, "POST", "/api/v1/agent/maintenance-batch", {
+    headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(body) },
+    body
+  });
+  assert.equal(queued.status, 202);
+  assert.equal(queued.body.jobs.length, 3);
+
+  for (let attempt = 0; attempt < 30 && started.length < 2; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(started.length, 2);
+  assert.equal(peak, 2);
+  const agent = await request(port, "GET", "/api/v1/agent", { headers: auth });
+  assert.equal(agent.body.rawTaskLimit, 2);
+  assert.equal(agent.body.activeRawJobs.length, 3);
+
+  const duplicateBody = JSON.stringify({ path: "raw/sources/repair-b.md", provider: "opencode" });
+  const duplicate = await request(port, "POST", "/api/v1/agent/repair", {
+    headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(duplicateBody) },
+    body: duplicateBody
+  });
+  assert.equal(duplicate.status, 409);
+  assert.match(duplicate.body.error, /active task/);
+
+  releases.shift()();
+  for (let attempt = 0; attempt < 30 && started.length < 3; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(started.length, 3);
+  assert.equal(peak, 2);
+  while (releases.length) releases.shift()();
 });
 
 test("Maintenance normalizes escaped Wiki metadata and rejects residual malformed frontmatter", async (context) => {

@@ -21,13 +21,33 @@ export async function extractPdfWithMineru({ file, pages = 0, cacheRoot = "", de
   const timeout = Math.max(60_000, Number(environment.MY_WIKI_MINERU_TIMEOUT_MS || 12 * 60 * 60 * 1000));
   try {
     const visualPages = await analyzePdfVisualPages({ file, dependencyRoot, pages, environment }).catch(() => []);
-    const args = ["-p", file, "-o", outputRoot, "-b", backend, "-l", language];
-    if (backend.startsWith("hybrid-")) args.push("--effort", effort);
-    const result = await runCommand(command, args, { timeout, environment });
-    if (result.code !== 0) {
-      return { status: "failed", method: "mineru", message: `MinerU failed (${result.code}): ${cleanError(result.stderr || result.stdout)}` };
+    const ranges = mineruBatchRanges(pages, environment);
+    let parsed;
+    if (ranges.length) {
+      const batches = [];
+      for (const range of ranges) {
+        const batchRoot = path.join(outputRoot, `${String(range.start).padStart(4, "0")}-${String(range.end).padStart(4, "0")}`);
+        await fs.mkdir(batchRoot, { recursive: true });
+        const args = mineruArguments({ file, outputRoot: batchRoot, backend, language, effort, range });
+        const result = await runCommand(command, args, { timeout, environment });
+        if (result.code !== 0) {
+          return { status: "failed", method: "mineru", engine: "mineru", message: `MinerU batch ${range.start + 1}-${range.end + 1} failed (${result.code}): ${cleanError(result.stderr || result.stdout)}` };
+        }
+        const localVisualPages = visualPages
+          .filter((item) => Number(item?.page) > range.start && Number(item?.page) <= range.end + 1)
+          .map((item) => ({ ...item, page: Number(item.page) - range.start }));
+        const batch = await readMineruOutput(batchRoot, range.end - range.start + 1, { visualPages: localVisualPages });
+        batches.push(shiftMineruBatch(batch, range.start, ranges.indexOf(range) + 1));
+      }
+      parsed = mergeMineruBatches(batches, pages);
+    } else {
+      const args = mineruArguments({ file, outputRoot, backend, language, effort });
+      const result = await runCommand(command, args, { timeout, environment });
+      if (result.code !== 0) {
+        return { status: "failed", method: "mineru", engine: "mineru", message: `MinerU failed (${result.code}): ${cleanError(result.stderr || result.stdout)}` };
+      }
+      parsed = await readMineruOutput(outputRoot, pages, { visualPages });
     }
-    const parsed = await readMineruOutput(outputRoot, pages, { visualPages });
     if (!parsed.content.trim()) return { status: "failed", method: "mineru", message: "MinerU completed without readable Markdown output." };
     const assetPages = new Set((parsed.assets || []).map((asset) => Number(asset.page || 0)).filter(Boolean));
     const diagramPages = relationshipDiagramPages(parsed.pageResults).filter((page) => !assetPages.has(page));
@@ -62,6 +82,54 @@ export async function extractPdfWithMineru({ file, pages = 0, cacheRoot = "", de
   } finally {
     await fs.rm(outputRoot, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+export function mineruBatchRanges(pages, environment = process.env) {
+  const total = Math.max(0, Number(pages || 0));
+  const threshold = Math.max(0, Number(environment.MY_WIKI_MINERU_BATCH_THRESHOLD_PAGES ?? 512));
+  const size = Math.max(0, Number(environment.MY_WIKI_MINERU_BATCH_PAGES ?? 64));
+  if (!total || !size || total <= threshold) return [];
+  const ranges = [];
+  for (let start = 0; start < total; start += size) ranges.push({ start, end: Math.min(total - 1, start + size - 1) });
+  return ranges;
+}
+
+export function shiftMineruBatch(batch, pageOffset, batchNumber = 1) {
+  const prefix = `mineru-batch-${batchNumber}`;
+  let content = String(batch?.content || "").replace(/^### Page (\d+)\s*$/gm, (_, page) => `### Page ${Number(page) + pageOffset}`);
+  const assets = (batch?.assets || []).map((asset) => {
+    const reference = `${prefix}-${String(asset.reference || "").replace(/^my-wiki-asset:/, "")}`;
+    if (asset.reference) content = content.split(String(asset.reference)).join(`my-wiki-asset:${reference}`);
+    return {
+      ...asset,
+      reference: `my-wiki-asset:${reference}`,
+      id: `${prefix}-${asset.id}`,
+      name: `${prefix}-${asset.name}`,
+      page: Number(asset.page || 0) + pageOffset
+    };
+  });
+  return {
+    ...batch,
+    content,
+    assets,
+    pageResults: (batch?.pageResults || []).map((result) => ({ ...result, page: Number(result.page || 0) + pageOffset }))
+  };
+}
+
+export function mergeMineruBatches(batches, expectedPages = 0) {
+  return {
+    content: batches.map((batch) => String(batch?.content || "").trim()).filter(Boolean).join("\n\n"),
+    pages: Number(expectedPages || batches.reduce((sum, batch) => sum + Number(batch?.pages || 0), 0)),
+    pageResults: batches.flatMap((batch) => batch?.pageResults || []),
+    assets: batches.flatMap((batch) => batch?.assets || [])
+  };
+}
+
+function mineruArguments({ file, outputRoot, backend, language, effort, range }) {
+  const args = ["-p", file, "-o", outputRoot, "-b", backend, "-l", language];
+  if (backend.startsWith("hybrid-")) args.push("--effort", effort);
+  if (range) args.push("--start", String(range.start), "--end", String(range.end));
+  return args;
 }
 
 export async function readMineruOutput(outputRoot, expectedPages = 0, { visualPages = [] } = {}) {

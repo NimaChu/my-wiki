@@ -56,6 +56,8 @@ export type AgentInfo = {
   maintenanceBusy: boolean;
   activeJob: Job | null;
   activeMaintenanceJob: Job | null;
+  rawTaskLimit?: number;
+  activeRawJobs?: Job[];
 };
 
 export type PetAppearance = {
@@ -240,6 +242,15 @@ export const localApi = {
     return response.json() as Promise<Job>;
   },
 
+  async maintainBatch(paths: string[], batchSize = 500, provider = "") {
+    const response = await apiFetch("/api/v1/agent/maintenance-batch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paths, batchSize, provider })
+    });
+    return response.json() as Promise<{ jobs: Job[]; count: number }>;
+  },
+
   async repair(path: string, provider = "") {
     const response = await apiFetch("/api/v1/agent/repair", {
       method: "POST",
@@ -348,6 +359,37 @@ export const localApi = {
   },
 
   async previewImport(file: File, as = "") {
+    if (file.size >= CHUNKED_UPLOAD_THRESHOLD) {
+      let uploadId = "";
+      try {
+        const created = await apiFetch("/api/v1/universe-imports/uploads", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ filename: file.name, as, size: file.size })
+        });
+        const upload = await created.json() as { id: string; offset: number; chunkSize: number };
+        uploadId = upload.id;
+        let offset = upload.offset;
+        while (offset < file.size) {
+          const end = Math.min(file.size, offset + upload.chunkSize);
+          const response = await apiFetch(`/api/v1/universe-imports/uploads/${upload.id}?offset=${offset}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/octet-stream" },
+            body: file.slice(offset, end)
+          });
+          const next = await response.json() as { offset: number };
+          if (next.offset !== end) throw new Error(`Upload offset mismatch; expected ${end}`);
+          offset = next.offset;
+        }
+        const completed = await apiFetch(`/api/v1/universe-imports/uploads/${upload.id}/complete`, { method: "POST" });
+        return completed.json() as Promise<Job>;
+      } catch (error) {
+        if (uploadId) {
+          await apiFetch(`/api/v1/universe-imports/uploads/${uploadId}`, { method: "DELETE" }).catch(() => undefined);
+        }
+        throw error;
+      }
+    }
     const params = new URLSearchParams({ filename: file.name });
     if (as) params.set("as", as);
     const response = await apiFetch(`/api/v1/universe-imports?${params}`, {

@@ -82,6 +82,22 @@ $$
   assert.equal(result.errors.length, 0);
 });
 
+test("code fences do not count as reviewed formula evidence", async () => {
+  const input = `### Page 12
+
+> Extracted formula awaiting source review.
+
+\`\`\`text
+\\begin{array}{l l} x & y & z \\end{array}
+\`\`\`
+`;
+  const result = await checkMarkdownFormulas(input);
+
+  assert.equal(result.checked, 0);
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.strictWarnings.length, 0);
+});
+
 test("hard formula gating is limited to formula-aware extraction", () => {
   assert.equal(shouldGateExtractedFormulas({ extractionMethod: "mineru" }), true);
   assert.equal(shouldGateExtractedFormulas({ extractionMethod: "pdf-text", extractionQuality: { formulaRiskPages: [3] } }), true);

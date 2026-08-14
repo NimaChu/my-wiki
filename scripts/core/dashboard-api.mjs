@@ -41,6 +41,7 @@ const FILE_LIMIT = Number(process.env.MY_WIKI_UPLOAD_LIMIT_BYTES || 1024 * 1024 
 const FILE_CHUNK_LIMIT = Math.max(64 * 1024, Math.min(4 * 1024 * 1024, Number(process.env.MY_WIKI_UPLOAD_CHUNK_BYTES) || 512 * 1024));
 const sessionToken = randomBytes(32).toString("hex");
 const jobs = new Map();
+const RAW_TASK_CONCURRENCY = 2;
 const BUNDLED_PET_IDS = ["qoderwork--my-wiki", "codenono--dq02", "claude--xiangking"];
 const MAINTENANCE_QUEUE_STATUSES = new Set(["inbox", "needs-followup", "stale"]);
 
@@ -108,7 +109,10 @@ export function createDashboardApi({
   formulaDependencyRoot = dashboardRoot
 }) {
   const runtimeFile = path.join(dashboardRoot, ".my-wiki-runtime.json");
-  const activeAgentJobs = { query: "", maintenance: "" };
+  const activeAgentJobs = { query: "" };
+  const rawTaskQueue = [];
+  const activeRawTasks = new Map();
+  let activeRawTaskCount = 0;
   const pendingUploads = new Map();
   const recoveredCaptureVaults = new Map();
 
@@ -130,7 +134,9 @@ export function createDashboardApi({
       collection,
       suggestedUniverse,
       sourcePath,
-      sourceType: sourceTypeFromFilename(filename)
+      sourceType: sourceTypeFromFilename(filename),
+      snapshotPath: snapshotReference,
+      phase: snapshotReference ? "extracting" : "preserving-snapshot"
     }, vault, { id: jobId, createdAt });
     const receipt = {
       version: 1,
@@ -145,7 +151,7 @@ export function createDashboardApi({
       snapshotReference
     };
     await writeCaptureReceipt(vault, receipt);
-    runJob(job, async () => {
+    enqueueRawTask(job, `capture:${job.id}`, async () => {
       try {
         const batch = await localFileIngestor({
           vault,
@@ -160,6 +166,8 @@ export function createDashboardApi({
           snapshotReference: receipt.snapshotReference,
           onSnapshot: async (snapshot) => {
             receipt.snapshotReference = String(snapshot?.relative || "");
+            job.meta.snapshotPath = receipt.snapshotReference;
+            job.meta.phase = "extracting";
             await writeCaptureReceipt(vault, receipt);
           }
         });
@@ -173,6 +181,130 @@ export function createDashboardApi({
       }
     });
     return job;
+  };
+
+  const drainRawTasks = () => {
+    while (activeRawTaskCount < RAW_TASK_CONCURRENCY && rawTaskQueue.length > 0) {
+      const entry = rawTaskQueue.shift();
+      if (!entry || entry.job.status === "cancelled") continue;
+      activeRawTaskCount += 1;
+      activeRawTasks.set(entry.key, entry.job.id);
+      runJob(entry.job, entry.work, () => {
+        activeRawTaskCount = Math.max(0, activeRawTaskCount - 1);
+        if (activeRawTasks.get(entry.key) === entry.job.id) activeRawTasks.delete(entry.key);
+        drainRawTasks();
+      });
+    }
+  };
+
+  const enqueueRawTask = (job, rawKey, work) => {
+    const key = normalizeRawTaskKey(rawKey);
+    const existingId = activeRawTasks.get(key) || rawTaskQueue.find((entry) => entry.key === key)?.job.id;
+    const existing = existingId ? jobs.get(existingId) : null;
+    if (isActiveJob(existing)) throw httpError(409, "This Raw already has an active task");
+    job.meta.rawKey = key;
+    rawTaskQueue.push({ job, key, work });
+    drainRawTasks();
+    return job;
+  };
+
+  const rawTaskJobs = (vault) => [...new Set([
+    ...activeRawTasks.values(),
+    ...rawTaskQueue.map((entry) => entry.job.id)
+  ])]
+    .map((id) => jobs.get(id))
+    .filter((job) => job?.vault === vault && isActiveJob(job));
+
+  const rawTaskForPath = (vault, requestedPath) => {
+    const normalized = normalizeNoteReference(requestedPath);
+    if (!normalized) return null;
+    return [...jobs.values()].find((job) =>
+      job.vault === vault
+      && isActiveJob(job)
+      && rawJobPaths(job).some((item) => normalizeNoteReference(item) === normalized)
+    ) || null;
+  };
+
+  const queueMaintenanceJob = ({ vault, source, info }) => {
+    const job = createJob("agent-maintenance", {
+      provider: info.provider,
+      providerLabel: info.label,
+      count: 1,
+      path: source.path,
+      paths: [source.path],
+      action: "distill"
+    }, vault);
+    job.abortController = new AbortController();
+    return enqueueRawTask(job, source.path, async () => {
+      const currentScan = await scanVault(vault);
+      const currentSource = findRawSource(currentScan, source.path);
+      if (!currentSource || !["inbox", "stale"].includes(currentSource.status)) {
+        throw new Error("The Raw is no longer ready for distillation");
+      }
+      const beforeWikiContent = new Map(currentScan.nodes
+        .filter((node) => node.id.startsWith("wiki/"))
+        .map((node) => [node.id, node.content]));
+      const beforeWikiIds = new Set(beforeWikiContent.keys());
+      const result = await agentRunner.run({
+        provider: info.provider,
+        vault,
+        mode: "maintenance",
+        prompt: maintenancePrompt(vault, [currentSource]),
+        schema: maintenanceSchema,
+        timeoutMs: 20 * 60 * 1000,
+        idleTimeoutMs: 0,
+        signal: job.abortController.signal
+      });
+      let afterScan = await scanVault(vault);
+      if (await revertUnsupportedProcessedSources(afterScan)) afterScan = await scanVault(vault);
+      if (await normalizeMaintenanceFrontmatter(afterScan, beforeWikiContent)) afterScan = await scanVault(vault);
+      const changedWikiPaths = maintenanceChangedWikiPaths(afterScan, beforeWikiContent);
+      const metadataIssues = frontmatterMetadataIssues(afterScan, { paths: changedWikiPaths });
+      if (metadataIssues.length > 0 && await reopenRejectedMaintenanceSources([currentSource], afterScan)) {
+        afterScan = await scanVault(vault);
+      }
+      const lint = await lintVault(vault);
+      await refreshDashboardGraph(dashboardRoot, vault);
+      return normalizeMaintenanceResult(result, lint, beforeWikiIds, afterScan, metadataIssues);
+    });
+  };
+
+  const queueRepairJob = ({ vault, source, info }) => {
+    const job = createJob("agent-repair", {
+      provider: info.provider,
+      providerLabel: info.label,
+      path: source.path,
+      paths: [source.path],
+      reasons: Array.isArray(source.frontmatter.followup_reasons)
+        ? source.frontmatter.followup_reasons.map(String).filter(Boolean)
+        : [],
+      action: "repair"
+    }, vault);
+    job.abortController = new AbortController();
+    return enqueueRawTask(job, source.path, async () => {
+      const currentScan = await scanVault(vault);
+      const currentSource = selectRepairSource(currentScan, source.path);
+      const beforeReport = await rawRepairReport(currentScan, currentSource, formulaDependencyRoot, { preserveUnknownReasons: true });
+      const result = await agentRunner.run({
+        provider: info.provider,
+        vault,
+        mode: "repair",
+        prompt: repairPrompt(vault, currentSource, beforeReport),
+        schema: repairSchema,
+        timeoutMs: 20 * 60 * 1000,
+        idleTimeoutMs: 0,
+        signal: job.abortController.signal
+      });
+      let afterScan = await scanVault(vault);
+      const repairedSource = findRawSource(afterScan, currentSource.path);
+      if (!repairedSource) throw new Error("The repair Agent removed the target Raw note");
+      const afterReport = await rawRepairReport(afterScan, repairedSource, formulaDependencyRoot, { preserveUnknownReasons: false });
+      await reconcileRepairedRaw(repairedSource, afterReport);
+      afterScan = await scanVault(vault);
+      const lint = await lintVault(vault);
+      await refreshDashboardGraph(dashboardRoot, vault);
+      return normalizeRepairResult(result, currentSource.path, afterReport, lint);
+    });
   };
 
   const recoverCaptureJobs = async (vault) => {
@@ -246,7 +378,7 @@ export function createDashboardApi({
       if (requestUrl.pathname === "/api/v1/agent" && req.method === "GET") {
         const info = await agentRunner.info();
         const activeQuery = activeAgentJobs.query ? jobs.get(activeAgentJobs.query) : null;
-        const activeMaintenance = activeAgentJobs.maintenance ? jobs.get(activeAgentJobs.maintenance) : null;
+        const activeRawJobs = rawTaskJobs(vault);
         sendJson(res, 200, {
           available: info.available,
           provider: info.provider,
@@ -255,9 +387,11 @@ export function createDashboardApi({
           providers: publicAgentProviders(info),
           message: info.message,
           busy: isActiveJob(activeQuery),
-          maintenanceBusy: isActiveJob(activeMaintenance),
+          maintenanceBusy: activeRawJobs.length >= RAW_TASK_CONCURRENCY,
+          rawTaskLimit: RAW_TASK_CONCURRENCY,
+          activeRawJobs: activeRawJobs.map(publicJob),
           activeJob: activeQuery ? publicJob(activeQuery) : null,
-          activeMaintenanceJob: activeMaintenance ? publicJob(activeMaintenance) : null
+          activeMaintenanceJob: activeRawJobs[0] ? publicJob(activeRawJobs[0]) : null
         });
         return true;
       }
@@ -285,9 +419,8 @@ export function createDashboardApi({
       }
       if (requestUrl.pathname === "/api/v1/inbox/item" && req.method === "DELETE") {
         const requested = String(requestUrl.searchParams.get("path") || "");
-        const activeMaintenance = activeAgentJobs.maintenance ? jobs.get(activeAgentJobs.maintenance) : null;
         const normalizedRequested = normalizeNoteReference(requested);
-        if (isActiveJob(activeMaintenance) && activeMaintenance.meta.paths?.some((item) => normalizeNoteReference(item) === normalizedRequested)) {
+        if (rawTaskForPath(vault, normalizedRequested)) {
           throw httpError(409, "This raw note is currently being maintained");
         }
         const deleted = await deleteMaintenanceQueueItem(vault, requested);
@@ -301,10 +434,7 @@ export function createDashboardApi({
         if (paths.length === 0) throw httpError(400, "At least one maintenance queue path is required");
         if (paths.length > 500) throw httpError(400, "A batch delete can contain at most 500 queue items");
 
-        const activeMaintenance = activeAgentJobs.maintenance ? jobs.get(activeAgentJobs.maintenance) : null;
-        const activePaths = new Set(isActiveJob(activeMaintenance)
-          ? (activeMaintenance.meta.paths || []).map((item) => normalizeNoteReference(item))
-          : []);
+        const activePaths = new Set(rawTaskJobs(vault).flatMap((job) => rawJobPaths(job).map(normalizeNoteReference)));
         const deleted = [];
         const failed = [];
         for (const requested of paths) {
@@ -360,7 +490,6 @@ export function createDashboardApi({
         return true;
       }
       if (requestUrl.pathname === "/api/v1/agent/maintenance" && req.method === "POST") {
-        ensureAgentIdle(activeAgentJobs.maintenance, "maintenance");
         const body = await readJson(req);
         const requestedProvider = String(body.provider || "").trim().toLowerCase();
         const info = await requireAgent(agentRunner, requestedProvider);
@@ -373,93 +502,59 @@ export function createDashboardApi({
           scan = await scanVault(vault);
         }
         const sources = selectMaintenanceSources(scan, body.paths, body.batchSize, blockedSourceIds);
-        const beforeWikiContent = new Map(scan.nodes
-          .filter((node) => node.id.startsWith("wiki/"))
-          .map((node) => [node.id, node.content]));
-        const beforeWikiIds = new Set(beforeWikiContent.keys());
         if (sources.length === 0 && relevantBlockedIssues.size > 0) {
           throw httpError(409, `Maintenance preflight failed: ${summarizePreflightIssues(relevantBlockedIssues)}`);
         }
         if (sources.length === 0) throw httpError(409, "The maintenance queue has no processable raw notes");
-        const job = createJob("agent-maintenance", {
-          provider: info.provider,
-          providerLabel: info.label,
-          count: sources.length,
-          paths: sources.map((node) => node.path)
-        });
-        job.abortController = new AbortController();
-        activeAgentJobs.maintenance = job.id;
-        runJob(job, async () => {
-          try {
-            const result = await agentRunner.run({
-              provider: info.provider,
-              vault,
-              mode: "maintenance",
-              prompt: maintenancePrompt(vault, sources),
-              schema: maintenanceSchema,
-              timeoutMs: 20 * 60 * 1000,
-              idleTimeoutMs: 0,
-              signal: job.abortController.signal
-            });
-            let afterScan = await scanVault(vault);
-            if (await revertUnsupportedProcessedSources(afterScan)) afterScan = await scanVault(vault);
-            if (await normalizeMaintenanceFrontmatter(afterScan, beforeWikiContent)) afterScan = await scanVault(vault);
-            const changedWikiPaths = maintenanceChangedWikiPaths(afterScan, beforeWikiContent);
-            const metadataIssues = frontmatterMetadataIssues(afterScan, { paths: changedWikiPaths });
-            if (metadataIssues.length > 0 && await reopenRejectedMaintenanceSources(sources, afterScan)) {
-              afterScan = await scanVault(vault);
-            }
-            const lint = await lintVault(vault);
-            await refreshDashboardGraph(dashboardRoot, vault);
-            return normalizeMaintenanceResult(result, lint, beforeWikiIds, afterScan, metadataIssues);
-          } finally {
-            if (activeAgentJobs.maintenance === job.id) activeAgentJobs.maintenance = "";
+        const queued = [];
+        for (const source of sources) {
+          const existing = rawTaskForPath(vault, source.path);
+          if (existing) {
+            queued.push(publicJob(existing));
+            continue;
           }
-        });
-        sendJson(res, 202, publicJob(job));
+          const job = queueMaintenanceJob({ vault, source, info });
+          queued.push(publicJob(job));
+        }
+        sendJson(res, 202, queued.length === 1 ? queued[0] : { jobs: queued, count: queued.length });
+        return true;
+      }
+      if (requestUrl.pathname === "/api/v1/agent/maintenance-batch" && req.method === "POST") {
+        const body = await readJson(req);
+        const requestedProvider = String(body.provider || "").trim().toLowerCase();
+        const info = await requireAgent(agentRunner, requestedProvider);
+        let scan = await scanVault(vault);
+        const preflightIssues = await maintenancePreflightIssues(scan, formulaDependencyRoot);
+        if (await lockBrokenMaintenanceSources(scan, preflightIssues)) {
+          await refreshDashboardGraph(dashboardRoot, vault);
+          scan = await scanVault(vault);
+        }
+        const sources = selectMixedMaintenanceSources(scan, body.paths, body.batchSize);
+        if (sources.length === 0) throw httpError(409, "The maintenance queue has no actionable Raw items");
+        const queued = [];
+        for (const source of sources) {
+          const existing = rawTaskForPath(vault, source.path);
+          if (existing) {
+            queued.push(publicJob(existing));
+            continue;
+          }
+          const job = source.status === "needs-followup"
+            ? queueRepairJob({ vault, source, info })
+            : queueMaintenanceJob({ vault, source, info });
+          queued.push(publicJob(job));
+        }
+        sendJson(res, 202, { jobs: queued, count: queued.length });
         return true;
       }
       if (requestUrl.pathname === "/api/v1/agent/repair" && req.method === "POST") {
-        ensureAgentIdle(activeAgentJobs.maintenance, "maintenance");
         const body = await readJson(req);
         const requestedProvider = String(body.provider || "").trim().toLowerCase();
         const info = await requireAgent(agentRunner, requestedProvider);
         const scan = await scanVault(vault);
         const source = selectRepairSource(scan, body.path);
-        const beforeReport = await rawRepairReport(scan, source, formulaDependencyRoot, { preserveUnknownReasons: true });
-        const job = createJob("agent-repair", {
-          provider: info.provider,
-          providerLabel: info.label,
-          path: source.path,
-          reasons: beforeReport.reasons
-        });
-        job.abortController = new AbortController();
-        activeAgentJobs.maintenance = job.id;
-        runJob(job, async () => {
-          try {
-            const result = await agentRunner.run({
-              provider: info.provider,
-              vault,
-              mode: "repair",
-              prompt: repairPrompt(vault, source, beforeReport),
-              schema: repairSchema,
-              timeoutMs: 20 * 60 * 1000,
-              idleTimeoutMs: 0,
-              signal: job.abortController.signal
-            });
-            let afterScan = await scanVault(vault);
-            const repairedSource = findRawSource(afterScan, source.path);
-            if (!repairedSource) throw new Error("The repair Agent removed the target Raw note");
-            const afterReport = await rawRepairReport(afterScan, repairedSource, formulaDependencyRoot, { preserveUnknownReasons: false });
-            await reconcileRepairedRaw(repairedSource, afterReport);
-            afterScan = await scanVault(vault);
-            const lint = await lintVault(vault);
-            await refreshDashboardGraph(dashboardRoot, vault);
-            return normalizeRepairResult(result, source.path, afterReport, lint);
-          } finally {
-            if (activeAgentJobs.maintenance === job.id) activeAgentJobs.maintenance = "";
-          }
-        });
+        const existing = rawTaskForPath(vault, source.path);
+        if (existing) throw httpError(409, "This Raw already has an active task");
+        const job = queueRepairJob({ vault, source, info });
         sendJson(res, 202, publicJob(job));
         return true;
       }
@@ -574,6 +669,7 @@ export function createDashboardApi({
         await handle.close();
         pendingUploads.set(id, {
           id,
+          kind: "capture-file",
           vault,
           temporary,
           filename,
@@ -591,7 +687,7 @@ export function createDashboardApi({
       const fileUploadMatch = requestUrl.pathname.match(/^\/api\/v1\/inbox\/file\/uploads\/([a-f0-9-]+)$/i);
       if (fileUploadMatch && req.method === "PATCH") {
         const upload = pendingUploads.get(fileUploadMatch[1]);
-        if (!upload || upload.vault !== vault) throw httpError(404, "Pending upload not found");
+        if (!upload || upload.kind !== "capture-file" || upload.vault !== vault) throw httpError(404, "Pending upload not found");
         const requestedOffset = Number(requestUrl.searchParams.get("offset"));
         if (!Number.isSafeInteger(requestedOffset) || requestedOffset !== upload.offset) {
           throw httpError(409, `Upload offset mismatch; expected ${upload.offset}`);
@@ -606,7 +702,7 @@ export function createDashboardApi({
       const completeUploadMatch = requestUrl.pathname.match(/^\/api\/v1\/inbox\/file\/uploads\/([a-f0-9-]+)\/complete$/i);
       if (completeUploadMatch && req.method === "POST") {
         const upload = pendingUploads.get(completeUploadMatch[1]);
-        if (!upload || upload.vault !== vault) throw httpError(404, "Pending upload not found");
+        if (!upload || upload.kind !== "capture-file" || upload.vault !== vault) throw httpError(404, "Pending upload not found");
         const stat = await fs.stat(upload.temporary).catch(() => null);
         if (!stat?.isFile() || stat.size !== upload.size || upload.offset !== upload.size) {
           throw httpError(409, `Upload is incomplete; received ${upload.offset} of ${upload.size} bytes`);
@@ -618,7 +714,7 @@ export function createDashboardApi({
       }
       if (fileUploadMatch && req.method === "DELETE") {
         const upload = pendingUploads.get(fileUploadMatch[1]);
-        if (!upload || upload.vault !== vault) throw httpError(404, "Pending upload not found");
+        if (!upload || upload.kind !== "capture-file" || upload.vault !== vault) throw httpError(404, "Pending upload not found");
         pendingUploads.delete(upload.id);
         await fs.rm(upload.temporary, { force: true });
         sendJson(res, 200, { cancelled: true });
@@ -636,6 +732,73 @@ export function createDashboardApi({
           return result;
         });
         sendJson(res, 202, publicJob(job));
+        return true;
+      }
+      if (requestUrl.pathname === "/api/v1/universe-imports/uploads" && req.method === "POST") {
+        const body = await readJson(req);
+        const filename = safeFilename(body.filename || "universe.mywiki");
+        if (!filename.toLowerCase().endsWith(".mywiki")) throw httpError(400, "Only .mywiki packages can be imported");
+        const size = Number(body.size);
+        if (!Number.isSafeInteger(size) || size <= 0) throw httpError(400, "Upload size must be a positive integer");
+        if (size > FILE_LIMIT) throw httpError(413, `Upload exceeds ${FILE_LIMIT} bytes`);
+        await cleanupPendingUploads(pendingUploads);
+        const root = path.join(vault, ".my-wiki", "imports-upload");
+        await fs.mkdir(root, { recursive: true });
+        await cleanupOldUploads(root);
+        const id = randomUUID();
+        const temporary = path.join(root, `${id}-${filename}`);
+        const handle = await fs.open(temporary, "wx");
+        await handle.close();
+        pendingUploads.set(id, {
+          id,
+          kind: "universe-import",
+          vault,
+          temporary,
+          filename,
+          as: String(body.as || "").trim(),
+          size,
+          offset: 0,
+          createdAt: Date.now()
+        });
+        sendJson(res, 201, { id, offset: 0, chunkSize: FILE_CHUNK_LIMIT });
+        return true;
+      }
+      const importUploadMatch = requestUrl.pathname.match(/^\/api\/v1\/universe-imports\/uploads\/([a-f0-9-]+)$/i);
+      if (importUploadMatch && req.method === "PATCH") {
+        const upload = pendingUploads.get(importUploadMatch[1]);
+        if (!upload || upload.kind !== "universe-import" || upload.vault !== vault) throw httpError(404, "Pending import upload not found");
+        const requestedOffset = Number(requestUrl.searchParams.get("offset"));
+        if (!Number.isSafeInteger(requestedOffset) || requestedOffset !== upload.offset) {
+          throw httpError(409, `Upload offset mismatch; expected ${upload.offset}`);
+        }
+        const chunk = await readBinary(req, Math.min(FILE_CHUNK_LIMIT, upload.size - upload.offset));
+        if (!chunk.length) throw httpError(400, "Upload chunk is empty");
+        await fs.appendFile(upload.temporary, chunk);
+        upload.offset += chunk.length;
+        sendJson(res, 200, { id: upload.id, offset: upload.offset, complete: upload.offset === upload.size });
+        return true;
+      }
+      const completeImportUploadMatch = requestUrl.pathname.match(/^\/api\/v1\/universe-imports\/uploads\/([a-f0-9-]+)\/complete$/i);
+      if (completeImportUploadMatch && req.method === "POST") {
+        const upload = pendingUploads.get(completeImportUploadMatch[1]);
+        if (!upload || upload.kind !== "universe-import" || upload.vault !== vault) throw httpError(404, "Pending import upload not found");
+        const stat = await fs.stat(upload.temporary).catch(() => null);
+        if (!stat?.isFile() || stat.size !== upload.size || upload.offset !== upload.size) {
+          throw httpError(409, `Upload is incomplete; received ${upload.offset} of ${upload.size} bytes`);
+        }
+        pendingUploads.delete(upload.id);
+        const job = createJob("import-preview", { filename: upload.filename, as: upload.as });
+        job.packageFile = upload.temporary;
+        runJob(job, () => importUniverse({ vault, packageFile: upload.temporary, as: upload.as, apply: false }));
+        sendJson(res, 202, publicJob(job));
+        return true;
+      }
+      if (importUploadMatch && req.method === "DELETE") {
+        const upload = pendingUploads.get(importUploadMatch[1]);
+        if (!upload || upload.kind !== "universe-import" || upload.vault !== vault) throw httpError(404, "Pending import upload not found");
+        pendingUploads.delete(upload.id);
+        await fs.rm(upload.temporary, { force: true });
+        sendJson(res, 200, { cancelled: true });
         return true;
       }
       if (requestUrl.pathname === "/api/v1/universe-imports" && req.method === "POST") {
@@ -910,8 +1073,10 @@ function resolveCaptureTemporary(vault, reference) {
 async function writeCaptureReceipt(vault, receipt) {
   resolveCaptureTemporary(vault, receipt.temporary);
   const file = captureReceiptFile(vault, receipt.id);
+  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
   await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+  await fs.writeFile(temporary, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+  await fs.rename(temporary, file);
 }
 
 async function readCaptureReceipts(vault) {
@@ -952,6 +1117,7 @@ function captureQueueItems(vault) {
   return [...jobs.values()]
     .filter((job) => job.type === "capture-file"
       && job.vault === vault
+      && Boolean(job.meta.snapshotPath)
       && !["complete", "cancelled"].includes(job.status))
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
     .map((job) => ({
@@ -963,21 +1129,27 @@ function captureQueueItems(vault) {
       status: job.status === "failed" ? "failed" : "processing",
       sourceType: String(job.meta.sourceType || "file"),
       sourceUrl: "",
-      snapshotPath: "",
+      snapshotPath: String(job.meta.snapshotPath || ""),
       collection: String(job.meta.collection || ""),
       suggestedUniverse: String(job.meta.suggestedUniverse || ""),
       captured: job.createdAt,
       preview: job.status === "failed"
         ? job.error
         : job.status === "queued"
-          ? "Upload received. Waiting for local extraction."
-          : "Extracting readable evidence in the background."
+          ? "Snapshot preserved. Waiting for an extraction slot."
+          : job.meta.phase === "preserving-snapshot"
+            ? "Preserving the original snapshot before extraction."
+            : "Extracting readable evidence in the background."
     }));
 }
 
-function runJob(job, work) {
+function runJob(job, work, onSettled = null) {
   setTimeout(async () => {
-    if (job.status === "cancelled") return;
+    if (job.status === "cancelled") {
+      job.completedAt ||= new Date().toISOString();
+      onSettled?.(job);
+      return;
+    }
     job.status = "running";
     try {
       job.result = await work();
@@ -989,6 +1161,7 @@ function runJob(job, work) {
       }
     } finally {
       job.completedAt ||= new Date().toISOString();
+      onSettled?.(job);
     }
   }, 0);
 }
@@ -1071,6 +1244,18 @@ function isActiveJob(job) {
   return Boolean(job && ["queued", "running"].includes(job.status));
 }
 
+function normalizeRawTaskKey(value) {
+  const normalized = normalizeNoteReference(value);
+  return normalized || String(value || "").trim();
+}
+
+function rawJobPaths(job) {
+  return [...new Set([
+    job?.meta?.path,
+    ...(Array.isArray(job?.meta?.paths) ? job.meta.paths : [])
+  ].map((item) => String(item || "").trim()).filter(Boolean))];
+}
+
 function ensureAgentIdle(activeJobId, lane) {
   const active = activeJobId ? jobs.get(activeJobId) : null;
   if (isActiveJob(active)) {
@@ -1096,6 +1281,23 @@ function selectMaintenanceSources(scan, requestedPaths, requestedBatchSize, bloc
     .filter((node) => ["inbox", "stale"].includes(node.status) && !blockedSourceIds.has(node.id) && rawHasReadableContent(node))
     .sort((a, b) => String(a.frontmatter.captured || "").localeCompare(String(b.frontmatter.captured || "")))
     .slice(0, batchSize);
+}
+
+function selectMixedMaintenanceSources(scan, requestedPaths, requestedBatchSize) {
+  const batchSize = Math.max(1, Math.min(500, Number(requestedBatchSize) || 8));
+  const raw = scan.nodes.filter((node) => node.id.startsWith("raw/sources/") && MAINTENANCE_QUEUE_STATUSES.has(node.status));
+  const byPath = new Map();
+  for (const node of raw) {
+    byPath.set(normalizeNoteReference(node.id), node);
+    byPath.set(normalizeNoteReference(node.path), node);
+  }
+  const requested = Array.isArray(requestedPaths)
+    ? requestedPaths.map((value) => normalizeNoteReference(value)).filter(Boolean)
+    : [];
+  const selected = requested.length > 0
+    ? [...new Set(requested.map((value) => byPath.get(value)).filter(Boolean))]
+    : raw.sort((a, b) => String(a.frontmatter.captured || "").localeCompare(String(b.frontmatter.captured || "")));
+  return selected.slice(0, batchSize);
 }
 
 function selectRepairSource(scan, requestedPath) {

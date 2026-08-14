@@ -28,7 +28,17 @@ export async function ingestLocalFile({
     return { kind: "file", count: 0, items: [], ignored: [uploadPath], total: 0 };
   }
   if (path.extname(filename).toLowerCase() === ".zip") {
-    return ingestZipBundle({ vault, file, filename, collection, suggestedUniverse, dependencyRoot, captureMethod: captureMethod.replace(/file$/, "zip") });
+    return ingestZipBundle({
+      vault,
+      file,
+      filename,
+      collection,
+      suggestedUniverse,
+      dependencyRoot,
+      captureMethod: captureMethod.replace(/file$/, "zip"),
+      snapshotReference,
+      onSnapshot
+    });
   }
   const snapshot = snapshotReference
     ? await resolvePreservedSnapshot({ vault, snapshotReference })
@@ -90,8 +100,21 @@ export async function ingestDirectory({ vault, directory, collection = "", sugge
   return { kind: "directory", count: items.length, items, failures, total: files.length };
 }
 
-export async function ingestZipBundle({ vault, file, filename = path.basename(file), collection = "", suggestedUniverse = "", dependencyRoot, captureMethod = "agent-zip" }) {
-  const snapshot = await preserveUploadedSnapshot({ vault, file, filename });
+export async function ingestZipBundle({
+  vault,
+  file,
+  filename = path.basename(file),
+  collection = "",
+  suggestedUniverse = "",
+  dependencyRoot,
+  captureMethod = "agent-zip",
+  snapshotReference = "",
+  onSnapshot = null
+}) {
+  const snapshot = snapshotReference
+    ? await resolvePreservedSnapshot({ vault, snapshotReference })
+    : await preserveUploadedSnapshot({ vault, file, filename });
+  if (typeof onSnapshot === "function") await onSnapshot(snapshot);
   try {
     return await ingestPreservedZipBundle({ vault, filename, collection, suggestedUniverse, dependencyRoot, captureMethod, snapshot });
   } catch (error) {
