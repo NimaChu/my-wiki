@@ -1,10 +1,11 @@
-import { memo, startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { Children, memo, startTransition, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { markdownHeadingId } from "./markdown-workspace";
 import "katex/dist/katex.min.css";
 
 type RichMarkdownProps = {
@@ -13,13 +14,14 @@ type RichMarkdownProps = {
   imageFallback: string;
   renderingLabel: string;
   renderMoreLabel: string;
+  renderAll?: boolean;
 };
 
 const INITIAL_RENDER_CHUNKS = 2;
 const RENDER_CHUNK_BATCH = 4;
 const PAGED_DOCUMENT_THRESHOLD = 8;
 
-export default function RichMarkdown({ content, imageUrls, imageFallback, renderingLabel, renderMoreLabel }: RichMarkdownProps) {
+export default function RichMarkdown({ content, imageUrls, imageFallback, renderingLabel, renderMoreLabel, renderAll = false }: RichMarkdownProps) {
   const normalized = useMemo(
     () => content.replace(/\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]/g, (_match, target, label) => label || target),
     [content]
@@ -29,8 +31,8 @@ export default function RichMarkdown({ content, imageUrls, imageFallback, render
   const progressRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
-    setRenderedChunkCount(initialChunkCount(chunks.length));
-  }, [chunks]);
+    setRenderedChunkCount(renderAll ? chunks.length : initialChunkCount(chunks.length));
+  }, [chunks, renderAll]);
 
   const renderMore = () => {
     startTransition(() => {
@@ -79,12 +81,24 @@ export default function RichMarkdown({ content, imageUrls, imageFallback, render
   );
 }
 
-const MarkdownChunk = memo(function MarkdownChunk({ content, imageUrls, imageFallback }: Omit<RichMarkdownProps, "renderingLabel" | "renderMoreLabel">) {
+const MarkdownChunk = memo(function MarkdownChunk({ content, imageUrls, imageFallback }: Omit<RichMarkdownProps, "renderingLabel" | "renderMoreLabel" | "renderAll">) {
+  const headingCounts = new Map<string, number>();
+  const heading = (Tag: "h1" | "h2" | "h3" | "h4") => ({ children }: { children?: ReactNode }) => {
+    const base = markdownHeadingId(reactNodeText(children));
+    const occurrence = headingCounts.get(base) || 0;
+    headingCounts.set(base, occurrence + 1);
+    const id = occurrence ? `${base}-${occurrence + 1}` : base;
+    return <Tag id={id}>{children}</Tag>;
+  };
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkMath]}
       rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeKatex]}
       components={{
+        h1: heading("h1"),
+        h2: heading("h2"),
+        h3: heading("h3"),
+        h4: heading("h4"),
         a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
         table: ({ children }) => <div className="document-table-scroll"><table>{children}</table></div>,
         span: ({ className, title, children, ...props }) => {
@@ -111,6 +125,16 @@ const MarkdownChunk = memo(function MarkdownChunk({ content, imageUrls, imageFal
     </ReactMarkdown>
   );
 });
+
+function reactNodeText(value: ReactNode): string {
+  return Children.toArray(value).map((child) => {
+    if (typeof child === "string" || typeof child === "number") return String(child);
+    if (child && typeof child === "object" && "props" in child) {
+      return reactNodeText((child as { props?: { children?: ReactNode } }).props?.children);
+    }
+    return "";
+  }).join("");
+}
 
 function markdownRenderChunks(content: string) {
   const pageChunks = content.split(/(?=^### Page \d+\s*$)/gm).filter(Boolean);

@@ -12,6 +12,15 @@ export type InboxItem = {
   suggestedUniverse: string;
   captured: string;
   preview: string;
+  progress?: TaskProgress;
+};
+
+export type TaskProgress = {
+  phase: string;
+  current: number;
+  total: number;
+  percent: number | null;
+  message: string;
 };
 
 export type UniverseSummary = {
@@ -58,6 +67,11 @@ export type AgentInfo = {
   activeMaintenanceJob: Job | null;
   rawTaskLimit?: number;
   activeRawJobs?: Job[];
+};
+
+export type AgentTaskSelection = {
+  provider: string;
+  model: string;
 };
 
 export type PetAppearance = {
@@ -233,29 +247,36 @@ export const localApi = {
     };
   },
 
-  async maintain(paths: string[], batchSize = 8, provider = "") {
+  async maintain(paths: string[], batchSize = 8, selection: AgentTaskSelection) {
     const response = await apiFetch("/api/v1/agent/maintenance", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ paths, batchSize, provider })
+      body: JSON.stringify({ paths, batchSize, ...selection })
     });
     return response.json() as Promise<Job>;
   },
 
-  async maintainBatch(paths: string[], batchSize = 500, provider = "") {
+  async maintainBatch(paths: string[], batchSize: number, selections: { distill: AgentTaskSelection; repair: AgentTaskSelection }) {
     const response = await apiFetch("/api/v1/agent/maintenance-batch", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ paths, batchSize, provider })
+      body: JSON.stringify({
+        paths,
+        batchSize,
+        distillProvider: selections.distill.provider,
+        distillModel: selections.distill.model,
+        repairProvider: selections.repair.provider,
+        repairModel: selections.repair.model
+      })
     });
     return response.json() as Promise<{ jobs: Job[]; count: number }>;
   },
 
-  async repair(path: string, provider = "") {
+  async repair(path: string, selection: AgentTaskSelection) {
     const response = await apiFetch("/api/v1/agent/repair", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ path, provider })
+      body: JSON.stringify({ path, ...selection })
     });
     return response.json() as Promise<Job>;
   },
@@ -358,7 +379,7 @@ export const localApi = {
     return response.json() as Promise<Job>;
   },
 
-  async previewImport(file: File, as = "") {
+  async previewImport(file: File, as = "", onProgress?: (uploaded: number, total: number) => void) {
     if (file.size >= CHUNKED_UPLOAD_THRESHOLD) {
       let uploadId = "";
       try {
@@ -370,6 +391,7 @@ export const localApi = {
         const upload = await created.json() as { id: string; offset: number; chunkSize: number };
         uploadId = upload.id;
         let offset = upload.offset;
+        onProgress?.(offset, file.size);
         while (offset < file.size) {
           const end = Math.min(file.size, offset + upload.chunkSize);
           const response = await apiFetch(`/api/v1/universe-imports/uploads/${upload.id}?offset=${offset}`, {
@@ -380,6 +402,7 @@ export const localApi = {
           const next = await response.json() as { offset: number };
           if (next.offset !== end) throw new Error(`Upload offset mismatch; expected ${end}`);
           offset = next.offset;
+          onProgress?.(offset, file.size);
         }
         const completed = await apiFetch(`/api/v1/universe-imports/uploads/${upload.id}/complete`, { method: "POST" });
         return completed.json() as Promise<Job>;
@@ -397,6 +420,7 @@ export const localApi = {
       headers: { "content-type": "application/octet-stream" },
       body: file
     });
+    onProgress?.(file.size, file.size);
     return response.json() as Promise<Job>;
   },
 
@@ -451,6 +475,16 @@ export const localApi = {
     url.searchParams.set("src", source);
     url.searchParams.set("token", current.token);
     return url.href;
+  },
+
+  async uploadMarkdownImage(note: string, file: File) {
+    const params = new URLSearchParams({ note, filename: file.name || "image.png" });
+    const response = await apiFetch(`/api/v1/markdown-image?${params}`, {
+      method: "POST",
+      headers: { "content-type": file.type },
+      body: file
+    });
+    return response.json() as Promise<{ source: string; path: string; filename: string }>;
   }
 };
 

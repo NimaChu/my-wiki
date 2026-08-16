@@ -4,10 +4,17 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { assessPdfPage, qualityWarnings, summarizePdfQuality } from "./pdf-quality.mjs";
+import { createDocumentIr } from "./document-ir.mjs";
+import {
+  applyVisualEvidenceCoverage,
+  assessPdfPage,
+  findMissingVisualEvidencePages,
+  qualityWarnings,
+  summarizePdfQuality
+} from "./pdf-quality.mjs";
 import { analyzePdfVisualPages } from "./pdf-visual-gate.mjs";
 
-export async function extractPdfWithMineru({ file, pages = 0, cacheRoot = "", dependencyRoot = "", environment = process.env } = {}) {
+export async function extractPdfWithMineru({ file, pages = 0, cacheRoot = "", dependencyRoot = "", environment = process.env, onProgress = null } = {}) {
   const command = String(environment.MY_WIKI_MINERU_COMMAND || "mineru").trim();
   const availability = await commandAvailable(command);
   if (!availability) return { status: "unavailable", method: "mineru", message: `MinerU command is not available: ${command}` };
@@ -20,12 +27,20 @@ export async function extractPdfWithMineru({ file, pages = 0, cacheRoot = "", de
   const language = String(environment.MY_WIKI_MINERU_LANGUAGE || "ch").trim();
   const timeout = Math.max(60_000, Number(environment.MY_WIKI_MINERU_TIMEOUT_MS || 12 * 60 * 60 * 1000));
   try {
+    reportProgress(onProgress, { phase: "visual-analysis", percent: 6, message: "Checking PDF pages for blank and show-through artifacts." });
     const visualPages = await analyzePdfVisualPages({ file, dependencyRoot, pages, environment }).catch(() => []);
     const ranges = mineruBatchRanges(pages, environment);
     let parsed;
     if (ranges.length) {
       const batches = [];
       for (const range of ranges) {
+        reportProgress(onProgress, {
+          phase: "mineru",
+          current: range.start,
+          total: pages,
+          percent: 10 + (range.start / pages) * 76,
+          message: `MinerU is extracting pages ${range.start + 1}-${range.end + 1} of ${pages}.`
+        });
         const batchRoot = path.join(outputRoot, `${String(range.start).padStart(4, "0")}-${String(range.end).padStart(4, "0")}`);
         await fs.mkdir(batchRoot, { recursive: true });
         const args = mineruArguments({ file, outputRoot: batchRoot, backend, language, effort, range });
@@ -38,9 +53,17 @@ export async function extractPdfWithMineru({ file, pages = 0, cacheRoot = "", de
           .map((item) => ({ ...item, page: Number(item.page) - range.start }));
         const batch = await readMineruOutput(batchRoot, range.end - range.start + 1, { visualPages: localVisualPages });
         batches.push(shiftMineruBatch(batch, range.start, ranges.indexOf(range) + 1));
+        reportProgress(onProgress, {
+          phase: "mineru",
+          current: range.end + 1,
+          total: pages,
+          percent: 10 + ((range.end + 1) / pages) * 76,
+          message: `MinerU extracted ${range.end + 1} of ${pages} pages.`
+        });
       }
       parsed = mergeMineruBatches(batches, pages);
     } else {
+      reportProgress(onProgress, { phase: "mineru", current: 0, total: pages, percent: null, message: pages ? `MinerU is extracting ${pages} pages.` : "MinerU is extracting the document." });
       const args = mineruArguments({ file, outputRoot, backend, language, effort });
       const result = await runCommand(command, args, { timeout, environment });
       if (result.code !== 0) {
@@ -48,13 +71,29 @@ export async function extractPdfWithMineru({ file, pages = 0, cacheRoot = "", de
       }
       parsed = await readMineruOutput(outputRoot, pages, { visualPages });
     }
+    reportProgress(onProgress, { phase: "quality-check", current: pages, total: pages, percent: 90, message: "Checking extracted pages and formulas." });
     if (!parsed.content.trim()) return { status: "failed", method: "mineru", message: "MinerU completed without readable Markdown output." };
     const assetPages = new Set((parsed.assets || []).map((asset) => Number(asset.page || 0)).filter(Boolean));
     const diagramPages = relationshipDiagramPages(parsed.pageResults).filter((page) => !assetPages.has(page));
-    const renderedDiagrams = await renderPdfPageAssets({ file, pages: diagramPages, dependencyRoot, environment }).catch(() => []);
+    const visualGapPages = findMissingVisualEvidencePages(parsed.pageResults, [...assetPages]);
+    const pagesToRender = [...new Set([...diagramPages, ...visualGapPages])];
+    const renderedDiagrams = await renderPdfPageAssets({
+      file,
+      pages: pagesToRender,
+      visualEvidencePages: visualGapPages,
+      dependencyRoot,
+      environment
+    }).catch(() => []);
+    const renderedPages = new Set(renderedDiagrams.map((asset) => Number(asset.page || 0)).filter(Boolean));
+    const unresolvedVisualPages = visualGapPages.filter((page) => !renderedPages.has(page));
+    const pageResults = applyVisualEvidenceCoverage(parsed.pageResults, {
+      missingPages: unresolvedVisualPages,
+      preservedPages: visualGapPages.filter((page) => renderedPages.has(page))
+    });
     const assets = [...(parsed.assets || []), ...renderedDiagrams];
     const content = insertPageAssetReferences(parsed.content, renderedDiagrams);
-    const quality = summarizePdfQuality(parsed.pageResults, { method: "mineru" });
+    reportProgress(onProgress, { phase: "assembling", current: pages, total: pages, percent: 94, message: "Assembling Markdown and local images." });
+    const quality = { ...summarizePdfQuality(pageResults, { method: "mineru" }), pages: pageResults };
     const warnings = qualityWarnings(quality);
     const status = quality.level === "poor" ? "low-quality" : "complete";
     return {
@@ -70,7 +109,16 @@ export async function extractPdfWithMineru({ file, pages = 0, cacheRoot = "", de
       quality,
       warnings,
       message: status === "complete" ? warnings.join("; ") : `MinerU output did not meet the page-quality threshold. ${warnings.join("; ")}`.trim(),
-      assets
+      assets,
+      document: createDocumentIr({
+        filename: path.basename(file),
+        engine: "mineru",
+        method: "mineru",
+        pages: Array.from({ length: parsed.pages || pages || 0 }, (_, index) => ({ number: index + 1 })),
+        blocks: parsed.blocks || [],
+        assets,
+        diagnostics: warnings
+      })
     };
   } catch (error) {
     return {
@@ -82,6 +130,10 @@ export async function extractPdfWithMineru({ file, pages = 0, cacheRoot = "", de
   } finally {
     await fs.rm(outputRoot, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+function reportProgress(callback, progress) {
+  if (typeof callback === "function") callback(progress);
 }
 
 export function mineruBatchRanges(pages, environment = process.env) {
@@ -112,7 +164,13 @@ export function shiftMineruBatch(batch, pageOffset, batchNumber = 1) {
     ...batch,
     content,
     assets,
-    pageResults: (batch?.pageResults || []).map((result) => ({ ...result, page: Number(result.page || 0) + pageOffset }))
+    pageResults: (batch?.pageResults || []).map((result) => ({ ...result, page: Number(result.page || 0) + pageOffset })),
+    blocks: (batch?.blocks || []).map((block) => ({
+      ...block,
+      id: `${prefix}-${block.id}`,
+      page: Number(block.page || 0) + pageOffset,
+      provenance: { ...(block.provenance || {}), batch: batchNumber }
+    }))
   };
 }
 
@@ -121,6 +179,7 @@ export function mergeMineruBatches(batches, expectedPages = 0) {
     content: batches.map((batch) => String(batch?.content || "").trim()).filter(Boolean).join("\n\n"),
     pages: Number(expectedPages || batches.reduce((sum, batch) => sum + Number(batch?.pages || 0), 0)),
     pageResults: batches.flatMap((batch) => batch?.pageResults || []),
+    blocks: batches.flatMap((batch) => batch?.blocks || []).map((block, index) => ({ ...block, order: index })),
     assets: batches.flatMap((batch) => batch?.assets || [])
   };
 }
@@ -150,10 +209,10 @@ export async function readMineruOutput(outputRoot, expectedPages = 0, { visualPa
     const visualByPage = visualPageMap(visualPages);
     const pageResults = chunks.slice(1).map((text, index) => assessPdfPage({ page: index + 1, text, method: "mineru", visual: visualByPage.get(index + 1) }));
     const content = pageResults.map((result) => `### Page ${result.page}\n\n${result.text || "_No text recognized on this page._"}`).join("\n\n");
-    return { content, pages: pageResults.length, pageResults, assets: [] };
+    return { content, pages: pageResults.length, pageResults, blocks: pageResults.map((item, index) => pageResultBlock(item, index)), assets: [] };
   }
   const result = assessPdfPage({ page: 1, text: markdown, method: "mineru", visual: visualPageMap(visualPages).get(1) });
-  return { content: result.text, pages: expectedPages || 1, pageResults: [result], assets: [] };
+  return { content: result.text, pages: expectedPages || 1, pageResults: [result], blocks: [pageResultBlock(result, 0)], assets: [] };
 }
 
 export function mineruEntriesToMarkdown(entries, expectedPages = 0, { visualPages = [] } = {}) {
@@ -167,14 +226,46 @@ export function mineruEntriesToMarkdown(entries, expectedPages = 0, { visualPage
   const pages = Math.max(expectedPages, ...grouped.keys(), 0);
   const sections = [];
   const pageResults = [];
+  const blocks = [];
   const visualByPage = visualPageMap(visualPages);
   for (let page = 1; page <= pages; page += 1) {
-    const text = (grouped.get(page) || []).join("\n\n").trim();
+    const pageBlocks = grouped.get(page) || [];
+    const text = pageBlocks.join("\n\n").trim();
     const result = assessPdfPage({ page, text, method: "mineru", visual: visualByPage.get(page) });
     sections.push(`### Page ${page}\n\n${result.text || "_No text recognized on this page._"}`);
     pageResults.push(result);
+    pageBlocks.forEach((markdown, index) => blocks.push({
+      id: `mineru-page-${page}-block-${index + 1}`,
+      type: markdownBlockType(markdown),
+      page,
+      order: blocks.length,
+      markdown,
+      text: markdown.replace(/^#{1,6}\s+/gm, "").trim(),
+      provenance: { source: "mineru-content-list" }
+    }));
   }
-  return { content: sections.join("\n\n"), pages, pageResults };
+  return { content: sections.join("\n\n"), pages, pageResults, blocks };
+}
+
+function pageResultBlock(result, index) {
+  return {
+    id: `mineru-page-${result.page}-block-${index + 1}`,
+    type: "page-markdown",
+    page: result.page,
+    order: index,
+    markdown: result.text || "",
+    text: result.text || "",
+    confidence: result.score,
+    provenance: { source: "mineru-markdown" }
+  };
+}
+
+function markdownBlockType(markdown) {
+  if (/^#{1,6}\s/.test(markdown)) return "heading";
+  if (/^\$/.test(markdown)) return "formula";
+  if (/^!\[/.test(markdown)) return "picture";
+  if (/^\|/.test(markdown) || /^<table\b/i.test(markdown)) return "table";
+  return "text";
 }
 
 function visualPageMap(values) {
@@ -312,8 +403,9 @@ export function insertPageAssetReferences(content, assets = []) {
   return updated;
 }
 
-async function renderPdfPageAssets({ file, pages = [], dependencyRoot, environment = process.env }) {
+async function renderPdfPageAssets({ file, pages = [], visualEvidencePages = [], dependencyRoot, environment = process.env }) {
   const requested = [...new Set(pages.map(Number).filter((page) => Number.isInteger(page) && page > 0))];
+  const visualEvidence = new Set(visualEvidencePages.map(Number));
   if (!requested.length || !dependencyRoot) return [];
   const require = createRequire(path.resolve(dependencyRoot, "package.json"));
   const canvasRuntime = require("@napi-rs/canvas");
@@ -340,14 +432,18 @@ async function renderPdfPageAssets({ file, pages = [], dependencyRoot, environme
       context.fillStyle = "white";
       context.fillRect(0, 0, canvas.width, canvas.height);
       await page.render({ canvasContext: context, viewport, background: "white" }).promise;
+      const preservesOmittedVisual = visualEvidence.has(pageNumber);
+      const suffix = preservesOmittedVisual ? "visual-evidence" : "content-map";
       assets.push({
-        reference: `my-wiki-asset:pdf-page-${pageNumber}-content-map.png`,
-        id: `page-${String(pageNumber).padStart(3, "0")}-content-map`,
-        name: `page-${String(pageNumber).padStart(3, "0")}-content-map.png`,
+        reference: `my-wiki-asset:pdf-page-${pageNumber}-${suffix}.png`,
+        id: `page-${String(pageNumber).padStart(3, "0")}-${suffix}`,
+        name: `page-${String(pageNumber).padStart(3, "0")}-${suffix}.png`,
         buffer: canvas.toBuffer("image/png"),
         page: pageNumber,
-        alt: `PDF Page ${pageNumber} 内容结构框图`,
-        status: "rendered-diagram-fallback"
+        alt: preservesOmittedVisual
+          ? `PDF Page ${pageNumber} visual evidence preserved after parser omission`
+          : `PDF Page ${pageNumber} 内容结构框图`,
+        status: preservesOmittedVisual ? "rendered-missing-visual-evidence" : "rendered-diagram-fallback"
       });
       page.cleanup?.();
     }

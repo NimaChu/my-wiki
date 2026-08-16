@@ -5,20 +5,30 @@ import {
   Bold,
   Check,
   Code2,
+  Columns2,
   Edit3,
   Eye,
   Heading2,
   Image as ImageIcon,
   Italic,
+  List,
+  ListOrdered,
+  ListTodo,
   Link as LinkIcon,
   LoaderCircle,
+  PanelLeft,
+  Quote,
   Save,
+  Settings2,
+  Sigma,
   Sparkles,
+  Table2,
   Trash2,
+  UploadCloud,
   Wrench,
   X
 } from "lucide-react";
-import { AgentInfo, Job, localApi, MaintenanceResult, MarkdownDocument, RepairResult, waitForJob } from "./api";
+import { AgentInfo, AgentTaskSelection, InboxItem, Job, localApi, MaintenanceResult, MarkdownDocument, RepairResult, TaskProgress, waitForJob } from "./api";
 import {
   isUniverseOverviewMode,
   rankUniverseGroupsByConnectivity,
@@ -26,6 +36,7 @@ import {
 } from "./layout-mode.js";
 import { Viki } from "./Viki";
 import { WorkspaceActions } from "./WorkspaceActions";
+import { markdownDocumentStats, markdownOutline, type MarkdownOutlineItem } from "./markdown-workspace";
 import "./styles.css";
 
 const richMarkdownModule = import("./RichMarkdown");
@@ -41,6 +52,7 @@ type WikiNode = {
   status: string;
   tags: string[];
   followupReasons?: string[];
+  visualGapPages?: number[];
   content?: string;
   out: string[];
   backlinks: string[];
@@ -181,6 +193,12 @@ const copy = {
     vaultOverview: "Vault Overview",
     graphHealth: "Global graph health and maintenance state",
     maintenanceQueue: "Maintenance Queue",
+    queueSettings: "Queue agent settings",
+    distillAgent: "Distillation",
+    repairAgent: "Repair",
+    agentCli: "Agent CLI",
+    agentModel: "Model",
+    cliDefault: "CLI default",
     noPendingRaw: "No raw items awaiting maintenance",
     processBatch: "Maintain batch",
     deleteBatch: "Delete all",
@@ -199,6 +217,9 @@ const copy = {
     backToGraph: "Back to graph",
     readingMode: "Read",
     editingMode: "Edit",
+    splitMode: "Split",
+    documentOutline: "Document outline",
+    noDocumentOutline: "No headings in this document",
     editDocument: "Edit document",
     saveDocument: "Save document",
     cancelEditing: "Cancel editing",
@@ -215,6 +236,18 @@ const copy = {
     insertCode: "Inline code",
     insertLink: "Link",
     insertImage: "Image",
+    insertQuote: "Quote",
+    insertBulletList: "Bullet list",
+    insertNumberedList: "Numbered list",
+    insertTaskList: "Task list",
+    insertTable: "Table",
+    insertFormula: "Formula",
+    insertCodeBlock: "Code block",
+    uploadImage: "Paste or drop an image",
+    uploadingImage: "Adding image",
+    imageUploadFailed: "Could not add image",
+    documentStats: "{words} words · {characters} characters · {lines} lines",
+    unsavedDocument: "Unsaved",
     imageUnavailable: "Local image unavailable",
     repairItem: "Repair this Raw",
     repairingItem: "Repairing Raw",
@@ -276,6 +309,12 @@ const copy = {
     vaultOverview: "知识库概览",
     graphHealth: "全局图谱健康与维护状态",
     maintenanceQueue: "维护队列",
+    queueSettings: "队列 Agent 设置",
+    distillAgent: "蒸馏",
+    repairAgent: "修复",
+    agentCli: "Agent CLI",
+    agentModel: "模型",
+    cliDefault: "CLI 默认",
     noPendingRaw: "没有待维护的原始资料",
     processBatch: "批量维护",
     deleteBatch: "批量删除",
@@ -294,6 +333,9 @@ const copy = {
     backToGraph: "返回图谱",
     readingMode: "阅读",
     editingMode: "编辑",
+    splitMode: "分屏",
+    documentOutline: "文档大纲",
+    noDocumentOutline: "本文档没有标题",
     editDocument: "编辑文档",
     saveDocument: "保存文档",
     cancelEditing: "取消编辑",
@@ -310,6 +352,18 @@ const copy = {
     insertCode: "行内代码",
     insertLink: "链接",
     insertImage: "图片",
+    insertQuote: "引用",
+    insertBulletList: "无序列表",
+    insertNumberedList: "有序列表",
+    insertTaskList: "任务列表",
+    insertTable: "表格",
+    insertFormula: "公式",
+    insertCodeBlock: "代码块",
+    uploadImage: "粘贴或拖入图片",
+    uploadingImage: "正在添加图片",
+    imageUploadFailed: "图片添加失败",
+    documentStats: "{words} 词 · {characters} 字符 · {lines} 行",
+    unsavedDocument: "未保存",
     imageUnavailable: "本地图片不可用",
     repairItem: "修复这条 Raw",
     repairingItem: "正在修复 Raw",
@@ -368,6 +422,10 @@ function localizedStatus(value: string, language: Language) {
 
 function localizedFollowupReason(value: string, language: Language) {
   const reason = value.trim().toLowerCase();
+  if (reason.startsWith("missing-visual-evidence:")) {
+    const detail = value.slice(value.indexOf(":") + 1).replace(/^pages=/i, language === "zh" ? "页码 " : "pages ");
+    return language === "zh" ? `PDF 页面图片或图形证据缺失（${detail}）` : `PDF visual evidence is missing (${detail})`;
+  }
   if (reason.startsWith("formula-syntax-error:")) {
     const detail = value.slice(value.indexOf(":") + 1).replace(/^pages=/i, language === "zh" ? "页码 " : "pages ");
     return language === "zh" ? `公式语法无法渲染（${detail}）` : `Formula syntax cannot render (${detail})`;
@@ -387,6 +445,13 @@ function localizedFollowupReason(value: string, language: Language) {
   const message = messages[reason];
   if (message) return message[language];
   return language === "zh" ? `需要跟进：${value}` : `Follow-up required: ${value}`;
+}
+
+function localizedVisualGap(pages: number[], language: Language) {
+  const detail = pages.join(", ");
+  return language === "zh"
+    ? `疑似缺失 PDF 页面图片或图形证据（页码 ${detail}）`
+    : `PDF page images or visual evidence may be missing (pages ${detail})`;
 }
 
 function localizedType(value: string, language: Language) {
@@ -840,15 +905,22 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
   const [document, setDocument] = useState<MarkdownDocument | null>(null);
   const [draft, setDraft] = useState("");
   const [savedBody, setSavedBody] = useState("");
-  const [mode, setMode] = useState<"read" | "edit">("read");
+  const [mode, setMode] = useState<"read" | "edit" | "split">("read");
+  const [outlineVisible, setOutlineVisible] = useState(() => !window.matchMedia("(max-width: 760px)").matches);
+  const [renderAll, setRenderAll] = useState(false);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [draggingImage, setDraggingImage] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
   const dirty = draft !== savedBody;
+  const outline = useMemo(() => markdownOutline(draft), [draft]);
+  const stats = useMemo(() => markdownDocumentStats(draft), [draft]);
 
   useEffect(() => {
     window.document.body.classList.add("has-markdown-workspace");
@@ -862,6 +934,7 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
     setSaveError("");
     setSaved(false);
     setMode("read");
+    setRenderAll(false);
     void localApi.markdown(path)
       .then((next) => {
         if (cancelled) return;
@@ -936,7 +1009,6 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
       setDraft(next.body);
       setSavedBody(next.body);
       setSaved(true);
-      setMode("read");
       window.dispatchEvent(new Event("my-wiki:graph-updated"));
       window.setTimeout(() => setSaved(false), 1800);
     } catch (error) {
@@ -958,6 +1030,70 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
       editor.focus();
       editor.setSelectionRange(start + before.length, start + before.length + selected.length);
     });
+  };
+
+  const insertPlainText = (text: string) => {
+    const editor = editorRef.current;
+    const start = editor?.selectionStart ?? draft.length;
+    const end = editor?.selectionEnd ?? start;
+    setDraft((current) => `${current.slice(0, start)}${text}${current.slice(end)}`);
+    setSaved(false);
+    window.requestAnimationFrame(() => {
+      editor?.focus();
+      editor?.setSelectionRange(start + text.length, start + text.length);
+    });
+  };
+
+  const insertLinePrefix = (prefix: string, placeholder: string) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const start = editor.selectionStart;
+    const end = editor.selectionEnd;
+    const lineStart = draft.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
+    const lineEndMatch = draft.indexOf("\n", end);
+    const lineEnd = lineEndMatch === -1 ? draft.length : lineEndMatch;
+    const selected = draft.slice(lineStart, lineEnd) || placeholder;
+    const transformed = selected.split("\n").map((line) => `${prefix}${line}`).join("\n");
+    setDraft(`${draft.slice(0, lineStart)}${transformed}${draft.slice(lineEnd)}`);
+    setSaved(false);
+    window.requestAnimationFrame(() => {
+      editor.focus();
+      editor.setSelectionRange(lineStart + prefix.length, lineStart + transformed.length);
+    });
+  };
+
+  const uploadImages = async (files: File[]) => {
+    if (!document || uploadingImage) return;
+    const images = files.filter((file) => /\.(?:png|jpe?g|gif|webp)$/i.test(file.name));
+    if (!images.length) return;
+    setUploadingImage(true);
+    setSaveError("");
+    try {
+      for (const file of images) {
+        const uploaded = await localApi.uploadMarkdownImage(document.path, file);
+        const alt = file.name.replace(/\.[^.]+$/, "") || t("insertImage");
+        insertPlainText(`\n![${alt}](${uploaded.source})\n`);
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      setSaveError(`${t("imageUploadFailed")}: ${detail}`);
+    } finally {
+      setUploadingImage(false);
+      setDraggingImage(false);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+    }
+  };
+
+  const jumpToOutline = (item: MarkdownOutlineItem) => {
+    if (mode === "edit") {
+      const editor = editorRef.current;
+      editor?.focus();
+      editor?.setSelectionRange(item.offset, item.offset);
+      if (editor) editor.scrollTop = Math.max(0, item.offset / Math.max(1, draft.length) * editor.scrollHeight - editor.clientHeight * 0.25);
+      return;
+    }
+    setRenderAll(true);
+    window.setTimeout(() => window.document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" }), 40);
   };
 
   const handleEditorKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -988,12 +1124,27 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
                 <Edit3 size={16} />
                 <span>{t("editingMode")}</span>
               </button>
+              <button type="button" className={mode === "split" ? "is-active" : ""} onClick={() => setMode("split")} title={t("splitMode")}>
+                <Columns2 size={16} />
+                <span>{t("splitMode")}</span>
+              </button>
             </div>
+            <button
+              className={`document-icon-button${outlineVisible ? " is-active" : ""}`}
+              type="button"
+              onClick={() => setOutlineVisible((value) => !value)}
+              title={t("documentOutline")}
+              aria-label={t("documentOutline")}
+              aria-pressed={outlineVisible}
+            >
+              <PanelLeft size={17} />
+            </button>
             <div className="document-save-state" aria-live="polite">
               {saving && <><LoaderCircle className="spin" size={15} /> {t("savingDocument")}</>}
               {saved && <><Check size={15} /> {t("documentSaved")}</>}
+              {!saving && !saved && dirty && <>{t("unsavedDocument")}</>}
             </div>
-            {mode === "edit" && (
+            {mode !== "read" && (
               <div className="document-header-actions">
                 <button className="document-icon-button" type="button" onClick={cancelEditing} title={t("cancelEditing")} aria-label={t("cancelEditing")}>
                   <X size={18} />
@@ -1008,56 +1159,137 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
         )}
       </header>
 
-      <main className={`markdown-workspace-main is-${mode}`}>
-        {!document && !loadError && (
-          <div className="document-state">
-            <LoaderCircle className="spin" size={24} />
-            <p>{t("loadingDocument")}</p>
-          </div>
+      <main className={`markdown-workspace-main is-${mode}${outlineVisible ? " has-outline" : ""}`}>
+        {document && outlineVisible && (
+          <aside className="document-outline" aria-label={t("documentOutline")}>
+            <strong>{t("documentOutline")}</strong>
+            {outline.length ? (
+              <nav>
+                {outline.map((item, index) => (
+                  <button
+                    key={`${item.id}-${index}`}
+                    className={`is-level-${item.level}`}
+                    type="button"
+                    onClick={() => jumpToOutline(item)}
+                    title={item.text}
+                  >
+                    {item.text}
+                  </button>
+                ))}
+              </nav>
+            ) : <p>{t("noDocumentOutline")}</p>}
+          </aside>
         )}
-        {loadError && (
-          <div className="document-state is-error">
-            <p>{loadError}</p>
-            <button type="button" onClick={() => setLoadAttempt((value) => value + 1)}>{t("retry")}</button>
-          </div>
-        )}
-        {document && mode === "read" && (
-          <article className="document-page">
-            <Suspense fallback={<div className="document-state"><LoaderCircle className="spin" size={24} /></div>}>
-              <RichMarkdown
-                content={draft}
-                imageUrls={imageUrls}
-                imageFallback={t("imageUnavailable")}
-                renderingLabel={t("renderingDocument")}
-                renderMoreLabel={t("renderMoreDocument")}
-              />
-            </Suspense>
-          </article>
-        )}
-        {document && mode === "edit" && (
-          <section className="document-editor">
+        <div className="document-workspace-content">
+          {!document && !loadError && (
+            <div className="document-state">
+              <LoaderCircle className="spin" size={24} />
+              <p>{t("loadingDocument")}</p>
+            </div>
+          )}
+          {loadError && (
+            <div className="document-state is-error">
+              <p>{loadError}</p>
+              <button type="button" onClick={() => setLoadAttempt((value) => value + 1)}>{t("retry")}</button>
+            </div>
+          )}
+          {document && mode === "read" && (
+            <article className="document-page">
+              <Suspense fallback={<div className="document-state"><LoaderCircle className="spin" size={24} /></div>}>
+                <RichMarkdown
+                  content={draft}
+                  imageUrls={imageUrls}
+                  imageFallback={t("imageUnavailable")}
+                  renderingLabel={t("renderingDocument")}
+                  renderMoreLabel={t("renderMoreDocument")}
+                  renderAll={renderAll}
+                />
+              </Suspense>
+            </article>
+          )}
+          {document && mode !== "read" && (
+          <section className={`document-editor is-${mode}${draggingImage ? " is-dragging-image" : ""}`}>
             <div className="document-format-toolbar" role="toolbar" aria-label={t("editingMode")}>
-              <button type="button" onClick={() => insertMarkup("## ", "", t("insertHeading"))} title={t("insertHeading")} aria-label={t("insertHeading")}><Heading2 size={17} /></button>
+              <button type="button" onClick={() => insertLinePrefix("## ", t("insertHeading"))} title={t("insertHeading")} aria-label={t("insertHeading")}><Heading2 size={17} /></button>
               <button type="button" onClick={() => insertMarkup("**", "**", t("insertBold"))} title={t("insertBold")} aria-label={t("insertBold")}><Bold size={17} /></button>
               <button type="button" onClick={() => insertMarkup("*", "*", t("insertItalic"))} title={t("insertItalic")} aria-label={t("insertItalic")}><Italic size={17} /></button>
               <button type="button" onClick={() => insertMarkup("`", "`", t("insertCode"))} title={t("insertCode")} aria-label={t("insertCode")}><Code2 size={17} /></button>
               <button type="button" onClick={() => insertMarkup("[", "](https://)", t("insertLink"))} title={t("insertLink")} aria-label={t("insertLink")}><LinkIcon size={17} /></button>
-              <button type="button" onClick={() => insertMarkup("![", "](../assets/)", t("insertImage"))} title={t("insertImage")} aria-label={t("insertImage")}><ImageIcon size={17} /></button>
+              <span className="document-toolbar-separator" />
+              <button type="button" onClick={() => insertLinePrefix("> ", t("insertQuote"))} title={t("insertQuote")} aria-label={t("insertQuote")}><Quote size={17} /></button>
+              <button type="button" onClick={() => insertLinePrefix("- ", t("insertBulletList"))} title={t("insertBulletList")} aria-label={t("insertBulletList")}><List size={17} /></button>
+              <button type="button" onClick={() => insertLinePrefix("1. ", t("insertNumberedList"))} title={t("insertNumberedList")} aria-label={t("insertNumberedList")}><ListOrdered size={17} /></button>
+              <button type="button" onClick={() => insertLinePrefix("- [ ] ", t("insertTaskList"))} title={t("insertTaskList")} aria-label={t("insertTaskList")}><ListTodo size={17} /></button>
+              <span className="document-toolbar-separator" />
+              <button type="button" onClick={() => insertPlainText("\n| Column 1 | Column 2 |\n| --- | --- |\n| Value 1 | Value 2 |\n")} title={t("insertTable")} aria-label={t("insertTable")}><Table2 size={17} /></button>
+              <button type="button" onClick={() => insertPlainText("\n$$\nE = mc^2\n$$\n")} title={t("insertFormula")} aria-label={t("insertFormula")}><Sigma size={17} /></button>
+              <button type="button" onClick={() => insertPlainText("\n```\ncode\n```\n")} title={t("insertCodeBlock")} aria-label={t("insertCodeBlock")}><Code2 size={17} /></button>
+              <button type="button" onClick={() => imageInputRef.current?.click()} disabled={uploadingImage} title={t("uploadImage")} aria-label={t("uploadImage")}>
+                {uploadingImage ? <LoaderCircle className="spin" size={17} /> : <ImageIcon size={17} />}
+              </button>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                multiple
+                hidden
+                onChange={(event) => void uploadImages(Array.from(event.target.files || []))}
+              />
             </div>
-            <textarea
-              ref={editorRef}
-              value={draft}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                setSaved(false);
-              }}
-              onKeyDown={handleEditorKeyDown}
-              spellCheck
-              aria-label={document.title}
-            />
+            <div className="document-editor-body">
+              <div
+                className="document-source-pane"
+                onDragEnter={(event) => { event.preventDefault(); setDraggingImage(true); }}
+                onDragOver={(event) => event.preventDefault()}
+                onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDraggingImage(false); }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setDraggingImage(false);
+                  void uploadImages(Array.from(event.dataTransfer.files));
+                }}
+              >
+                <textarea
+                  ref={editorRef}
+                  value={draft}
+                  onChange={(event) => {
+                    setDraft(event.target.value);
+                    setSaved(false);
+                  }}
+                  onKeyDown={handleEditorKeyDown}
+                  onPaste={(event) => {
+                    const images = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
+                    if (!images.length) return;
+                    event.preventDefault();
+                    void uploadImages(images);
+                  }}
+                  spellCheck
+                  aria-label={document.title}
+                />
+                {draggingImage && <div className="document-image-drop"><UploadCloud size={24} /><span>{t("uploadImage")}</span></div>}
+              </div>
+              {mode === "split" && (
+                <article className="document-preview-pane">
+                  <Suspense fallback={<div className="document-state"><LoaderCircle className="spin" size={24} /></div>}>
+                    <RichMarkdown
+                      content={draft}
+                      imageUrls={imageUrls}
+                      imageFallback={t("imageUnavailable")}
+                      renderingLabel={t("renderingDocument")}
+                      renderMoreLabel={t("renderMoreDocument")}
+                      renderAll={renderAll}
+                    />
+                  </Suspense>
+                </article>
+              )}
+            </div>
+            <footer className="document-editor-status">
+              <span>{t("documentStats", stats)}</span>
+              {uploadingImage && <span><LoaderCircle className="spin" size={13} /> {t("uploadingImage")}</span>}
+            </footer>
             {saveError && <p className="document-save-error" role="alert">{saveError}</p>}
           </section>
-        )}
+          )}
+        </div>
       </main>
     </section>
   );
@@ -1818,7 +2050,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
   const nodes = ids.map((id) => nodeById.get(id)).filter(Boolean) as WikiNode[];
   const batchNodes = nodes.slice(0, 500);
   const [agentState, setAgentState] = useState<AgentInfo | null>(null);
-  const [captureItems, setCaptureItems] = useState<Array<{ jobId?: string; title: string; jobStatus?: string; snapshotPath: string }>>([]);
+  const [captureItems, setCaptureItems] = useState<InboxItem[]>([]);
   const [activeJobs, setActiveJobs] = useState<Map<string, Job>>(() => new Map());
   const [deletingPath, setDeletingPath] = useState<string | null>(null);
   const [deletingBatch, setDeletingBatch] = useState(false);
@@ -1826,6 +2058,8 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
   const [repairResult, setRepairResult] = useState<RepairResult | null>(null);
   const [error, setError] = useState("");
   const [errorAction, setErrorAction] = useState<"maintenance" | "repair">("maintenance");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [queueAgentSettings, setQueueAgentSettings] = useState<QueueAgentSettings>(() => loadQueueAgentSettings());
 
   useEffect(() => {
     const refresh = async () => {
@@ -1839,6 +2073,15 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (!agentState?.available) return;
+    setQueueAgentSettings((current) => normalizeQueueAgentSettings(agentState, current));
+  }, [agentState]);
+
+  useEffect(() => {
+    persistQueueAgentSettings(queueAgentSettings);
+  }, [queueAgentSettings]);
+
   const processNodes = async (selectedNodes: WikiNode[]) => {
     if (selectedNodes.length === 0 || !agentState?.available) return;
     setError("");
@@ -1846,10 +2089,10 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
     setResult(null);
     setRepairResult(null);
     try {
-      const provider = selectedMaintenanceProvider(agentState);
+      const distillSelection = queueAgentSettings.distill;
       const outcome = selectedNodes.length === 1 && selectedNodes[0].status !== "needs-followup"
-        ? { jobs: [await localApi.maintain([selectedNodes[0].path], 1, provider)] }
-        : await localApi.maintainBatch(selectedNodes.map((node) => node.path), selectedNodes.length, provider);
+        ? { jobs: [await localApi.maintain([selectedNodes[0].path], 1, distillSelection)] }
+        : await localApi.maintainBatch(selectedNodes.map((node) => node.path), selectedNodes.length, queueAgentSettings);
       setActiveJobs((current) => new Map([
         ...current,
         ...outcome.jobs.flatMap((job) => rawJobPath(job) ? [[rawJobPath(job), job] as const] : [])
@@ -1882,8 +2125,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
     setResult(null);
     setRepairResult(null);
     try {
-      const provider = selectedMaintenanceProvider(agentState);
-      const initial = await localApi.repair(node.path, provider);
+      const initial = await localApi.repair(node.path, queueAgentSettings.repair);
       setActiveJobs((current) => new Map(current).set(node.path, initial));
       const complete = await waitForJob(initial);
       setRepairResult(complete.result as RepairResult);
@@ -1946,6 +2188,16 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
         <div className="queue-heading-actions">
           <button
             type="button"
+            className={`queue-settings-button${settingsOpen ? " active" : ""}`}
+            aria-label={t("queueSettings")}
+            title={t("queueSettings")}
+            disabled={!agentState?.available}
+            onClick={() => setSettingsOpen((current) => !current)}
+          >
+            <Settings2 size={15} />
+          </button>
+          <button
+            type="button"
             className="maintenance-button"
             disabled={batchNodes.length === 0 || Boolean(deletingPath) || deletingBatch || !agentState?.available}
             title={agentState?.available === false ? t("agentUnavailable") : t("processBatch")}
@@ -1966,6 +2218,44 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
           </button>
         </div>
       </div>
+      {settingsOpen && agentState?.available ? (
+        <div className="queue-agent-settings" aria-label={t("queueSettings")}>
+          {(["repair", "distill"] as const).map((kind) => {
+            const selection = queueAgentSettings[kind];
+            const providerInfo = agentState.providers.find((item) => item.provider === selection.provider) || agentState.providers[0];
+            return (
+              <div className="queue-agent-setting" key={kind}>
+                <strong>{t(kind === "repair" ? "repairAgent" : "distillAgent")}</strong>
+                <label>
+                  <span>{t("agentCli")}</span>
+                  <select
+                    value={selection.provider}
+                    onChange={(event) => setQueueAgentSettings((current) => ({
+                      ...current,
+                      [kind]: { provider: event.target.value, model: "" }
+                    }))}
+                  >
+                    {agentState.providers.map((provider) => <option value={provider.provider} key={provider.provider}>{provider.label}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>{t("agentModel")}</span>
+                  <select
+                    value={selection.model}
+                    onChange={(event) => setQueueAgentSettings((current) => ({
+                      ...current,
+                      [kind]: { ...current[kind], model: event.target.value }
+                    }))}
+                  >
+                    <option value="">{t("cliDefault")}{providerInfo?.defaultModel ? ` · ${providerInfo.defaultModel}` : ""}</option>
+                    {(providerInfo?.models || []).map((model) => <option value={model.id} key={model.id}>{model.label}</option>)}
+                  </select>
+                </label>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
       {nodes.length === 0 && captureItems.length === 0 ? (
         <p className="muted">{t("noPendingRaw")}</p>
       ) : (
@@ -1975,6 +2265,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
               <div className="queue-item-main">
                 <strong>{item.title}</strong>
                 <span>{item.jobStatus === "queued" ? t("queuedTask") : t("extractingTask")}</span>
+                {item.progress ? <QueueProgress progress={item.progress} language={language} /> : null}
               </div>
               <div className="queue-item-actions"><LoaderCircle className="spin" size={14} /></div>
             </div>
@@ -1984,7 +2275,9 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
               <button className="queue-item-main" type="button" onClick={() => onSelect(node.id)}>
                 <strong>{node.title}</strong>
                 <span>{rawTaskLabel(activeJobs.get(node.path), language) || localizedStatus(node.status, language)}</span>
-                {node.status === "needs-followup" && node.followupReasons?.length ? (
+                {node.status === "needs-followup" && node.visualGapPages?.length ? (
+                  <small className="queue-item-followup">{localizedVisualGap(node.visualGapPages, language)}</small>
+                ) : node.status === "needs-followup" && node.followupReasons?.length ? (
                   <small className="queue-item-followup">{localizedFollowupReason(node.followupReasons[0], language)}</small>
                 ) : null}
               </button>
@@ -2033,16 +2326,53 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
   );
 }
 
-function selectedMaintenanceProvider(agent: AgentInfo) {
-  const providers = new Set(agent.providers.map((item) => item.provider));
+type QueueAgentSettings = {
+  distill: AgentTaskSelection;
+  repair: AgentTaskSelection;
+};
+
+function loadQueueAgentSettings(): QueueAgentSettings {
   try {
-    const stored = String(window.localStorage.getItem("my-wiki-viki-provider") || "").trim().toLowerCase();
-    if (stored && providers.has(stored)) return stored;
+    return {
+      distill: {
+        provider: String(window.localStorage.getItem("my-wiki-queue-distill-provider") || "").trim().toLowerCase(),
+        model: String(window.localStorage.getItem("my-wiki-queue-distill-model") || "").trim()
+      },
+      repair: {
+        provider: String(window.localStorage.getItem("my-wiki-queue-repair-provider") || "").trim().toLowerCase(),
+        model: String(window.localStorage.getItem("my-wiki-queue-repair-model") || "").trim()
+      }
+    };
   } catch {
-    // Use the configured default when browser storage is unavailable.
+    return { distill: { provider: "", model: "" }, repair: { provider: "", model: "" } };
   }
-  if (agent.defaultProvider && providers.has(agent.defaultProvider)) return agent.defaultProvider;
-  return agent.providers[0]?.provider || agent.provider;
+}
+
+function normalizeQueueAgentSettings(agent: AgentInfo, settings: QueueAgentSettings): QueueAgentSettings {
+  const fallback = agent.providers.find((item) => item.provider === agent.defaultProvider) || agent.providers[0];
+  const normalize = (selection: AgentTaskSelection): AgentTaskSelection => {
+    const provider = agent.providers.find((item) => item.provider === selection.provider) || fallback;
+    const model = selection.model && provider?.models.some((item) => item.id === selection.model) ? selection.model : "";
+    return { provider: provider?.provider || agent.provider, model };
+  };
+  const next = { distill: normalize(settings.distill), repair: normalize(settings.repair) };
+  return next.distill.provider === settings.distill.provider
+    && next.distill.model === settings.distill.model
+    && next.repair.provider === settings.repair.provider
+    && next.repair.model === settings.repair.model
+    ? settings
+    : next;
+}
+
+function persistQueueAgentSettings(settings: QueueAgentSettings) {
+  try {
+    window.localStorage.setItem("my-wiki-queue-distill-provider", settings.distill.provider);
+    window.localStorage.setItem("my-wiki-queue-distill-model", settings.distill.model);
+    window.localStorage.setItem("my-wiki-queue-repair-provider", settings.repair.provider);
+    window.localStorage.setItem("my-wiki-queue-repair-model", settings.repair.model);
+  } catch {
+    // Queue settings remain available for this browser session.
+  }
 }
 
 function rawJobPath(job: Job) {
@@ -2054,6 +2384,32 @@ function rawTaskLabel(job: Job | undefined, language: "en" | "zh") {
   if (job.status === "queued") return language === "zh" ? "等待执行" : "Queued";
   if (job.meta.action === "repair") return language === "zh" ? "正在修复" : "Repairing";
   return language === "zh" ? "正在蒸馏" : "Distilling";
+}
+
+function QueueProgress({ progress, language }: { progress: TaskProgress; language: "en" | "zh" }) {
+  const percent = progress.percent;
+  const phaseLabels: Record<string, [string, string]> = {
+    "preserving-snapshot": ["保存原始快照", "Preserving original snapshot"],
+    extracting: ["准备提取", "Preparing extraction"],
+    analyzing: ["分析文档结构", "Analyzing document structure"],
+    "pdf-analysis": ["读取 PDF 结构", "Reading PDF structure"],
+    "visual-analysis": ["检查空白页与透印", "Checking page artifacts"],
+    mineru: ["MinerU 提取", "MinerU extraction"],
+    "agent-vision-repair": ["多模态页面修复", "Multimodal page repair"],
+    ocr: ["OCR 文字识别", "OCR text recognition"],
+    "quality-check": ["检查页面与公式", "Checking pages and formulas"],
+    assembling: ["整理 Markdown 与图片", "Assembling Markdown and images"],
+    "writing-raw": ["写入 Raw 证据", "Writing Raw evidence"],
+    complete: ["提取完成", "Extraction complete"]
+  };
+  const label = phaseLabels[progress.phase]?.[language === "zh" ? 0 : 1] || (language === "zh" ? "正在提取" : "Extracting");
+  const detail = progress.total > 0 && progress.current > 0 ? `${label} · ${progress.current}/${progress.total}` : label;
+  return (
+    <div className="task-progress" role="progressbar" aria-label={detail} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? undefined}>
+      <div className="task-progress-label"><span>{detail}</span>{percent !== null ? <strong>{percent}%</strong> : null}</div>
+      <div className={`task-progress-track${percent === null ? " is-indeterminate" : ""}`}><span style={percent === null ? undefined : { width: `${percent}%` }} /></div>
+    </div>
+  );
 }
 
 function buildUniverseSummary(graph: WikiGraph, group: string) {

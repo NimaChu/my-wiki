@@ -2,6 +2,7 @@ FROM node:20-bookworm-slim
 
 ARG OPENCODE_VERSION=1.18.9
 ARG MINERU_VERSION=3.4.4
+ARG DOCLING_VERSION=2.113.0
 
 RUN npm install --global "opencode-ai@${OPENCODE_VERSION}" \
   && npm cache clean --force
@@ -10,8 +11,11 @@ RUN apt-get update \
   && apt-get install --yes --no-install-recommends ca-certificates curl unzip python3 python3-venv libgl1 libglib2.0-0 \
   && curl -LsSf https://astral.sh/uv/install.sh | sh \
   && /root/.local/bin/uv tool install --python 3.11 --index https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match "mineru[core]==${MINERU_VERSION}" \
+  && /root/.local/bin/uv tool install --python 3.11 --index https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match "docling==${DOCLING_VERSION}" \
   && ln -sf /root/.local/bin/mineru /usr/local/bin/mineru \
+  && ln -sf /root/.local/bin/docling /usr/local/bin/docling \
   && mineru --version \
+  && docling --version \
   && curl -fsSL https://qoder.cn/install | bash \
   && ln -sf /root/.local/bin/qoderclicn /usr/local/bin/qoderclicn \
   && qoderclicn --version \
@@ -35,6 +39,7 @@ ENV NODE_ENV=production \
   MY_WIKI_DASHBOARD_HOST=0.0.0.0 \
   MY_WIKI_DASHBOARD_PORT=5173 \
   MY_WIKI_AGENT_PROVIDER=opencode \
+  MY_WIKI_DOCLING_PYTHON=/root/.local/share/uv/tools/docling/bin/python \
   MY_WIKI_MINERU_BACKEND=pipeline
 
 EXPOSE 5173

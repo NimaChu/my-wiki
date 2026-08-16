@@ -3,6 +3,9 @@ import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { extractDocumentWithDocling } from "./docling-extractor.mjs";
+import { repairPdfWithAgentVision } from "./agent-vision-repair.mjs";
+import { standardizeExtractionResult } from "./extraction-standard.mjs";
 import { extractPdfWithMineru } from "./mineru-extractor.mjs";
 import { extractPdfMarkdown } from "./pdf-text.mjs";
 import { assessPdfPage, qualityWarnings, summarizePdfQuality } from "./pdf-quality.mjs";
@@ -10,6 +13,7 @@ import { assessPdfPage, qualityWarnings, summarizePdfQuality } from "./pdf-quali
 const TEXT_EXTENSIONS = new Set([".md", ".markdown", ".txt", ".csv", ".json", ".xml", ".html", ".htm", ".yaml", ".yml"]);
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"]);
 const LEGACY_OFFICE_EXTENSIONS = new Set([".doc", ".ppt", ".xls"]);
+const DOCLING_EXTENSIONS = new Set([".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".odt", ".ods", ".odp", ".epub"]);
 const DEFAULT_MAX_BYTES = 200 * 1024 * 1024;
 const MIN_MEANINGFUL_CHARACTERS = 24;
 const DEFAULT_MIN_OCR_CONFIDENCE = 40;
@@ -36,7 +40,15 @@ export function extractionFromText(value, method = "plain-text") {
   return extractPlainText(value, method);
 }
 
-export async function extractLocalDocument({ file, filename = path.basename(file), dependencyRoot, cacheRoot = "" }) {
+export async function extractLocalDocument({
+  file,
+  filename = path.basename(file),
+  dependencyRoot,
+  cacheRoot = "",
+  environment = process.env,
+  agentRunner = null,
+  onProgress = null
+}) {
   const extension = path.extname(filename).toLowerCase();
   const stat = await fs.stat(file);
   if (stat.size > Number(process.env.MY_WIKI_EXTRACTION_LIMIT_BYTES || DEFAULT_MAX_BYTES)) {
@@ -44,19 +56,37 @@ export async function extractLocalDocument({ file, filename = path.basename(file
   }
 
   try {
-    if (TEXT_EXTENSIONS.has(extension)) return extractPlainText(await fs.readFile(file, "utf8"));
-    if (extension === ".pdf") return extractPdfWithOcrFallback({ file, dependencyRoot, cacheRoot });
-    if (IMAGE_EXTENSIONS.has(extension)) return extractImageOcr({ file, dependencyRoot, cacheRoot });
-    if (extension === ".svg") return extractSvgText(await fs.readFile(file, "utf8"));
-    if (extension === ".docx") return extractDocx({ file, dependencyRoot });
-    if (extension === ".pptx") return extractPptx({ file, dependencyRoot });
-    if (extension === ".xlsx") return extractXlsx({ file, dependencyRoot });
-    if (LEGACY_OFFICE_EXTENSIONS.has(extension)) {
-      return failure("unavailable", "legacy-office", `Legacy ${extension.slice(1).toUpperCase()} files must be converted to the modern Office Open XML format before local extraction.`);
+    reportProgress(onProgress, { phase: "analyzing", percent: 2, message: "Inspecting document structure." });
+    let extracted;
+    if (TEXT_EXTENSIONS.has(extension)) extracted = extractPlainText(await fs.readFile(file, "utf8"));
+    else if (extension === ".pdf") extracted = await extractPdfWithOcrFallback({
+      file,
+      filename,
+      dependencyRoot,
+      cacheRoot,
+      environment,
+      agentRunner,
+      onProgress
+    });
+    if (IMAGE_EXTENSIONS.has(extension)) {
+      reportProgress(onProgress, { phase: "ocr", percent: null, message: "Recognizing text in the image." });
+      extracted = await extractImageOcr({ file, dependencyRoot, cacheRoot });
     }
-    return failure("unavailable", "unsupported-binary", `No deterministic local parser is available for ${extension || "this file type"}.`);
+    else if (extension === ".svg") extracted = extractSvgText(await fs.readFile(file, "utf8"));
+    else if (!extracted && DOCLING_EXTENSIONS.has(extension)) {
+      const docling = await extractDocumentWithDocling({ file, filename, environment: process.env, cacheRoot, onProgress });
+      if (docling.status !== "unavailable") extracted = { ...docling, attempts: [attemptSummary(docling)] };
+      else if (extension === ".docx") extracted = { ...(await extractDocx({ file, dependencyRoot })), attempts: [attemptSummary(docling)] };
+      else if (extension === ".pptx") extracted = { ...(await extractPptx({ file, dependencyRoot })), attempts: [attemptSummary(docling)] };
+      else if (extension === ".xlsx") extracted = { ...(await extractXlsx({ file, dependencyRoot })), attempts: [attemptSummary(docling)] };
+      else if (LEGACY_OFFICE_EXTENSIONS.has(extension)) {
+        extracted = failure("unavailable", "legacy-office", `Legacy ${extension.slice(1).toUpperCase()} files require Docling and LibreOffice for local extraction.`);
+      } else extracted = failure("unavailable", "docling", `Docling is required to extract ${extension.slice(1).toUpperCase()} documents.`);
+    }
+    extracted ||= failure("unavailable", "unsupported-binary", `No deterministic local parser is available for ${extension || "this file type"}.`);
+    return standardizeExtractionResult(extracted, { file, filename, attempts: extracted.attempts || [attemptSummary(extracted)] });
   } catch (error) {
-    return failure("failed", methodForExtension(extension), cleanError(error));
+    return standardizeExtractionResult(failure("failed", methodForExtension(extension), cleanError(error)), { file, filename });
   }
 }
 
@@ -64,27 +94,79 @@ export async function extractPdfWithOcrFallback({
   file,
   dependencyRoot,
   cacheRoot,
+  filename = path.basename(file),
   environment = process.env,
   extractPdf = extractPdfMarkdown,
-  extractMineru = extractPdfWithMineru
+  extractMineru = extractPdfWithMineru,
+  extractDocling = extractDocumentWithDocling,
+  repairVisualPages = repairPdfWithAgentVision,
+  agentRunner = null,
+  onProgress = null
 }) {
   const engine = String(environment.MY_WIKI_PDF_ENGINE || "auto").trim().toLowerCase();
+  const attempts = [];
+  reportProgress(onProgress, { phase: "pdf-analysis", percent: 4, message: "Reading PDF page metadata and text layer." });
   const parsed = await extractPdf({ file, dependencyRoot });
+  attempts.push(attemptSummary({ ...parsed, engine: "pdfjs", method: "pdf-text" }));
+  if (engine === "docling") {
+    const docling = await extractDocling({ file, filename, environment, cacheRoot, onProgress });
+    attempts.push(attemptSummary(docling));
+    if (docling.status === "complete" || docling.status === "low-quality") {
+      return repairPdfRiskPages({ file, primary: docling, attempts, environment, cacheRoot, dependencyRoot, agentRunner, onProgress, repairVisualPages });
+    }
+    return { ...failure(docling.status || "failed", "docling", docling.message || "Docling extraction failed.", docling), attempts };
+  }
   if (engine === "mineru") {
-    return normalizeMineruResult(await extractMineru({ file, pages: parsed.pages, cacheRoot, dependencyRoot, environment }));
+    const mineru = await extractMineru({ file, pages: parsed.pages, cacheRoot, dependencyRoot, environment, onProgress });
+    attempts.push(attemptSummary(mineru));
+    if (mineru.status === "complete" || mineru.status === "low-quality") {
+      return repairPdfRiskPages({ file, primary: mineru, attempts, environment, cacheRoot, dependencyRoot, agentRunner, onProgress, repairVisualPages });
+    }
+    return { ...normalizeMineruResult(mineru), attempts };
   }
   if (engine === "auto") {
-    const mineru = await extractMineru({ file, pages: parsed.pages, cacheRoot, dependencyRoot, environment });
-    if (mineru.status === "complete") return success(mineru);
-    if (mineru.status !== "unavailable") return normalizeMineruResult(mineru);
+    const mineru = await extractMineru({ file, pages: parsed.pages, cacheRoot, dependencyRoot, environment, onProgress });
+    attempts.push(attemptSummary(mineru));
+    if (mineru.status === "complete" || mineru.status === "low-quality") {
+      return repairPdfRiskPages({ file, primary: mineru, attempts, environment, cacheRoot, dependencyRoot, agentRunner, onProgress, repairVisualPages });
+    }
+    if (mineru.status !== "unavailable") return { ...normalizeMineruResult(mineru), attempts };
+    const docling = await extractDocling({ file, filename, environment, cacheRoot, onProgress });
+    attempts.push(attemptSummary(docling));
+    if (docling.status === "complete" || docling.status === "low-quality") {
+      return repairPdfRiskPages({ file, primary: docling, attempts, environment, cacheRoot, dependencyRoot, agentRunner, onProgress, repairVisualPages });
+    }
+    if (docling.status !== "unavailable") return { ...failure(docling.status || "failed", "docling", docling.message || "Docling extraction failed.", docling), attempts };
     if (parsed.status === "complete" && isMeaningful(parsed.content)) {
-      const warnings = [...(parsed.warnings || []), "MinerU is not installed; degraded pages use the lightweight PDF text layer."].filter(Boolean);
-      return success({ ...parsed, engine: "pdfjs", method: "pdf-text", units: parsed.pages, unitLabel: "pages", warnings });
+      const warnings = [...(parsed.warnings || []), "MinerU is not installed; Docling is also unavailable, so degraded pages use the lightweight PDF text layer."].filter(Boolean);
+      return { ...success({ ...parsed, engine: "pdfjs", method: "pdf-text", units: parsed.pages, unitLabel: "pages", warnings }), attempts };
     }
   } else if (parsed.status === "complete" && isMeaningful(parsed.content)) {
-    return success({ ...parsed, engine: "pdfjs", method: "pdf-text", units: parsed.pages, unitLabel: "pages" });
+    return { ...success({ ...parsed, engine: "pdfjs", method: "pdf-text", units: parsed.pages, unitLabel: "pages" }), attempts };
   }
-  return extractScannedPdfOcr({ file, dependencyRoot, cacheRoot, parserMessage: parsed.message });
+  const tesseract = await extractScannedPdfOcr({ file, dependencyRoot, cacheRoot, parserMessage: parsed.message, onProgress });
+  attempts.push(attemptSummary(tesseract));
+  return { ...tesseract, attempts };
+}
+
+async function repairPdfRiskPages({ file, primary, attempts, environment, cacheRoot, dependencyRoot, agentRunner, onProgress, repairVisualPages }) {
+  const repaired = await repairVisualPages({ file, primary, environment, cacheRoot, dependencyRoot, agentRunner, onProgress });
+  if (repaired.attempt) attempts.push(attemptSummary(repaired.attempt));
+  return { ...repaired.result, attempts };
+}
+
+function attemptSummary(value) {
+  return {
+    engine: value?.engine || value?.method || "unknown",
+    method: value?.method || "",
+    status: value?.status || "unknown",
+    pages: Number(value?.pages || 0),
+    provider: value?.provider || "",
+    model: value?.model || "",
+    repairedPages: value?.repairedPages || [],
+    rejectedPages: value?.rejectedPages || [],
+    message: value?.message || ""
+  };
 }
 
 function normalizeMineruResult(result) {
@@ -92,7 +174,7 @@ function normalizeMineruResult(result) {
   return failure(result.status || "failed", "mineru", result.message || "MinerU extraction failed.", result);
 }
 
-async function extractScannedPdfOcr({ file, dependencyRoot, cacheRoot, parserMessage = "" }) {
+async function extractScannedPdfOcr({ file, dependencyRoot, cacheRoot, parserMessage = "", onProgress = null }) {
   const require = dependencyRequire(dependencyRoot);
   const canvasRuntime = require("@napi-rs/canvas");
   globalThis.DOMMatrix ||= canvasRuntime.DOMMatrix;
@@ -143,6 +225,13 @@ async function extractScannedPdfOcr({ file, dependencyRoot, cacheRoot, parserMes
           sections.push(`### Page ${pageNumber}\n\n${result.text || "_No text recognized on this page._"}`);
           if (result.text && Number.isFinite(result.confidence)) confidences.push(result.confidence);
           pageResults.push(result.quality);
+          reportProgress(onProgress, {
+            phase: "ocr",
+            current: pageNumber,
+            total: document.numPages,
+            percent: 8 + (pageNumber / document.numPages) * 84,
+            message: `Recognized page ${pageNumber} of ${document.numPages}.`
+          });
         }
       } finally {
         await worker?.terminate();
@@ -448,4 +537,8 @@ function round(value) {
 
 function cleanError(error) {
   return String(error?.message || error || "Unknown extraction error").replace(/[\r\n]+/g, " ").slice(0, 600);
+}
+
+function reportProgress(callback, progress) {
+  if (typeof callback === "function") callback(progress);
 }

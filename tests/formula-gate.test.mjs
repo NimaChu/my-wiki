@@ -100,6 +100,8 @@ test("code fences do not count as reviewed formula evidence", async () => {
 
 test("hard formula gating is limited to formula-aware extraction", () => {
   assert.equal(shouldGateExtractedFormulas({ extractionMethod: "mineru" }), true);
+  assert.equal(shouldGateExtractedFormulas({ extractionMethod: "mineru+agent-vision-repair" }), true);
+  assert.equal(shouldGateExtractedFormulas({ extractionMethod: "docling" }), true);
   assert.equal(shouldGateExtractedFormulas({ extractionMethod: "pdf-text", extractionQuality: { formulaRiskPages: [3] } }), true);
   assert.equal(shouldGateExtractedFormulas({ extractionMethod: "docx", extractionQuality: { formulaRiskPages: [] } }), false);
 });

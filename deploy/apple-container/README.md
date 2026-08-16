@@ -5,9 +5,12 @@ vault. The image contains only the My Wiki application plus OpenCode and Qoder
 CLIs. A named Apple Container volume stores all captures, Wiki edits, imports,
 exports, and Viki maintenance results.
 
-The image also includes the pinned MinerU core parser. Apple Container uses its
-CPU `pipeline` backend because the Linux VM cannot access macOS MPS/MLX. The
-first high-fidelity extraction may take longer while MinerU downloads models.
+The image also includes pinned MinerU and Docling runtimes. MinerU handles
+Chinese technical PDFs while Docling supplies structured Office/PDF fallback.
+Apple Container uses CPU inference because the Linux VM cannot access macOS
+MPS/MLX. The first high-fidelity extraction may take longer while models are
+downloaded. Risk-page visual repair reuses the bundled OpenCode CLI and its
+configured multimodal model; no separate document-repair CLI is required.
 
 ## Start
 

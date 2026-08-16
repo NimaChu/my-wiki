@@ -92,7 +92,13 @@ Environment:
   MY_WIKI_CONFIG_PATH=/path/to/config.json
   MY_WIKI_OCR_MAX_PDF_PAGES=1000 (0 disables the page limit)
   MY_WIKI_OCR_PDF_BATCH_PAGES=24
-  MY_WIKI_PDF_ENGINE=auto|mineru|tesseract
+  MY_WIKI_PDF_ENGINE=auto|mineru|docling|pdfjs|tesseract
+  MY_WIKI_DOCLING_MODE=auto|off
+  MY_WIKI_DOCLING_PYTHON=/path/to/python
+  MY_WIKI_VISUAL_REPAIR_MODE=auto|off|required
+  MY_WIKI_VISUAL_REPAIR_PROVIDER=opencode|codex
+  MY_WIKI_VISUAL_REPAIR_MODEL=provider/model
+  MY_WIKI_VISUAL_REPAIR_MAX_PAGES=12
   MY_WIKI_PDF_VISUAL_GATE=1 (set 0 to disable blank/show-through candidate analysis)
   MY_WIKI_PDF_BLANK_PAGES=9,177 (explicit human-confirmed per-capture override)
   MY_WIKI_PDF_DIAGRAM_SCALE=1.8 (page-render fallback scale for sparse diagrams)

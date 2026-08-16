@@ -93,8 +93,10 @@ Agent 会启动本地网页应用。你可以：
 - 进入知识星系，查看三维 Wiki 星球关系网络；
 - 打开 Wiki 页面，继续进入它背后的 raw 原文证据层；
 - 搜索 Wiki、关系和来源，而不破坏当前图谱层级；
+- 双击 Wiki 或证据点进入轻量 Markdown 工作台，在阅读、源码和实时分屏间切换；文档大纲、公式/表格工具、图片粘贴与拖入都直接作用于受控的本地 Markdown 与 `raw/assets/`，不引入第二套笔记数据库；
 - 输入网页链接，或上传文件、文件夹和 Markdown + 图片 ZIP 图文包；
 - 查看统一维护队列：快照保存后即可看到自动提取进度，并可按 Raw 独立蒸馏或修复；批量维护会依据每条状态自动选择动作。提取、蒸馏和修复共用 2 个并发槽位，同一 Raw 不会重复执行；
+- 查看大文件与知识包进度：分片上传、逐页 OCR 和分批 MinerU 显示实际字节或页数，单进程提取、导入预览与最终写入显示当前处理阶段；
 - 使用常驻知识伙伴 Viki 基于 Wiki、raw 证据和相关图片进行问答；
 - 在 Viki 中独立选择 Agent CLI 与宠物形态，并调整聊天窗口大小；
 - 导出一个知识星系，或预览并导入别人分享的 `.mywiki` 知识包。
@@ -172,15 +174,29 @@ My Wiki 不是给每份文档生成一段摘要。一份资料可以更新多个
 - **开放且可迁移**：知识可以移动、备份、用任意 Markdown 编辑器打开，也可以以后接入 Obsidian 或 RAG。
 - **零成本起步**：只需要 Node.js 和一个已经可用的本地 Agent 客户端。
 
-### 可选的高保真 PDF 解析
+### 统一文档提取与验收
 
-默认轻量解析无需额外安装。教材、论文、扫描件或公式密集 PDF 建议安装 [MinerU](https://github.com/opendatalab/mineru)，My Wiki 会在原生文本层质量不足时自动调用它，并保留 PDF.js/Tesseract 回退路径。安装 `uv` 后，在 macOS、Windows 或 Linux 项目目录运行：
+My Wiki 自己定义文档 IR、逐页质量门禁和验收报告，外部解析器不能自行宣布资料可维护。每次本地文档提取都会在知识库的 `.my-wiki/extractions/` 写入一份可读的 `*.report.json` 和压缩的 `*.document.json.gz`；Raw frontmatter 记录两者路径。报告统一汇总页覆盖、版面/OCR 质量、公式、编码和本地附件门禁，只有通过硬门禁的证据才能进入蒸馏。
+
+推荐工具链分工如下：
+
+- [MinerU](https://github.com/opendatalab/mineru) 是中文扫描件、公式与表格密集技术 PDF 的主解析器。
+- [Docling](https://github.com/docling-project/docling) 提供统一结构、阅读顺序、表格和元素级页码/bounding box provenance，也是 Office、OpenDocument 和 EPUB 的首选解析器。
+- My Wiki 内置的 Agent 视觉修复器借鉴 doc7 的页级视觉重建思路：将中央门禁标出的风险页渲染为图片，交给现有 OpenCode 或 Codex CLI 的多模态模型。结果必须明显优于原页才会替换，并记录 provider、模型与被拒绝页，不需要安装 doc7。
+- PDF.js/Tesseract 是无高保真引擎时的降级路径，不能覆盖已经实际运行但失败的 MinerU 或 Docling 结果。
+
+安装 `uv` 后，在 macOS、Windows 或 Linux 项目目录运行：
 
 ```bash
-npm run pdf:setup
+npm run document:setup
+npm run document:doctor
 ```
 
-该命令安装项目验证过的 MinerU 版本，模型文件由 MinerU 首次使用时下载。检测到 MinerU 后，自动 PDF 提取会优先采用它的版面、公式和表格解析结果。仅当 MinerU 未安装或不可用时才回退轻量解析器；MinerU 一旦实际运行后失败或未通过质量门禁，该 PDF 会保留失败状态并进入 `needs-followup`，不会再由 PDF.js 纯文本覆盖失败。超过 512 页的文档默认按 64 页分批运行 MinerU，再恢复连续页码和合并命名空间隔离后的图片资源；可用 `MY_WIKI_MINERU_BATCH_THRESHOLD_PAGES` 和 `MY_WIKI_MINERU_BATCH_PAGES` 调整。MinerU 默认使用 `hybrid-engine` 的 `medium` 档位。可通过 `MY_WIKI_PDF_ENGINE=mineru` 强制使用，通过 `MY_WIKI_PDF_ENGINE=tesseract` 禁用自动调用；`MY_WIKI_MINERU_BACKEND`、`MY_WIKI_MINERU_EFFORT` 和 `MY_WIKI_MINERU_LANGUAGE` 可覆盖后端、精度档位和文档语言。MinerU 前会以低分辨率分析扫描页的墨迹覆盖、对比度和相邻页镜像相关性，识别空白污点与背面透印，并结合 OCR 文本密度和模板重复抑制页面级幻觉；可用 `MY_WIKI_PDF_VISUAL_GATE=0` 禁用该门禁，或在一次捕获/重提取前通过 `MY_WIKI_PDF_BLANK_PAGES=9,177` 显式指定已确认的空白页。MinerU 是可选外部工具，不影响未安装它的系统使用基础功能；但公式密集或扫描教材应先运行 `npm run pdf:setup`，不要把轻量回退结果当作高保真证据。
+该命令安装项目验证过的 MinerU 与 Docling；模型文件由各引擎首次使用时下载。疑难页视觉修复复用已经登录的 OpenCode/Codex CLI 与其中可用的多模态模型，不安装额外文档 CLI。`npm run pdf:setup` 仍保留为只安装 MinerU 的兼容命令。
+
+自动 PDF 路由默认先用 MinerU；仅当 MinerU 不可用时尝试 Docling，再降级到 PDF.js/Tesseract。可用 `MY_WIKI_PDF_ENGINE=mineru|docling|pdfjs|tesseract` 强制指定。风险页视觉修复默认复用可用的 OpenCode/Codex，可用 `MY_WIKI_VISUAL_REPAIR_MODE=off|auto|required`、`MY_WIKI_VISUAL_REPAIR_PROVIDER`、`MY_WIKI_VISUAL_REPAIR_MODEL` 和 `MY_WIKI_VISUAL_REPAIR_MAX_PAGES` 控制。超过 512 页的 PDF 默认按 64 页分批运行 MinerU，再恢复连续页码和图片命名空间；`MY_WIKI_MINERU_BATCH_THRESHOLD_PAGES` 和 `MY_WIKI_MINERU_BATCH_PAGES` 可调整批次。
+
+完整的 IR、路由、报告字段和验收规则见 [`docs/document-extraction.md`](docs/document-extraction.md)。
 
 最终写入 Raw 的 `## Capture` 正文还会执行编码完整性门禁。任何 U+FFFD 替换字符都会按页记录并将 Raw 锁定为 `needs-followup`；捕获、重提取、Agent 修复、维护预检和 `lint` 都会重复验证，避免后续写回造成的乱码沿用旧质量分数。
 

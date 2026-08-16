@@ -21,7 +21,8 @@ export async function ingestLocalFile({
   dependencyRoot,
   captureMethod = "agent-file",
   snapshotReference = "",
-  onSnapshot = null
+  onSnapshot = null,
+  onProgress = null
 }) {
   const uploadPath = sourcePath || filename;
   if (isIgnoredLocalEntry(uploadPath)) {
@@ -37,7 +38,8 @@ export async function ingestLocalFile({
       dependencyRoot,
       captureMethod: captureMethod.replace(/file$/, "zip"),
       snapshotReference,
-      onSnapshot
+      onSnapshot,
+      onProgress
     });
   }
   const snapshot = snapshotReference
@@ -48,8 +50,10 @@ export async function ingestLocalFile({
     file: snapshot.file,
     filename,
     dependencyRoot,
-    cacheRoot: path.join(vault, ".my-wiki", "ocr-cache")
+    cacheRoot: path.join(vault, ".my-wiki", "ocr-cache"),
+    onProgress
   }).catch((error) => failedExtraction("local-parser", cleanError(error)));
+  reportProgress(onProgress, { phase: "writing-raw", percent: 96, message: "Writing extracted evidence to Raw." });
   const result = await captureSource({
     vault,
     title: title.trim() || path.basename(filename, path.extname(filename)) || "Uploaded Source",
@@ -69,6 +73,8 @@ export async function ingestLocalFile({
     extractionEngine: extracted.engine,
     extractionQuality: extracted.quality,
     extractionWarnings: extracted.warnings,
+    extractionReport: extracted.extractionReport,
+    extractionDocument: extracted.document,
     originalFilename: filename,
     sourcePath,
     initialStatus: extracted.status === "complete" ? "inbox" : "needs-followup",
@@ -78,6 +84,7 @@ export async function ingestLocalFile({
     shouldSnapshot: true,
     shouldMirrorImages: true
   });
+  reportProgress(onProgress, { phase: "complete", current: 1, total: 1, percent: 100, message: "Extraction complete." });
   return { kind: "file", count: 1, items: [{ ...result, extractionMessage: extracted.message || "", extractionWarnings: extracted.warnings || [] }] };
 }
 
@@ -109,14 +116,16 @@ export async function ingestZipBundle({
   dependencyRoot,
   captureMethod = "agent-zip",
   snapshotReference = "",
-  onSnapshot = null
+  onSnapshot = null,
+  onProgress = null
 }) {
   const snapshot = snapshotReference
     ? await resolvePreservedSnapshot({ vault, snapshotReference })
     : await preserveUploadedSnapshot({ vault, file, filename });
   if (typeof onSnapshot === "function") await onSnapshot(snapshot);
+  reportProgress(onProgress, { phase: "extracting", percent: null, message: "Reading ZIP package structure." });
   try {
-    return await ingestPreservedZipBundle({ vault, filename, collection, suggestedUniverse, dependencyRoot, captureMethod, snapshot });
+    return await ingestPreservedZipBundle({ vault, filename, collection, suggestedUniverse, dependencyRoot, captureMethod, snapshot, onProgress });
   } catch (error) {
     const message = cleanError(error);
     const result = await captureSource({
@@ -141,7 +150,7 @@ export async function ingestZipBundle({
   }
 }
 
-async function ingestPreservedZipBundle({ vault, filename, collection, suggestedUniverse, dependencyRoot, captureMethod, snapshot }) {
+async function ingestPreservedZipBundle({ vault, filename, collection, suggestedUniverse, dependencyRoot, captureMethod, snapshot, onProgress = null }) {
   const JSZip = createRequire(path.resolve(dependencyRoot, "package.json"))("jszip");
   const zip = await JSZip.loadAsync(await fs.readFile(snapshot.file), { checkCRC32: true, createFolders: false });
   const entries = Object.values(zip.files).filter((entry) => !entry.dir && !isIgnoredArchiveEntry(entry.name));
@@ -197,7 +206,14 @@ async function ingestPreservedZipBundle({ vault, filename, collection, suggested
   }
 
   const items = [];
-  for (const { markdownEntry, content, extracted, assets } of plans) {
+  for (const [index, { markdownEntry, content, extracted, assets }] of plans.entries()) {
+    reportProgress(onProgress, {
+      phase: "assembling",
+      current: index,
+      total: plans.length,
+      percent: plans.length ? 20 + (index / plans.length) * 74 : null,
+      message: `Writing document ${index + 1} of ${plans.length} from the ZIP package.`
+    });
     const result = await captureSource({
       vault,
       title: markdownTitle(content) || path.posix.basename(markdownEntry.name, path.posix.extname(markdownEntry.name)),
@@ -223,6 +239,7 @@ async function ingestPreservedZipBundle({ vault, filename, collection, suggested
     });
     items.push({ ...result, extractionMessage: extracted.message || "" });
   }
+  reportProgress(onProgress, { phase: "complete", current: plans.length, total: plans.length, percent: 100, message: "ZIP extraction complete." });
   return { kind: "zip", count: items.length, items, total: markdownEntries.length, failures: [] };
 }
 
@@ -360,4 +377,8 @@ function decodeURIComponentSafe(value) {
 
 function cleanError(error) {
   return String(error?.message || error || "Unknown ingest error").replace(/[\r\n]+/g, " ").slice(0, 500);
+}
+
+function reportProgress(callback, progress) {
+  if (typeof callback === "function") callback(progress);
 }

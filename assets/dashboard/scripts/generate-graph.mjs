@@ -130,6 +130,55 @@ function asArray(value) {
   return [String(value)];
 }
 
+function visualGapPages(frontmatter, content) {
+  const explicit = pageNumbers(frontmatter.extraction_missing_visual_pages);
+  if (explicit.length) return explicit;
+  const lowQuality = pageNumbers(frontmatter.extraction_low_quality_pages);
+  if (!lowQuality.length) return [];
+  const excluded = new Set([
+    ...pageNumbers(frontmatter.extraction_blank_pages),
+    ...pageNumbers(frontmatter.extraction_showthrough_pages),
+    ...pageNumbers(frontmatter.extraction_suppressed_hallucination_pages)
+  ]);
+  const body = stripFrontmatter(content);
+  const captureStart = body.search(/^## Capture\s*$/m);
+  if (captureStart < 0) return [];
+  const captureTail = body.slice(captureStart + body.slice(captureStart).match(/^## Capture\s*$/m)[0].length);
+  const captureEnd = captureTail.search(/^## (?!#)/m);
+  const capture = captureEnd < 0 ? captureTail : captureTail.slice(0, captureEnd);
+  return lowQuality.filter((page) => {
+    if (excluded.has(page)) return false;
+    const marker = new RegExp(`^### Page ${page}\\s*$`, "m");
+    const match = capture.match(marker);
+    if (!match || match.index === undefined) return false;
+    const tail = capture.slice(match.index + match[0].length);
+    const next = tail.search(/^### Page \d+\s*$/m);
+    const section = next < 0 ? tail : tail.slice(0, next);
+    if (/!\[[^\]]*\]\([^)]+\)|<img\b/i.test(section)) return false;
+    const meaningful = section.replace(/[`>*#_\-\s]/g, "").replace(new RegExp(`^${page}$`), "");
+    return Array.from(meaningful.matchAll(/[\p{L}\p{N}\u3400-\u9fff]/gu)).length < 24;
+  });
+}
+
+function pageNumbers(value) {
+  const pages = new Set();
+  for (const tokenValue of Array.isArray(value) ? value : String(value || "").split(",")) {
+    const token = String(tokenValue || "").trim();
+    const range = token.match(/^(\d+)\s*-\s*(\d+)$/);
+    if (range) {
+      const start = Number(range[1]);
+      const end = Number(range[2]);
+      if (start > 0 && end >= start && end - start <= 10_000) {
+        for (let page = start; page <= end; page += 1) pages.add(page);
+      }
+      continue;
+    }
+    const page = Number(token);
+    if (Number.isInteger(page) && page > 0) pages.add(page);
+  }
+  return [...pages].sort((left, right) => left - right);
+}
+
 function extractWikiLinks(content) {
   return Array.from(new Set(Array.from(content.matchAll(markdownLinkPattern), (match) => match[1].trim()).filter(Boolean)));
 }
@@ -252,6 +301,7 @@ async function main() {
         status: String(frontmatter.status || "unknown"),
         tags: asArray(frontmatter.tags),
         followupReasons: asArray(frontmatter.followup_reasons),
+        visualGapPages: visualGapPages(frontmatter, content),
         content: wikiContentForGraph(id, content),
         supersededBy: String(frontmatter.superseded_by || ""),
         aliases: asArray(frontmatter.aliases),

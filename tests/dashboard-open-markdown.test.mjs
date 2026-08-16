@@ -244,6 +244,47 @@ test("Markdown image API serves validated local image bytes", async (context) =>
   assert.deepEqual(response.body, Buffer.from([137, 80, 78, 71]));
 });
 
+test("Markdown image API stores validated pasted images in managed editor assets", async (context) => {
+  const fixture = await createFixture(context);
+  const server = http.createServer(createDashboardApi({
+    dashboardRoot: fixture.dashboard,
+    port: 0,
+    agentRunner: { info: async () => ({}) }
+  }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+  const uploaded = await request(
+    port,
+    "POST",
+    "/api/v1/markdown-image?note=wiki%2Fnote.md&filename=Diagram.png",
+    {
+      headers: { ...auth, "content-type": "image/png", "content-length": png.length },
+      body: png
+    }
+  );
+
+  assert.equal(uploaded.status, 201);
+  assert.match(uploaded.body.path, /^raw\/assets\/editor\/note-[a-f0-9]{8}\/diagram-[a-f0-9]{8}\.png$/);
+  assert.match(uploaded.body.source, /^\.\.\/raw\/assets\/editor\//);
+  assert.deepEqual(await readFile(path.join(fixture.vault, uploaded.body.path)), png);
+
+  const invalid = await request(
+    port,
+    "POST",
+    "/api/v1/markdown-image?note=wiki%2Fnote.md&filename=not-an-image.png",
+    {
+      headers: { ...auth, "content-type": "image/png", "content-length": 4 },
+      body: Buffer.from("nope")
+    }
+  );
+  assert.equal(invalid.status, 415);
+});
+
 test("Dashboard origins remain local by default and allow explicit public origins", async (context) => {
   const fixture = await createFixture(context);
   const allowedOrigins = dashboardAllowedOrigins(5173, "https://my-wiki.cloud, https://www.my-wiki.cloud/");
@@ -364,6 +405,7 @@ test("File uploads enter the Inbox queue before extraction completes", async (co
     agentRunner: { info: async () => ({}) },
     localFileIngestor: async (input) => {
       await input.onSnapshot({ relative: "raw/snapshots/queued.pdf" });
+      input.onProgress({ phase: "ocr", current: 12, total: 40, percent: 30, message: "Recognized page 12 of 40." });
       await extractionGate;
       return { kind: "file", count: 1, items: [{ status: "inbox", path: "raw/sources/queued.md" }] };
     }
@@ -402,6 +444,13 @@ test("File uploads enter the Inbox queue before extraction completes", async (co
   assert.equal(queueItem.title, "Queued PDF");
   assert.equal(queueItem.status, "processing");
   assert.match(queueItem.jobStatus, /queued|running/);
+  assert.deepEqual(queueItem.progress, {
+    phase: "ocr",
+    current: 12,
+    total: 40,
+    percent: 30,
+    message: "Recognized page 12 of 40."
+  });
 
   finishExtraction();
   let completed;
@@ -597,12 +646,18 @@ test("Chunked knowledge package uploads bypass single-request proxy limits", asy
     offset = end;
   }
 
-  const files = await readdir(path.join(fixture.vault, ".my-wiki", "imports-upload"));
-  assert.equal(files.length, 1);
-  assert.deepEqual(await readFile(path.join(fixture.vault, ".my-wiki", "imports-upload", files[0])), payload);
   const completed = await request(port, "POST", `/api/v1/universe-imports/uploads/${created.body.id}/complete`, { headers: auth });
   assert.equal(completed.status, 202);
   assert.equal(completed.body.type, "import-preview");
+
+  let terminal = completed;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    terminal = await request(port, "GET", `/api/v1/jobs/${completed.body.id}`, { headers: auth });
+    if (["complete", "failed"].includes(terminal.body.status)) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(terminal.body.status, "failed");
+  assert.doesNotMatch(terminal.body.error, /ENOENT/);
 });
 
 test("Maintenance uses a total timeout without an idle timeout", async (context) => {
@@ -686,7 +741,7 @@ test("mixed Raw maintenance runs independently with a shared concurrency limit o
   const fixture = await createFixture(context);
   const sources = [
     { name: "distill-a", status: "inbox", reasons: [] },
-    { name: "repair-b", status: "needs-followup", reasons: ["capture:needs-followup"] },
+    { name: "repair-b", status: "needs-followup", reasons: ["manual-review:ambiguous-evidence"] },
     { name: "distill-c", status: "inbox", reasons: [] }
   ];
   for (const source of sources) {
@@ -720,13 +775,16 @@ test("mixed Raw maintenance runs independently with a shared concurrency limit o
       provider: "opencode",
       label: "OpenCode",
       defaultProvider: "opencode",
-      providers: [{ provider: "opencode", label: "OpenCode" }],
+      providers: [
+        { provider: "opencode", label: "OpenCode", models: [{ id: "distill-model", label: "Distill model" }] },
+        { provider: "codex", label: "Codex", models: [{ id: "repair-model", label: "Repair model" }] }
+      ],
       message: ""
     }),
     run: async (options) => {
       running += 1;
       peak = Math.max(peak, running);
-      started.push(options.mode);
+      started.push({ mode: options.mode, provider: options.provider, model: options.model });
       await new Promise((resolve) => releases.push(resolve));
       running -= 1;
       return options.mode === "repair"
@@ -741,7 +799,14 @@ test("mixed Raw maintenance runs independently with a shared concurrency limit o
   const port = typeof address === "object" && address ? address.port : 0;
   const session = await request(port, "GET", "/api/v1/session");
   const auth = { "x-my-wiki-token": session.body.token };
-  const body = JSON.stringify({ paths: sources.map((source) => `raw/sources/${source.name}.md`), batchSize: 3, provider: "opencode" });
+  const body = JSON.stringify({
+    paths: sources.map((source) => `raw/sources/${source.name}.md`),
+    batchSize: 3,
+    distillProvider: "opencode",
+    distillModel: "distill-model",
+    repairProvider: "codex",
+    repairModel: "repair-model"
+  });
   const queued = await request(port, "POST", "/api/v1/agent/maintenance-batch", {
     headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(body) },
     body
@@ -752,6 +817,8 @@ test("mixed Raw maintenance runs independently with a shared concurrency limit o
   for (let attempt = 0; attempt < 30 && started.length < 2; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(started.length, 2);
   assert.equal(peak, 2);
+  assert.deepEqual(started.find((item) => item.mode === "maintenance"), { mode: "maintenance", provider: "opencode", model: "distill-model" });
+  assert.deepEqual(started.find((item) => item.mode === "repair"), { mode: "repair", provider: "codex", model: "repair-model" });
   const agent = await request(port, "GET", "/api/v1/agent", { headers: auth });
   assert.equal(agent.body.rawTaskLimit, 2);
   assert.equal(agent.body.activeRawJobs.length, 3);
@@ -970,6 +1037,7 @@ $$
   }
 
   assert.equal(completed.body.status, "complete");
+  assert.equal(completed.body.status, "complete", JSON.stringify(completed.body));
   assert.equal(completed.body.result.unlocked, true, JSON.stringify(completed.body.result));
   assert.equal(completed.body.result.status, "inbox");
   assert.deepEqual(completed.body.result.remainingReasons, []);
@@ -977,6 +1045,7 @@ $$
   assert.equal(runOptions.idleTimeoutMs, 0);
   assert.match(runOptions.prompt, /strict-warning/);
   assert.match(runOptions.prompt, /Too few columns/);
+  assert.match(runOptions.prompt, /Structured evidence-gate context/);
   assert.match(runOptions.prompt, /Edit only raw\/sources\/formula-repair\.md/);
 
   const repaired = await readFile(sourceFile, "utf8");
@@ -989,6 +1058,186 @@ $$
   assert.match(repaired, /^extraction_unicode_replacement_count: 0$/m);
   assert.match(repaired, /- Encoding gate: passed \(0 U\+FFFD characters\)/);
   assert.match(repaired, /- Repair gate: passed and unlocked for maintenance/);
+});
+
+test("Repair re-extracts missing PDF visual evidence with the selected CLI before invoking the text Agent", async (context) => {
+  const fixture = await createFixture(context);
+  const sourceFile = path.join(fixture.vault, "raw", "sources", "visual-repair.md");
+  const snapshotFile = path.join(fixture.vault, "raw", "snapshots", "visual-repair.pdf");
+  await mkdir(path.dirname(snapshotFile), { recursive: true });
+  await writeFile(snapshotFile, Buffer.from("preserved-pdf"));
+  await writeFile(sourceFile, `---
+title: Visual Repair
+type: raw-source
+source_type: pdf
+status: needs-followup
+needs_followup: true
+followup_reasons:
+  - "extraction:low-quality"
+extraction_status: low-quality
+extraction_method: mineru
+extracted_characters: 240
+extraction_low_quality_pages: "13,15"
+extraction_missing_visual_pages: "13,15"
+capture_method: dashboard-upload
+snapshot_path: raw/snapshots/visual-repair.pdf
+tags:
+  - raw
+  - needs-followup
+---
+
+# Visual Repair
+
+## Capture
+
+The main body contains substantial readable evidence; only two figure-only pages were omitted by the parser and require page-level visual preservation.
+
+### Page 13
+
+13
+
+### Page 15
+
+15
+`, "utf8");
+
+  let reextractOptions;
+  let agentCalls = 0;
+  const sourceReextractor = async (options) => {
+    reextractOptions = options;
+    const current = await readFile(sourceFile, "utf8");
+    await writeFile(sourceFile, current
+      .replace("status: needs-followup", "status: inbox")
+      .replace("needs_followup: true", "needs_followup: false")
+      .replace(/followup_reasons:\n  - \"extraction:low-quality\"/, "followup_reasons:")
+      .replace("extraction_status: low-quality", "extraction_status: complete")
+      .replace("extraction_low_quality_pages: \"13,15\"", "extraction_low_quality_pages: \"\"")
+      .replace("extraction_missing_visual_pages: \"13,15\"", "extraction_missing_visual_pages: \"\"\nextraction_rendered_visual_pages: \"13,15\""), "utf8");
+    return { count: 1, results: [{ path: "raw/sources/visual-repair.md", status: "inbox" }] };
+  };
+  const agentRunner = {
+    info: async () => ({
+      available: true,
+      provider: "codex",
+      label: "Codex",
+      providers: [{ provider: "codex", label: "Codex", models: [{ id: "vision-model", label: "Vision model" }] }]
+    }),
+    run: async () => { agentCalls += 1; return {}; }
+  };
+  const server = http.createServer(createDashboardApi({
+    dashboardRoot: fixture.dashboard,
+    formulaDependencyRoot: path.resolve("assets", "dashboard"),
+    sourceReextractor,
+    port: 0,
+    agentRunner
+  }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = server.address().port;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+  const body = JSON.stringify({ path: "raw/sources/visual-repair.md", provider: "codex", model: "vision-model" });
+  const queued = await request(port, "POST", "/api/v1/agent/repair", {
+    headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(body) },
+    body
+  });
+  assert.equal(queued.status, 202, JSON.stringify(queued.body));
+  let completed;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    completed = await request(port, "GET", `/api/v1/jobs/${queued.body.id}`, { headers: auth });
+    if (completed.body.status === "complete") break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(completed.body.status, "complete", JSON.stringify(completed.body));
+  assert.equal(completed.body.result.unlocked, true, JSON.stringify(completed.body.result));
+  assert.equal(agentCalls, 0);
+  assert.equal(reextractOptions.environment.MY_WIKI_VISUAL_REPAIR_PROVIDER, "codex");
+  assert.equal(reextractOptions.environment.MY_WIKI_VISUAL_REPAIR_MODEL, "vision-model");
+  assert.match(completed.body.result.repairedIssues.join(" "), /13, 15/);
+});
+
+test("Repair revalidation clears stale managed reasons without invoking an Agent", async (context) => {
+  const fixture = await createFixture(context);
+  const sourceFile = path.join(fixture.vault, "raw", "sources", "stale-repair.md");
+  const snapshotFile = path.join(fixture.vault, "raw", "snapshots", "stale-repair.pdf");
+  await mkdir(path.dirname(snapshotFile), { recursive: true });
+  await writeFile(snapshotFile, Buffer.from("preserved-pdf"));
+  await writeFile(sourceFile, `---
+title: Stale Repair
+type: raw-source
+source_type: pdf
+status: needs-followup
+needs_followup: true
+followup_reasons:
+  - "formula-strict-warning:pages=4"
+  - "missing-attachment:images/no-longer-referenced.jpg"
+extraction_status: complete
+extraction_method: mineru
+extracted_characters: 240
+extraction_formula_risk_pages: "4"
+capture_method: dashboard-upload
+snapshot_path: raw/snapshots/stale-repair.pdf
+tags:
+  - raw
+  - needs-followup
+---
+
+# Stale Repair
+
+## Capture
+
+### Page 4
+
+The current extracted evidence is readable and its formula $a^2+b^2=c^2$ is valid.
+`, "utf8");
+
+  let agentRuns = 0;
+  const agentRunner = {
+    info: async () => ({
+      available: true,
+      provider: "opencode",
+      label: "OpenCode",
+      defaultProvider: "opencode",
+      providers: [{ provider: "opencode", label: "OpenCode" }],
+      message: ""
+    }),
+    run: async () => {
+      agentRuns += 1;
+      throw new Error("The Agent should not run for stale managed reasons");
+    }
+  };
+  const server = http.createServer(createDashboardApi({
+    dashboardRoot: fixture.dashboard,
+    formulaDependencyRoot: path.resolve("assets", "dashboard"),
+    port: 0,
+    agentRunner
+  }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+  const body = JSON.stringify({ path: "raw/sources/stale-repair.md", provider: "opencode" });
+  const queued = await request(port, "POST", "/api/v1/agent/repair", {
+    headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(body) },
+    body
+  });
+
+  let completed;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    completed = await request(port, "GET", `/api/v1/jobs/${queued.body.id}`, { headers: auth });
+    if (completed.body.status === "complete") break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  assert.equal(completed.body.status, "complete");
+  assert.equal(completed.body.result.unlocked, true);
+  assert.equal(agentRuns, 0);
+  const repaired = await readFile(sourceFile, "utf8");
+  assert.match(repaired, /^status: "?inbox"?$/m);
+  assert.match(repaired, /^followup_reasons: \[\]$/m);
+  assert.match(repaired, /- Missing local attachments: none/);
 });
 
 test("Viki binds a question to its dispatched provider and pauses only the matching job", async (context) => {

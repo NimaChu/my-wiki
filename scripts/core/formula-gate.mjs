@@ -77,7 +77,7 @@ export async function checkMarkdownFormulas(markdown, {
 }
 
 export function shouldGateExtractedFormulas({ extractionMethod = "", extractionQuality = null, formulaRiskPages = "" } = {}) {
-  if (String(extractionMethod || "").trim().toLowerCase() === "mineru") return true;
+  if (/^(?:mineru|docling)(?:$|\+)/.test(String(extractionMethod || "").trim().toLowerCase())) return true;
   const pages = extractionQuality?.formulaRiskPages ?? formulaRiskPages;
   return Array.isArray(pages) ? pages.length > 0 : Boolean(String(pages || "").trim());
 }

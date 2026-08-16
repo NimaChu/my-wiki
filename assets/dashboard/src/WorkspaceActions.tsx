@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BookOpen, Download, FileArchive, FileUp, FolderUp, Inbox, Link2, LoaderCircle, Orbit, Plus, Upload, X } from "lucide-react";
-import { InboxItem, Job, localApi, UniverseSummary, waitForJob } from "./api";
+import { InboxItem, Job, localApi, TaskProgress, UniverseSummary, waitForJob } from "./api";
 
 type Language = "en" | "zh";
 type ActionView = "add" | "universes" | null;
@@ -78,7 +78,10 @@ const labels = {
     requiredFile: "Choose a file first.",
     requiredFolder: "Choose a folder first.",
     requiredZip: "Choose a ZIP bundle first.",
-    requiredPackage: "Choose a .mywiki package first."
+    requiredPackage: "Choose a .mywiki package first.",
+    preparingPreview: "Preparing import preview",
+    writingImport: "Writing knowledge package",
+    extractionProgress: "Extraction progress"
   },
   zh: {
     addKnowledge: "添加知识",
@@ -150,7 +153,10 @@ const labels = {
     requiredFile: "请先选择一个文件。",
     requiredFolder: "请先选择一个文件夹。",
     requiredZip: "请先选择一个 ZIP 图文包。",
-    requiredPackage: "请先选择一个 .mywiki 知识包。"
+    requiredPackage: "请先选择一个 .mywiki 知识包。",
+    preparingPreview: "正在解析导入预览",
+    writingImport: "正在写入知识包",
+    extractionProgress: "提取进度"
   }
 } as const;
 
@@ -344,6 +350,7 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
             {inbox.map((item) => (
               <article key={item.id} className="inbox-row">
                 <div><strong>{item.title}</strong><p>{item.preview}</p></div>
+                {item.progress ? <ProgressBar progress={item.progress} language={language} /> : null}
                 <dl>
                   <div>
                     <dt>{l.status}</dt>
@@ -415,7 +422,8 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
   const [packageFile, setPackageFile] = useState<File | null>(null);
   const [rename, setRename] = useState("");
   const [previewJob, setPreviewJob] = useState<Job | null>(null);
-  const [importState, setImportState] = useState<"idle" | "uploading" | "preview" | "applying" | "complete">("idle");
+  const [importState, setImportState] = useState<"idle" | "uploading" | "previewing" | "preview" | "applying" | "complete">("idle");
+  const [importProgress, setImportProgress] = useState<number | null>(null);
   const packageInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -459,20 +467,29 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
     if (!packageFile) return setError(l.requiredPackage);
     setError("");
     setImportState("uploading");
+    setImportProgress(0);
     try {
-      const complete = await waitForJob(await localApi.previewImport(packageFile, rename), setPreviewJob);
+      const initial = await localApi.previewImport(packageFile, rename, (uploaded, total) => {
+        setImportProgress(total > 0 ? Math.round((uploaded / total) * 100) : null);
+      });
+      setImportProgress(null);
+      setImportState("previewing");
+      const complete = await waitForJob(initial, setPreviewJob);
       setPreviewJob(complete);
       setImportState("preview");
     } catch (nextError) {
       setError(errorMessage(nextError));
       setImportState("idle");
+    } finally {
+      setImportProgress(null);
     }
   };
 
   const applyImport = async () => {
     if (!previewJob) return;
     setError("");
-    setImportState("applying");
+      setImportState("applying");
+      setImportProgress(null);
     try {
       await waitForJob(await localApi.applyImport(previewJob.id, rename));
       setImportState("complete");
@@ -510,17 +527,20 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
 
         <section className="import-section">
           <h3>{l.importPackage}</h3>
-          <button type="button" className="file-drop compact" onClick={() => packageInput.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const dropped = event.dataTransfer.files?.[0] || null; setPackageFile(dropped); setPreviewJob(null); setImportState("idle"); }}>
+          <button type="button" className="file-drop compact" onClick={() => packageInput.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const dropped = event.dataTransfer.files?.[0] || null; setPackageFile(dropped); setPreviewJob(null); setImportState("idle"); setImportProgress(null); }}>
             <FileUp size={21} aria-hidden="true" />
             <strong>{packageFile?.name || l.chooseFile}</strong>
             <span>{packageFile ? formatBytes(packageFile.size) : ".mywiki"}</span>
-            <input ref={packageInput} type="file" accept=".mywiki" hidden onChange={(event) => { setPackageFile(event.target.files?.[0] || null); setPreviewJob(null); setImportState("idle"); }} />
+            <input ref={packageInput} type="file" accept=".mywiki" hidden onChange={(event) => { setPackageFile(event.target.files?.[0] || null); setPreviewJob(null); setImportState("idle"); setImportProgress(null); }} />
           </button>
           <label className="field full"><span>{l.rename}</span><input value={rename} onChange={(event) => setRename(event.target.value)} placeholder={l.optionalRename} /></label>
+          {importState === "uploading" ? <ProgressBar progress={{ phase: "uploading", current: importProgress || 0, total: 100, percent: importProgress, message: `${l.uploading}${importProgress === null ? "" : ` ${importProgress}%`}` }} language={language} /> : null}
+          {importState === "previewing" ? <ProgressBar progress={{ phase: "previewing", current: 0, total: 0, percent: null, message: l.preparingPreview }} language={language} /> : null}
+          {importState === "applying" ? <ProgressBar progress={{ phase: "applying", current: 0, total: 0, percent: null, message: l.writingImport }} language={language} /> : null}
           {summary ? <ImportSummary language={language} summary={summary} /> : null}
           {importState === "complete" ? <p className="import-complete">{l.imported}</p> : null}
           <div className="section-command-row">
-            {importState === "preview" ? <button className="primary-button" type="button" onClick={applyImport}><Upload size={15} />{l.applyImport}</button> : importState !== "complete" ? <button className="primary-button" type="button" disabled={importState === "uploading" || importState === "applying"} onClick={previewImport}>{importState === "uploading" || importState === "applying" ? <LoaderCircle className="spin" size={15} /> : <Upload size={15} />}{importState === "applying" ? l.importing : l.previewImport}</button> : null}
+            {importState === "preview" ? <button className="primary-button" type="button" onClick={applyImport}><Upload size={15} />{l.applyImport}</button> : importState !== "complete" ? <button className="primary-button" type="button" disabled={["uploading", "previewing", "applying"].includes(importState)} onClick={previewImport}>{["uploading", "previewing", "applying"].includes(importState) ? <LoaderCircle className="spin" size={15} /> : <Upload size={15} />}{importState === "applying" ? l.importing : importState === "previewing" ? l.preparingPreview : l.previewImport}</button> : null}
           </div>
         </section>
       </div>
@@ -528,6 +548,42 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
       <div className="dialog-footer"><button type="button" onClick={onClose}>{l.close}</button></div>
     </Dialog>
   );
+}
+
+function ProgressBar({ progress, language }: { progress: TaskProgress; language: Language }) {
+  const percent = progress.percent;
+  const detail = progressLabel(progress, language);
+  return (
+    <div className="task-progress" role="progressbar" aria-label={detail} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? undefined}>
+      <div className="task-progress-label"><span>{detail}</span>{percent !== null ? <strong>{percent}%</strong> : null}</div>
+      <div className={`task-progress-track${percent === null ? " is-indeterminate" : ""}`}>
+        <span style={percent === null ? undefined : { width: `${percent}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function progressLabel(progress: TaskProgress, language: Language) {
+  if (progress.phase === "uploading") return progress.message || (language === "zh" ? "正在上传" : "Uploading");
+  if (progress.phase === "previewing") return progress.message || (language === "zh" ? "正在解析导入预览" : "Preparing import preview");
+  if (progress.phase === "applying") return progress.message || (language === "zh" ? "正在写入知识包" : "Writing knowledge package");
+  const labels: Record<string, [string, string]> = {
+    "preserving-snapshot": ["保存原始快照", "Preserving original snapshot"],
+    extracting: ["准备提取", "Preparing extraction"],
+    analyzing: ["分析文档结构", "Analyzing document structure"],
+    "pdf-analysis": ["读取 PDF 结构", "Reading PDF structure"],
+    "visual-analysis": ["检查空白页与透印", "Checking page artifacts"],
+    mineru: ["MinerU 提取", "MinerU extraction"],
+    ocr: ["OCR 文字识别", "OCR text recognition"],
+    "quality-check": ["检查页面与公式", "Checking pages and formulas"],
+    assembling: ["整理 Markdown 与图片", "Assembling Markdown and images"],
+    "writing-raw": ["写入 Raw 证据", "Writing Raw evidence"],
+    complete: ["提取完成", "Extraction complete"]
+  };
+  const label = labels[progress.phase]?.[language === "zh" ? 0 : 1] || (language === "zh" ? "正在提取" : "Extracting");
+  return progress.total > 0 && progress.current > 0
+    ? `${label} · ${progress.current}/${progress.total}`
+    : label;
 }
 
 function ImportSummary({ language, summary }: { language: Language; summary: any }) {

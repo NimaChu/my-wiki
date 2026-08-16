@@ -5,7 +5,14 @@ import os from "node:os";
 import path from "node:path";
 import { extractPdfWithOcrFallback, pdfOcrSettings } from "../scripts/core/document-extractor.mjs";
 import { insertPageAssetReferences, mergeMineruBatches, mineruBatchRanges, mineruEntriesToMarkdown, readMineruOutput, relationshipDiagramPages, shiftMineruBatch } from "../scripts/core/mineru-extractor.mjs";
-import { assessPdfPage, cleanExtractedPageText, compactPageRanges, summarizePdfQuality } from "../scripts/core/pdf-quality.mjs";
+import {
+  applyVisualEvidenceCoverage,
+  assessPdfPage,
+  cleanExtractedPageText,
+  compactPageRanges,
+  findMissingVisualEvidencePages,
+  summarizePdfQuality
+} from "../scripts/core/pdf-quality.mjs";
 import { classifyPdfVisualPages, parsePageRanges, pdfVisualGateSettings } from "../scripts/core/pdf-visual-gate.mjs";
 import { suppressRawPdfPages } from "../scripts/core/pdf-raw-suppression.mjs";
 import { applyExtractionToRawNote, reinsertIndexedPageAssets } from "../scripts/core/reextract-source.mjs";
@@ -72,6 +79,28 @@ test("page quality gate reports sparse and noisy pages without hiding formula ri
   assert.deepEqual(summary.formulaRiskPages, [2, 3]);
 });
 
+test("page quality gate distinguishes omitted visual evidence from a genuinely blank page", () => {
+  const omitted = assessPdfPage({
+    page: 13,
+    text: "13",
+    method: "mineru",
+    visual: { classification: "low-contrast", darkCoverage: 0.002, inkCoverage: 0.035, contrast: 14.8 }
+  });
+  assert.deepEqual(findMissingVisualEvidencePages([omitted], []), [13]);
+  assert.deepEqual(findMissingVisualEvidencePages([omitted], [13]), []);
+
+  const unresolved = applyVisualEvidenceCoverage([omitted], { missingPages: [13] });
+  assert.equal(unresolved[0].missingVisualEvidence, true);
+  assert.match(unresolved[0].reasons.join(" "), /missing-visual-evidence/);
+
+  const preserved = applyVisualEvidenceCoverage([omitted], { preservedPages: [13] });
+  const summary = summarizePdfQuality(preserved, { method: "mineru" });
+  assert.equal(preserved[0].visualEvidencePreserved, true);
+  assert.equal(preserved[0].level, "good");
+  assert.deepEqual(summary.preservedVisualEvidencePages, [13]);
+  assert.deepEqual(summary.missingVisualEvidencePages, []);
+});
+
 test("page quality gate suppresses extreme repetitive OCR hallucinations", () => {
   const hallucinated = assessPdfPage({
     page: 9,
@@ -87,11 +116,13 @@ test("page quality gate suppresses extreme repetitive OCR hallucinations", () =>
 
 test("automatic PDF extraction prefers an available MinerU result even when PDF.js reports good text", async () => {
   const calls = [];
+  const progress = [];
   const result = await extractPdfWithOcrFallback({
     file: "textbook.pdf",
     dependencyRoot: "dependencies",
     cacheRoot: "cache",
     environment: {},
+    onProgress: (value) => progress.push(value),
     extractPdf: async () => {
       calls.push("pdfjs");
       return {
@@ -101,10 +132,11 @@ test("automatic PDF extraction prefers an available MinerU result even when PDF.
         quality: { level: "good" }
       };
     },
-    extractMineru: async ({ pages, environment }) => {
+    extractMineru: async ({ pages, environment, onProgress }) => {
       calls.push("mineru");
       assert.equal(pages, 10);
       assert.deepEqual(environment, {});
+      onProgress({ phase: "mineru", current: 5, total: 10, percent: 48 });
       return {
         status: "complete",
         method: "mineru",
@@ -122,6 +154,7 @@ test("automatic PDF extraction prefers an available MinerU result even when PDF.
   assert.equal(result.engine, "mineru");
   assert.equal(result.method, "mineru");
   assert.match(result.content, /Structured MinerU/);
+  assert.deepEqual(progress.map((item) => item.phase), ["pdf-analysis", "mineru"]);
 });
 
 test("automatic PDF extraction does not hide a MinerU failure behind PDF.js text", async () => {

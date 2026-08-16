@@ -7,8 +7,19 @@ import test from "node:test";
 import {
   createLocalAgentRunner,
   parseOpenCodeConfig,
-  parseProviderModels
+  parseProviderModels,
+  providerInvocation
 } from "../scripts/core/agent-service.mjs";
+
+test("Codex and OpenCode receive page images through native CLI attachment flags", () => {
+  const common = { command: "agent", vault: "/vault", mode: "query", prompt: "Repair", schema: {}, outputFile: "/out", schemaFile: "/schema", providerConfigFile: "/config", model: "vision", files: ["/pages/1.png", "/pages/2.png"] };
+  const codex = providerInvocation({ ...common, provider: "codex" });
+  const opencode = providerInvocation({ ...common, provider: "opencode" });
+  assert.deepEqual(codex.args.filter((value) => value === "--image").length, 2);
+  assert.deepEqual(opencode.args.filter((value) => value === "--file").length, 2);
+  assert.ok(codex.args.includes("/pages/1.png"));
+  assert.ok(opencode.args.includes("/pages/2.png"));
+});
 
 test("provider model catalogs normalize OpenCode lines and visible Codex models", () => {
   assert.deepEqual(parseProviderModels("opencode", `

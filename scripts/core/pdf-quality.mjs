@@ -125,10 +125,60 @@ export function assessPdfPage({ page = 0, text = "", confidence = null, method =
     showthroughPage,
     visualReviewCandidate,
     visualClassification,
+    visualDarkCoverage: roundRatio(Number(visual?.darkCoverage || 0)),
+    visualInkCoverage: roundRatio(Number(visual?.inkCoverage || 0)),
+    visualContrast: round(Number(visual?.contrast || 0)),
     visualTextDensity: round(visualTextDensity),
+    missingVisualEvidence: false,
+    visualEvidencePreserved: false,
     formulaRisk,
     confidence: normalizedConfidence
   };
+}
+
+export function findMissingVisualEvidencePages(pageResults = [], assetPages = []) {
+  const covered = new Set(assetPages.map(Number).filter((page) => Number.isInteger(page) && page > 0));
+  return pageResults
+    .filter((result) => {
+      const page = Number(result?.page || 0);
+      if (!page || covered.has(page) || result?.suppressedHallucination) return false;
+      const insufficient = Number(result?.meaningfulCharacters || 0) < 24
+        || result?.reasons?.includes("insufficient-text");
+      const visibleContent = Number(result?.visualInkCoverage || 0) >= 0.01
+        && Number(result?.visualContrast || 0) >= 10
+        && !["blank-noise", "manual-blank", "reverse-side-showthrough"].includes(String(result?.visualClassification || ""));
+      return insufficient && visibleContent;
+    })
+    .map((result) => Number(result.page));
+}
+
+export function applyVisualEvidenceCoverage(pageResults = [], { missingPages = [], preservedPages = [] } = {}) {
+  const missing = new Set(missingPages.map(Number));
+  const preserved = new Set(preservedPages.map(Number));
+  return pageResults.map((result) => {
+    const page = Number(result?.page || 0);
+    if (preserved.has(page)) {
+      return {
+        ...result,
+        score: Math.max(80, Number(result.score || 0)),
+        level: "good",
+        reasons: [...new Set((result.reasons || []).filter((reason) => reason !== "missing-visual-evidence").concat("visual-evidence-preserved"))],
+        missingVisualEvidence: false,
+        visualEvidencePreserved: true
+      };
+    }
+    if (missing.has(page)) {
+      return {
+        ...result,
+        score: Math.min(30, Number(result.score || 0)),
+        level: "poor",
+        reasons: [...new Set([...(result.reasons || []), "missing-visual-evidence"])],
+        missingVisualEvidence: true,
+        visualEvidencePreserved: false
+      };
+    }
+    return result;
+  });
 }
 
 export function summarizePdfQuality(pageResults = [], { method = "pdf-text" } = {}) {
@@ -141,6 +191,8 @@ export function summarizePdfQuality(pageResults = [], { method = "pdf-text" } = 
   const blankPages = results.filter((result) => result.blankPage).map((result) => result.page);
   const showthroughPages = results.filter((result) => result.showthroughPage).map((result) => result.page);
   const visualReviewPages = results.filter((result) => result.visualReviewCandidate).map((result) => result.page);
+  const missingVisualEvidencePages = results.filter((result) => result.missingVisualEvidence).map((result) => result.page);
+  const preservedVisualEvidencePages = results.filter((result) => result.visualEvidencePreserved).map((result) => result.page);
   const score = results.length ? average(results.map((result) => result.score)) : 0;
   const lowRatio = lowQualityPages.length / Math.max(1, results.length);
   const degradedRatio = (lowQualityPages.length + degradedPages.length) / Math.max(1, results.length);
@@ -168,6 +220,8 @@ export function summarizePdfQuality(pageResults = [], { method = "pdf-text" } = 
     blankPages,
     showthroughPages,
     visualReviewPages,
+    missingVisualEvidencePages,
+    preservedVisualEvidencePages,
     reasons: [...new Set(reasons)]
   };
 }
@@ -182,6 +236,8 @@ export function qualityWarnings(quality) {
   if (quality.blankPages?.length) warnings.push(`Suppressed blank or dirty scan pages: ${compactPageRanges(quality.blankPages)}`);
   if (quality.showthroughPages?.length) warnings.push(`Suppressed reverse-side show-through pages: ${compactPageRanges(quality.showthroughPages)}`);
   if (quality.visualReviewPages?.length) warnings.push(`Preserved visual review candidates: ${compactPageRanges(quality.visualReviewPages)}`);
+  if (quality.missingVisualEvidencePages?.length) warnings.push(`Missing visual evidence on PDF pages: ${compactPageRanges(quality.missingVisualEvidencePages)}`);
+  if (quality.preservedVisualEvidencePages?.length) warnings.push(`Rendered omitted visual evidence on PDF pages: ${compactPageRanges(quality.preservedVisualEvidencePages)}`);
   return warnings;
 }
 

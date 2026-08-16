@@ -17,7 +17,7 @@ export function createLocalAgentRunner({ env = process.env } = {}) {
       return detected;
     },
 
-    async run({ provider, model = "", vault, mode, prompt, schema, timeoutMs = DEFAULT_TIMEOUT, idleTimeoutMs = 0, signal }) {
+    async run({ provider, model = "", vault, mode, prompt, schema, files = [], timeoutMs = DEFAULT_TIMEOUT, idleTimeoutMs = 0, signal }) {
       detected ??= detectProviders(env);
       if (!detected.available) throw new Error(detected.message);
       const selected = resolveProvider(detected, provider);
@@ -50,7 +50,8 @@ export function createLocalAgentRunner({ env = process.env } = {}) {
             outputFile,
             schemaFile,
             providerConfigFile,
-            model
+            model,
+            files
           });
           let result;
           try {
@@ -239,7 +240,7 @@ function executableInvocation(command, args) {
   return { command, args };
 }
 
-function providerInvocation({ provider, command, vault, mode, prompt, schema, outputFile, schemaFile, providerConfigFile, model }) {
+export function providerInvocation({ provider, command, vault, mode, prompt, schema, outputFile, schemaFile, providerConfigFile, model, files = [] }) {
   const writeMode = isWriteAgentMode(mode);
   if (provider === "codex") {
     return {
@@ -252,6 +253,7 @@ function providerInvocation({ provider, command, vault, mode, prompt, schema, ou
         "--sandbox", writeMode ? "workspace-write" : "read-only",
         "-C", vault,
         ...(model ? ["--model", model] : []),
+        ...files.flatMap((file) => ["--image", file]),
         "--output-schema", schemaFile,
         "--output-last-message", outputFile,
         "-"
@@ -270,6 +272,7 @@ function providerInvocation({ provider, command, vault, mode, prompt, schema, ou
         "--log-level", "ERROR",
         "--format", "default",
         ...(model ? ["--model", model] : []),
+        ...files.flatMap((file) => ["--file", file]),
         "--dir", vault,
         promptWithSchema(prompt, schema)
       ],

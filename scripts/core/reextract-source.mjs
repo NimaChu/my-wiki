@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { extractLocalDocument } from "./document-extractor.mjs";
 import { materializeEmbeddedAssets } from "./capture-service.mjs";
 import { compactPageRanges } from "./pdf-quality.mjs";
+import { finalizeExtractionReport, persistExtractionArtifacts } from "./extraction-standard.mjs";
 import { checkMarkdownFormulas, formulaGateBlocked, formulaGateFollowupReasons, shouldGateExtractedFormulas } from "./formula-gate.mjs";
 import { unicodeReplacementFollowupReasons, unicodeReplacementNote, unicodeReplacementReport } from "./content-integrity.mjs";
 import { appendLog, asArray, scanVault, upsertFrontmatterValues, vaultPath } from "./wiki-lib.mjs";
@@ -12,7 +13,14 @@ import { appendLog, asArray, scanVault, upsertFrontmatterValues, vaultPath } fro
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dashboardRoot = path.resolve(here, "..", "..", "assets", "dashboard");
 
-export async function reextractSources({ vault = vaultPath(), source = "", allFollowup = false, dependencyRoot = dashboardRoot } = {}) {
+export async function reextractSources({
+  vault = vaultPath(),
+  source = "",
+  allFollowup = false,
+  dependencyRoot = dashboardRoot,
+  environment = process.env,
+  agentRunner = null
+} = {}) {
   const scan = await scanVault(vault);
   const normalizedSource = normalizeSourceReference(source);
   const candidates = scan.nodes.filter((node) => {
@@ -35,7 +43,9 @@ export async function reextractSources({ vault = vaultPath(), source = "", allFo
       file: snapshot,
       filename: String(node.frontmatter.original_filename || path.basename(snapshot)),
       dependencyRoot,
-      cacheRoot: path.join(vault, ".my-wiki", "ocr-cache")
+      cacheRoot: path.join(vault, ".my-wiki", "ocr-cache"),
+      environment,
+      agentRunner
     });
     const rawBase = path.basename(node.file, ".md");
     const materialized = await materializeEmbeddedAssets({
@@ -52,13 +62,20 @@ export async function reextractSources({ vault = vaultPath(), source = "", allFo
       : null;
     const finalContent = formulaGatedMarkdown(restored.content, formulaGate);
     const unicodeReplacementGate = unicodeReplacementReport(finalContent);
+    const extractionArtifacts = await persistExtractionArtifacts({
+      vault,
+      rawBase,
+      report: finalizeExtractionReport(extracted.extractionReport, { formulaGate, unicodeGate: unicodeReplacementGate }),
+      document: extracted.document
+    });
     const updated = applyExtractionToRawNote(node.content, {
       ...extracted,
       content: finalContent,
       assetCount: Math.max(indexedImages.length, materialized.copied),
       restoredAssetReferences: restored.inserted,
       formulaGate,
-      unicodeReplacementGate
+      unicodeReplacementGate,
+      extractionArtifacts
     });
     await fs.writeFile(node.file, updated, "utf8");
     await appendLog(`REEXTRACT_RAW source="${node.path}" status="${extracted.status}" method="${extracted.method}"`, vault);
@@ -89,6 +106,9 @@ export function applyExtractionToRawNote(content, extracted) {
   const unicodeReplacementGate = extracted.unicodeReplacementGate || unicodeReplacementReport(extracted.content || "");
   const encodingReasons = unicodeReplacementFollowupReasons(unicodeReplacementGate);
   const complete = extractionComplete && formulaReasons.length === 0 && encodingReasons.length === 0;
+  const visualReasons = extracted.quality?.missingVisualEvidencePages?.length
+    ? [`missing-visual-evidence:pages=${compactPageList(extracted.quality.missingVisualEvidencePages)}`]
+    : [];
   const existingTags = asArray(frontmatterValue(content, "tags"));
   const tags = [...new Set(existingTags.filter((tag) => tag !== "needs-followup"))];
   if (!complete) tags.push("needs-followup");
@@ -98,7 +118,7 @@ export function applyExtractionToRawNote(content, extracted) {
     needs_followup: !complete,
     followup_reasons: complete
       ? []
-      : [...(!extractionComplete ? [`extraction:${extracted.status}`] : []), ...formulaReasons, ...encodingReasons],
+      : [...visualReasons, ...(!extractionComplete ? [`extraction:${extracted.status}`] : []), ...formulaReasons, ...encodingReasons],
     extraction_status: extracted.status,
     extraction_method: extracted.method,
     text_extraction: extracted.status,
@@ -108,10 +128,14 @@ export function applyExtractionToRawNote(content, extracted) {
     extracted_unit_label: extracted.unitLabel || "items",
     extraction_confidence: Number(extracted.confidence || 0),
     extraction_engine: extracted.engine || extracted.method || "local-parser",
+    extraction_report: extracted.extractionArtifacts?.reportPath || "",
+    extraction_document_ir: extracted.extractionArtifacts?.documentPath || "",
     extraction_quality: extracted.quality?.level || "unknown",
     extraction_quality_score: Number(extracted.quality?.score || 0),
     extraction_low_quality_pages: compactPageList(extracted.quality?.lowQualityPages),
     extraction_degraded_pages: compactPageList(extracted.quality?.degradedPages),
+    extraction_missing_visual_pages: compactPageList(extracted.quality?.missingVisualEvidencePages),
+    extraction_rendered_visual_pages: compactPageList(extracted.quality?.preservedVisualEvidencePages),
     extraction_unicode_replacement_pages: compactPageList(unicodeReplacementGate.pages),
     extraction_unicode_replacement_count: Number(unicodeReplacementGate.count || 0),
     extraction_formula_risk_pages: compactPageList(extracted.quality?.formulaRiskPages),
