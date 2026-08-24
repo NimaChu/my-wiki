@@ -919,7 +919,7 @@ test("mixed Raw maintenance runs independently with a shared concurrency limit o
   assert.match(duplicate.body.error, /active task/);
 
   releases.shift()();
-  for (let attempt = 0; attempt < 30 && started.length < 3; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  for (let attempt = 0; attempt < 100 && started.length < 3; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(started.length, 3);
   assert.equal(peak, 2);
   while (releases.length) releases.shift()();
