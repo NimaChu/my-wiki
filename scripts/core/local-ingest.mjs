@@ -245,9 +245,9 @@ async function ingestPreservedZipBundle({ vault, filename, collection, suggested
 
 async function resolvePreservedSnapshot({ vault, snapshotReference }) {
   const normalized = String(snapshotReference || "").replace(/\\/g, "/").replace(/^\/+/, "");
-  if (!normalized.startsWith("raw/snapshots/")) throw new Error("Recovered snapshot must stay inside raw/snapshots");
+  if (!normalized.startsWith("references/originals/")) throw new Error("Recovered snapshot must stay inside references/originals");
   const file = path.resolve(vault, ...normalized.split("/"));
-  const snapshotsRoot = path.resolve(vault, "raw", "snapshots");
+  const snapshotsRoot = path.resolve(vault, "references", "originals");
   const relative = path.relative(snapshotsRoot, file);
   if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     throw new Error("Recovered snapshot path is invalid");
@@ -258,7 +258,7 @@ async function resolvePreservedSnapshot({ vault, snapshotReference }) {
 }
 
 async function preserveUploadedSnapshot({ vault, file, filename }) {
-  const snapshotsDir = path.join(vault, "raw", "snapshots");
+  const snapshotsDir = path.join(vault, "references", "originals");
   await fs.mkdir(snapshotsDir, { recursive: true });
   const originalName = path.basename(filename || file || "uploaded-source.bin");
   const originalExtension = path.extname(originalName);

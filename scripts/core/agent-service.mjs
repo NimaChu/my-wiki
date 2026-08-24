@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -112,16 +112,17 @@ function detectProviders(env) {
       ? [customCommand]
       : providerCandidates(provider, env);
     for (const command of candidates) {
-      if (commandAvailable(command) && providerAuthenticated(provider, command, env)) {
-        const openCodeSettings = provider === "opencode" ? resolveOpenCodeSettings(command, env) : null;
+      const resolvedCommand = provider === "codex" ? resolveExecutable(command, env) : command;
+      if (commandAvailable(resolvedCommand) && providerAuthenticated(provider, resolvedCommand, env)) {
+        const openCodeSettings = provider === "opencode" ? resolveOpenCodeSettings(resolvedCommand, env) : null;
         const defaultModel = openCodeSettings?.model || providerModel(provider, env);
         discovered.push({
           provider,
-          command,
-          label: providerLabel(provider, command),
+          command: resolvedCommand,
+          label: providerLabel(provider, resolvedCommand),
           defaultModel,
           modelProvider: openCodeSettings?.provider || "",
-          models: providerModels(provider, command, env, {
+          models: providerModels(provider, resolvedCommand, env, {
             discoverCatalog: !(customCommand && command === customCommand),
             configuredModel: defaultModel,
             modelProvider: openCodeSettings?.provider || ""
@@ -158,6 +159,23 @@ function detectProviders(env) {
       ? `Configured local agent is unavailable: ${preferred}`
       : "No supported local agent was found. Install and sign in to Codex, OpenCode, Qoder, or Claude."
   };
+}
+
+function resolveExecutable(command, env) {
+  const value = String(command || "").trim();
+  if (!value) return value;
+  const candidates = path.isAbsolute(value) || value.includes(path.sep)
+    ? [value]
+    : String(env.PATH || "").split(path.delimiter).filter(Boolean).map((directory) => path.join(directory, value));
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) continue;
+    try {
+      return realpathSync(candidate);
+    } catch {
+      return candidate;
+    }
+  }
+  return value;
 }
 
 function resolveProvider(info, requestedProvider) {

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -13,7 +14,8 @@ import {
   vaultPath,
   wikiUniverseNames
 } from "./wiki-lib.mjs";
-import { hashBuffer, hashFile, walkFiles, writeUniverseArchive } from "./universe-package-lib.mjs";
+import { auditOkfDirectory } from "./okf-lib.mjs";
+import { extractUniverseArchive, hashBuffer, hashFile, walkFiles, writeUniverseArchive } from "./universe-package-lib.mjs";
 
 const args = process.argv.slice(2);
 
@@ -54,8 +56,8 @@ const rawIds = new Set();
 const externalWiki = new Set();
 for (const edge of scan.edges) {
   const other = wikiIds.has(edge.source) ? edge.target : wikiIds.has(edge.target) ? edge.source : "";
-  if (other.startsWith("raw/sources/")) rawIds.add(other);
-  else if (other.startsWith("wiki/") && !wikiIds.has(other) && isWikiKnowledgeNode(nodeById.get(other))) externalWiki.add(other);
+  if (other.startsWith("references/sources/")) rawIds.add(other);
+  else if (other.startsWith("concepts/") && !wikiIds.has(other) && isWikiKnowledgeNode(nodeById.get(other))) externalWiki.add(other);
 }
 
 const rawNodes = [...rawIds]
@@ -65,7 +67,7 @@ const packageEntries = new Map();
 
 for (const node of wikiNodes) {
   const content = upsertFrontmatterValues(node.content, { universes: wikiUniverseNames(node) });
-  packageEntries.set(node.path, { path: node.path, buffer: Buffer.from(content, "utf8"), kind: "wiki" });
+  packageEntries.set(node.path, { path: node.path, buffer: Buffer.from(content, "utf8"), kind: "concept" });
 }
 
 const sources = [];
@@ -74,7 +76,7 @@ const snapshotPaths = new Set();
 const missingSnapshots = [];
 for (const node of rawNodes) {
   const frontmatter = parseFrontmatter(node.content);
-  packageEntries.set(node.path, { path: node.path, buffer: Buffer.from(node.content, "utf8"), kind: "raw" });
+  packageEntries.set(node.path, { path: node.path, buffer: Buffer.from(node.content, "utf8"), kind: "reference" });
   const sourceSnapshots = [];
   for (const key of ["snapshot_path", "snapshot_markdown_path", "snapshot_html_path", "snapshot_json_path"]) {
     const snapshotPath = managedSnapshotPath(frontmatter[key]);
@@ -90,9 +92,9 @@ for (const node of rawNodes) {
   });
 
   const base = path.basename(node.id);
-  assetDirectories.add(`raw/assets/${base}`);
+  assetDirectories.add(`references/assets/${base}`);
   const imageIndex = String(frontmatter.image_index_path || "").replace(/\\/g, "/");
-  if (imageIndex.startsWith("raw/assets/")) assetDirectories.add(path.posix.dirname(imageIndex));
+  if (imageIndex.startsWith("references/assets/")) assetDirectories.add(path.posix.dirname(imageIndex));
 }
 
 for (const snapshotPath of snapshotPaths) {
@@ -103,7 +105,7 @@ for (const snapshotPath of snapshotPaths) {
       missingSnapshots.push(snapshotPath);
       continue;
     }
-    packageEntries.set(snapshotPath, { path: snapshotPath, file: absolute, kind: "snapshot" });
+    packageEntries.set(snapshotPath, { path: snapshotPath, file: absolute, kind: "original" });
   } catch (error) {
     if (error?.code === "ENOENT") missingSnapshots.push(snapshotPath);
     else throw error;
@@ -121,6 +123,15 @@ for (const directory of assetDirectories) {
   }
 }
 
+const exportedAt = new Date().toISOString();
+const index = `---\nokf_version: "0.2"\n---\n\n# ${universe}\n\n${wikiNodes
+  .sort((left, right) => left.title.localeCompare(right.title, "zh-CN"))
+  .map((node) => `* [${node.title}](./concepts/${encodeURI(path.basename(node.path))})${node.frontmatter.description ? ` - ${node.frontmatter.description}` : ""}`)
+  .join("\n")}\n`;
+const log = `# Knowledge Update Log\n\n## ${exportedAt.slice(0, 10)}\n* **Export**: Created the ${universe} My Wiki galaxy as an OKF v0.2 package.\n`;
+packageEntries.set("index.md", { path: "index.md", buffer: Buffer.from(index, "utf8"), kind: "reserved" });
+packageEntries.set("log.md", { path: "log.md", buffer: Buffer.from(log, "utf8"), kind: "reserved" });
+
 const files = [];
 let totalBytes = 0;
 for (const entry of packageEntries.values()) {
@@ -134,19 +145,22 @@ files.sort((a, b) => a.path.localeCompare(b.path));
 sources.sort((a, b) => a.path.localeCompare(b.path));
 
 const manifest = {
-  format: "my-wiki-universe",
-  version: 1,
+  format: "okf",
+  okf_version: "0.2",
+  package: { type: "my-wiki-galaxy", version: 2 },
+  galaxy: universe,
   universe,
-  exported_at: new Date().toISOString(),
+  created_at: exportedAt,
+  producer: "my-wiki",
   contents: {
-    wiki: wikiNodes.length,
-    raw: rawNodes.length,
+    concepts: wikiNodes.length,
+    references: rawNodes.length,
     assets: files.filter((file) => file.kind === "asset").length,
-    snapshots: files.filter((file) => file.kind === "snapshot").length,
+    originals: files.filter((file) => file.kind === "original").length,
     bytes: totalBytes
   },
   sources,
-  external_wiki_references: [...externalWiki].sort(),
+  external_concept_references: [...externalWiki].sort(),
   files
 };
 const manifestBuffer = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8");
@@ -158,8 +172,20 @@ await writeUniverseArchive(output, [
   { path: "manifest.json", buffer: manifestBuffer },
   ...[...packageEntries.values()].sort((a, b) => a.path.localeCompare(b.path))
 ]);
+const auditRoot = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-okf-package-"));
+let audit;
+try {
+  await extractUniverseArchive(output, auditRoot);
+  audit = await auditOkfDirectory(auditRoot);
+} finally {
+  await fs.rm(auditRoot, { recursive: true, force: true });
+}
+if (!audit.valid) {
+  await fs.rm(output, { force: true });
+  throw new Error(`Generated .mywiki package failed OKF v0.2 audit: ${JSON.stringify(audit.issues.slice(0, 10))}`);
+}
 const archive = await hashFile(output);
-await appendLog(`EXPORT_UNIVERSE universe="${universe}" wiki="${wikiNodes.length}" raw="${rawNodes.length}" assets="${manifest.contents.assets}" snapshots="${manifest.contents.snapshots}" output="${path.relative(vault, output).replace(/\\/g, "/")}"`, vault);
+await appendLog(`EXPORT_UNIVERSE universe="${universe}" concepts="${wikiNodes.length}" references="${rawNodes.length}" assets="${manifest.contents.assets}" originals="${manifest.contents.originals}" output="${path.relative(vault, output).replace(/\\/g, "/")}"`, vault);
 
 return {
   vault,
@@ -167,16 +193,20 @@ return {
   output,
   archiveBytes: archive.bytes,
   archiveSha256: archive.sha256,
-  ...manifest.contents,
+  wiki: manifest.contents.concepts,
+  raw: manifest.contents.references,
+  assets: manifest.contents.assets,
+  snapshots: manifest.contents.originals,
   sources: sources.length,
   externalWikiReferences: externalWiki.size,
-  snapshotsIncluded: true
+  snapshotsIncluded: true,
+  okf: audit
 };
 }
 
 function managedSnapshotPath(value) {
   const normalized = path.posix.normalize(String(value || "").trim().replace(/\\/g, "/"));
-  return normalized.startsWith("raw/snapshots/") ? normalized : "";
+  return normalized.startsWith("references/originals/") ? normalized : "";
 }
 
 const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;

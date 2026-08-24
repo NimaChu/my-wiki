@@ -2,6 +2,11 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  extractFrontmatterLinks as coreExtractFrontmatterLinks,
+  extractLinks as coreExtractLinks,
+  parseFrontmatter as coreParseFrontmatter,
+  parseRelationHints as coreParseRelationHints,
+  stripFrontmatter as coreStripFrontmatter,
   universeGraphGroup,
   wikiTopicPeerMap,
   wikiUniverseNames
@@ -20,16 +25,14 @@ const vaultRoot = path.resolve(
 );
 const outputPath = path.join(appRoot, "public", "wiki-graph.json");
 
-const scanRoots = ["raw", "wiki"];
-const markdownLinkPattern = /\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g;
-const relationTypes = new Set(["supports", "challenges", "related_to", "applies_to", "company_of", "product_of"]);
+const scanRoots = ["references/sources", "concepts"];
 const graphExcludedIds = new Set([
-  "wiki/index",
-  "wiki/log",
-  "wiki/README",
-  "wiki/Autodesk FlexSim 2026 Help",
-  "wiki/FlexSim 2026 Ingest QA",
-  "raw/autodesk-flexsim-2026/0000--table-of-contents"
+  "index",
+  "log",
+  "concepts/README",
+  "concepts/Autodesk FlexSim 2026 Help",
+  "concepts/FlexSim 2026 Ingest QA",
+  "references/sources/autodesk-flexsim-2026/0000--table-of-contents"
 ]);
 
 function isGraphExcluded(id) {
@@ -61,67 +64,28 @@ async function walk(dir) {
 }
 
 function parseFrontmatter(content) {
-  const block = frontmatterBlock(content);
-  if (!block) return {};
-  const data = {};
-  let currentKey = null;
-
-  for (const rawLine of block.yaml.split("\n")) {
-    const line = rawLine.replace(/\r$/, "");
-    const keyMatch = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (keyMatch) {
-      currentKey = keyMatch[1];
-      const value = keyMatch[2].trim();
-      data[currentKey] = value ? parseScalar(value) : [];
-      continue;
-    }
-
-    const listMatch = line.match(/^\s*-\s+(.*)$/);
-    if (listMatch && currentKey) {
-      if (!Array.isArray(data[currentKey])) data[currentKey] = data[currentKey] ? [data[currentKey]] : [];
-      data[currentKey].push(parseScalar(listMatch[1]));
-    }
-  }
-
-  return data;
-}
-
-function frontmatterBlock(content) {
-  const cleaned = String(content).replace(/^\uFEFF/, "");
-  const match = cleaned.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
-  if (!match) return null;
-  return {
-    yaml: match[1],
-    bodyStart: match[0].length,
-    content: cleaned
-  };
-}
-
-function parseScalar(value) {
-  const cleaned = cleanValue(value);
-  if (/^\[\[[\s\S]+\]\]$/.test(cleaned)) return cleaned;
-  if (cleaned.startsWith("[") && cleaned.endsWith("]")) {
-    return cleaned
-      .slice(1, -1)
-      .split(",")
-      .map((item) => cleanValue(item))
-      .filter(Boolean);
-  }
-  return cleaned;
-}
-
-function cleanValue(value) {
-  return String(value).trim().replace(/^["']|["']$/g, "");
+  return coreParseFrontmatter(content);
 }
 
 function stripFrontmatter(content) {
-  const block = frontmatterBlock(content);
-  return block ? block.content.slice(block.bodyStart) : String(content).replace(/^\uFEFF/, "");
+  return coreStripFrontmatter(content);
 }
 
 function wikiContentForGraph(id, content) {
-  if (!id.startsWith("wiki/")) return undefined;
+  if (!id.startsWith("concepts/")) return undefined;
   return stripFrontmatter(content).replace(/\r\n/g, "\n").trim();
+}
+
+function referencePreviewForGraph(id, content) {
+  if (!id.startsWith("references/sources/")) return "";
+  return stripFrontmatter(content)
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, " ")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/^#+\s+/gm, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 280);
 }
 
 function asArray(value) {
@@ -179,8 +143,8 @@ function pageNumbers(value) {
   return [...pages].sort((left, right) => left - right);
 }
 
-function extractWikiLinks(content) {
-  return Array.from(new Set(Array.from(content.matchAll(markdownLinkPattern), (match) => match[1].trim()).filter(Boolean)));
+function extractWikiLinks(content, options) {
+  return coreExtractLinks(content, options);
 }
 
 function relativeId(filePath) {
@@ -191,20 +155,20 @@ function relativeId(filePath) {
 }
 
 function inferType(id, frontmatter) {
+  if (id.startsWith("references/sources/")) return "raw-source";
   if (frontmatter.type) return String(frontmatter.type);
-  if (id.startsWith("raw/")) return "raw-source";
-  if (id.startsWith("wiki/")) return "wiki";
+  if (id.startsWith("concepts/")) return "wiki";
   return "note";
 }
 
 function inferGroup(id, frontmatter) {
-  if (id.startsWith("wiki/")) {
+  if (id.startsWith("concepts/")) {
     const title = titleFromFrontmatter(frontmatter, id);
     return universeGraphGroup(wikiUniverseNames(frontmatter, title, asArray(frontmatter.tags))[0]);
   }
   if (frontmatter.group) return String(frontmatter.group);
 
-  if (id.startsWith("raw/autodesk-flexsim-2026/")) {
+  if (id.startsWith("references/sources/autodesk-flexsim-2026/")) {
     const tocPath = String(frontmatter.toc_path || "");
     const parts = tocPath
       .split(">")
@@ -215,12 +179,12 @@ function inferGroup(id, frontmatter) {
     return "FlexSim / Corpus";
   }
 
-  if (id.startsWith("raw/")) return "Raw / Other";
+  if (id.startsWith("references/sources/")) return "Raw / Other";
   return id.split("/")[0] || "Other";
 }
 
 function inferUniverses(id, frontmatter, primaryGroup) {
-  if (!id.startsWith("wiki/")) return [primaryGroup];
+  if (!id.startsWith("concepts/")) return [primaryGroup];
   const title = titleFromFrontmatter(frontmatter, id);
   return wikiUniverseNames(frontmatter, title, asArray(frontmatter.tags)).map(universeGraphGroup);
 }
@@ -236,26 +200,11 @@ function titleFromFrontmatter(frontmatter, id) {
 }
 
 function frontmatterLinks(frontmatter) {
-  return ["sources", "related", "relation_hints"].flatMap((key) =>
-    asArray(frontmatter[key]).flatMap((value) => extractWikiLinks(String(value)))
-  );
+  return coreExtractFrontmatterLinks(frontmatter);
 }
 
 function parseRelationHints(frontmatter) {
-  return asArray(frontmatter.relation_hints)
-    .map((hint) => {
-      const match = String(hint).match(/^([a-z_]+)\s*:\s*(.+)$/i);
-      if (!match) return null;
-      const kind = match[1].toLowerCase();
-      const target = extractWikiLinks(match[2])[0] || match[2].trim();
-      return {
-        kind,
-        target,
-        raw: String(hint),
-        invalid: !relationTypes.has(kind)
-      };
-    })
-    .filter(Boolean);
+  return coreParseRelationHints(frontmatter);
 }
 
 function buildResolver(nodes) {
@@ -271,8 +220,22 @@ function buildResolver(nodes) {
     for (const alias of node.aliases) byAlias.set(alias.toLowerCase(), node.id);
   }
 
-  return (target) => {
-    const normalized = target.replace(/\.md$/, "").replace(/\\/g, "/").toLowerCase();
+  return (target, sourceId = "") => {
+    let decoded = String(target || "").trim();
+    try {
+      decoded = decodeURIComponent(decoded);
+    } catch {
+      // Preserve malformed legacy escapes for unresolved-link reporting.
+    }
+    decoded = decoded.split("#")[0].split("?")[0].replace(/\\/g, "/");
+    const pathLike = decoded.startsWith("/") || decoded.startsWith("./") || decoded.startsWith("../") || decoded.endsWith(".md");
+    if (pathLike) {
+      const rooted = decoded.startsWith("/")
+        ? decoded.slice(1)
+        : path.posix.normalize(path.posix.join(path.posix.dirname(sourceId), decoded));
+      return byId.get(rooted.replace(/\.md$/, "").toLowerCase()) || null;
+    }
+    const normalized = decoded.replace(/\.md$/, "").toLowerCase();
     return byId.get(normalized) || byTitle.get(normalized) || byBase.get(normalized) || byAlias.get(normalized) || null;
   };
 }
@@ -283,7 +246,7 @@ async function main() {
   const files = scannedFiles.flat()
     .filter((file) => {
       const relative = path.relative(vaultRoot, file).replace(/\\/g, "/").toLowerCase();
-      return !relative.startsWith("raw/assets/") && !relative.startsWith("raw/snapshots/");
+      return !relative.startsWith("references/assets/") && !relative.startsWith("references/originals/");
     });
   const loaded = await Promise.all(
     files.map(async (filePath) => {
@@ -298,7 +261,16 @@ async function main() {
         type: inferType(id, frontmatter),
         group,
         universes: inferUniverses(id, frontmatter, group),
-        status: String(frontmatter.status || "unknown"),
+        status: id.startsWith("references/sources/")
+          ? String(frontmatter.workflow_status || "unknown")
+          : String(frontmatter.status || "unknown"),
+        sourceType: id.startsWith("references/sources/") ? String(frontmatter.source_type || "") : "",
+        sourceUrl: id.startsWith("references/sources/") ? String(frontmatter.source_url || "") : "",
+        snapshotPath: id.startsWith("references/sources/") ? String(frontmatter.snapshot_path || "") : "",
+        collection: id.startsWith("references/sources/") ? String(frontmatter.collection || "") : "",
+        suggestedUniverse: id.startsWith("references/sources/") ? String(frontmatter.suggested_universe || "") : "",
+        captured: id.startsWith("references/sources/") ? String(frontmatter.captured || "") : "",
+        preview: referencePreviewForGraph(id, content),
         tags: asArray(frontmatter.tags),
         followupReasons: asArray(frontmatter.followup_reasons),
         visualGapPages: visualGapPages(frontmatter, content),
@@ -306,7 +278,7 @@ async function main() {
         supersededBy: String(frontmatter.superseded_by || ""),
         aliases: asArray(frontmatter.aliases),
         relations: parseRelationHints(frontmatter),
-        links: Array.from(new Set([...extractWikiLinks(stripFrontmatter(content)), ...frontmatterLinks(frontmatter)]))
+        links: Array.from(new Set([...extractWikiLinks(stripFrontmatter(content), { markdown: id.startsWith("concepts/") }), ...frontmatterLinks(frontmatter)]))
       };
     })
   );
@@ -322,7 +294,7 @@ async function main() {
 
   for (const node of graphLoaded) {
     for (const link of node.links) {
-      const target = resolve(link);
+      const target = resolve(link, node.id);
       if (target && nodeMap.has(target)) {
         const key = `${node.id}->${target}`;
         if (!seenEdges.has(key)) {
@@ -343,7 +315,7 @@ async function main() {
         invalidRelations.push({ source: node.id, relation: relation.raw, reason: "invalid-kind" });
         continue;
       }
-      const target = resolve(relation.target);
+      const target = resolve(relation.target, node.id);
       if (!target) {
         invalidRelations.push({ source: node.id, relation: relation.raw, reason: "unresolved-target" });
         continue;
@@ -355,11 +327,11 @@ async function main() {
 
   const processedIssues = [];
   for (const node of nodeMap.values()) {
-    if (!node.id.startsWith("raw/") || node.status !== "processed") continue;
-    const relatedLinks = asArray(loaded.find((item) => item.id === node.id)?.links ?? []).filter((link) => String(link).startsWith("wiki/") || resolve(link)?.startsWith("wiki/"));
-    const resolvedRelated = relatedLinks.map((link) => resolve(link)).filter((target) => target && nodeMap.has(target));
+    if (!node.id.startsWith("references/sources/") || node.status !== "processed") continue;
+    const relatedLinks = asArray(loaded.find((item) => item.id === node.id)?.links ?? []).filter((link) => String(link).startsWith("concepts/") || resolve(link, node.id)?.startsWith("concepts/"));
+    const resolvedRelated = relatedLinks.map((link) => resolve(link, node.id)).filter((target) => target && nodeMap.has(target));
     if (relatedLinks.length === 0) processedIssues.push({ source: node.id, reason: "missing-related" });
-    if (relatedLinks.some((link) => !resolve(link))) processedIssues.push({ source: node.id, reason: "unresolved-related" });
+    if (relatedLinks.some((link) => !resolve(link, node.id))) processedIssues.push({ source: node.id, reason: "unresolved-related" });
     const hasBacklink = resolvedRelated.some((targetId) => nodeMap.get(targetId)?.out.includes(node.id));
     if (resolvedRelated.length > 0 && !hasBacklink) processedIssues.push({ source: node.id, reason: "missing-wiki-backlink" });
   }
@@ -372,20 +344,20 @@ async function main() {
     }, new Map())
   ).map(([target, sources]) => ({ target, count: sources.length, sources }));
 
-  const inbox = nodes.filter((node) => node.id.startsWith("raw/") && node.status === "inbox").length;
-  const needsFollowup = nodes.filter((node) => node.id.startsWith("raw/") && node.status === "needs-followup").length;
+  const inbox = nodes.filter((node) => node.id.startsWith("references/sources/") && node.status === "inbox").length;
+  const needsFollowup = nodes.filter((node) => node.id.startsWith("references/sources/") && node.status === "needs-followup").length;
   const wikiTopicPeers = wikiTopicPeerMap({ nodes, edges, typedRelations });
   const stats = {
     nodes: nodes.length,
     edges: edges.length,
     typedRelations: typedRelations.length,
-    rawSources: nodes.filter((node) => node.id.startsWith("raw/")).length,
-    wikiPages: nodes.filter((node) => node.id.startsWith("wiki/")).length,
+    rawSources: nodes.filter((node) => node.id.startsWith("references/sources/")).length,
+    wikiPages: nodes.filter((node) => node.id.startsWith("concepts/")).length,
     pendingRaw: inbox + needsFollowup,
     inbox,
-    processed: nodes.filter((node) => node.id.startsWith("raw/") && node.status === "processed").length,
+    processed: nodes.filter((node) => node.id.startsWith("references/sources/") && node.status === "processed").length,
     needsFollowup,
-    stale: nodes.filter((node) => node.id.startsWith("raw/") && node.status === "stale").length,
+    stale: nodes.filter((node) => node.id.startsWith("references/sources/") && node.status === "stale").length,
     orphaned: Array.from(wikiTopicPeers.values()).filter((peers) => peers.size === 0).length,
     unresolved: unresolved.length,
     invalidRelations: invalidRelations.length,
@@ -404,10 +376,10 @@ async function main() {
     unresolvedSummary,
     processedIssues,
     queues: {
-      inbox: nodes.filter((node) => node.id.startsWith("raw/") && node.status === "inbox").map((node) => node.id),
-      needsFollowup: nodes.filter((node) => node.id.startsWith("raw/") && node.status === "needs-followup").map((node) => node.id),
+      inbox: nodes.filter((node) => node.id.startsWith("references/sources/") && node.status === "inbox").map((node) => node.id),
+      needsFollowup: nodes.filter((node) => node.id.startsWith("references/sources/") && node.status === "needs-followup").map((node) => node.id),
       stale: nodes
-        .filter((node) => node.id.startsWith("raw/") && node.status === "stale" && !node.supersededBy)
+        .filter((node) => node.id.startsWith("references/sources/") && node.status === "stale" && !node.supersededBy)
         .map((node) => node.id)
     },
     stats

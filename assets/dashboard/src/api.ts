@@ -190,6 +190,11 @@ export const localApi = {
     return response.json() as Promise<{ items: InboxItem[] }>;
   },
 
+  async captureJobs() {
+    const response = await apiFetch("/api/v1/capture-jobs");
+    return response.json() as Promise<{ items: InboxItem[] }>;
+  },
+
   async deleteQueueItem(path: string) {
     const params = new URLSearchParams({ path });
     const response = await apiFetch(`/api/v1/inbox/item?${params}`, { method: "DELETE" });

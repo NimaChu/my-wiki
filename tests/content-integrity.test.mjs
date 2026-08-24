@@ -38,7 +38,7 @@ test("Unicode replacement gate reports final Capture pages but ignores Processin
 test("captured extracted content with U+FFFD is locked before the Raw is written", async (context) => {
   const vault = await mkdtemp(path.join(os.tmpdir(), "my-wiki-unicode-capture-"));
   context.after(() => rm(vault, { recursive: true, force: true }));
-  await mkdir(path.join(vault, "wiki"), { recursive: true });
+  await mkdir(path.join(vault, "concepts"), { recursive: true });
   const result = await captureSource({
     vault,
     title: "Encoding damaged scan",
@@ -54,7 +54,8 @@ test("captured extracted content with U+FFFD is locked before the Raw is written
     shouldMirrorImages: false
   });
   const raw = await readFile(result.path, "utf8");
-  assert.match(raw, /^status: needs-followup$/m);
+  assert.match(raw, /^status: "stable"$/m);
+  assert.match(raw, /^workflow_status: "needs-followup"$/m);
   assert.match(raw, /^needs_followup: true$/m);
   assert.match(raw, /encoding:unicode-replacement-character:count=1:pages=1/);
   assert.match(raw, /^extraction_unicode_replacement_pages: "1"$/m);
@@ -65,9 +66,10 @@ test("captured extracted content with U+FFFD is locked before the Raw is written
 test("re-extraction keeps U+FFFD output in needs-followup even when extraction and formulas pass", () => {
   const source = `---
 title: Scan
-type: raw-source
+type: Reference
 source_type: pdf
-status: needs-followup
+status: stable
+workflow_status: needs-followup
 needs_followup: true
 tags:
   - raw
@@ -93,7 +95,8 @@ Old content.
     characters: 20,
     quality: { level: "good", score: 96 }
   });
-  assert.match(updated, /^status: "needs-followup"$/m);
+  assert.match(updated, /^status: stable$/m);
+  assert.match(updated, /^workflow_status: "needs-followup"$/m);
   assert.match(updated, /^needs_followup: true$/m);
   assert.match(updated, /^extraction_unicode_replacement_pages: "3"$/m);
   assert.match(updated, /^extraction_unicode_replacement_count: 1$/m);

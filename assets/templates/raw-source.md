@@ -1,9 +1,11 @@
 ---
 title: "{{title}}"
-type: raw-source
+type: Reference
+description: "Captured evidence for {{title}}."
 source_type: webpage
 collection:
-status: inbox
+status: stable
+workflow_status: inbox
 author:
 published:
 captured: {{date}}
@@ -35,7 +37,7 @@ related:
 - Capture method:
 - Snapshot:
 
-`source_url` is optional for local files. For a PDF, attachment, or other source without a URL, preserve the original under `raw/snapshots/` and set `snapshot_path` (or the matching snapshot field). Do not replace the original with an AI summary.
+`source_url` is optional for local files. For a PDF, attachment, or other source without a URL, preserve the original under `references/originals/` and set `snapshot_path` (or the matching snapshot field). Do not replace the original with an AI summary.
 
 ## Capture
 
@@ -44,8 +46,8 @@ Paste or capture the source material here without rewriting it into a wiki artic
 ## Images
 
 - Preserve remote images as Markdown image links during initial capture.
-- For image-rich sources, run `my-wiki images --source raw/sources/<source-note>.md`.
-- Store local copied images under `raw/assets/<source-note>/`.
+- For image-rich sources, run `my-wiki images --source references/sources/<source-note>.md`.
+- Store local copied images under `references/assets/<source-note>/`.
 - Keep a concise table of visual evidence here and the complete machine-readable inventory in `image-index.json`.
 - Prefer image placement that matches the original reading flow.
 
@@ -59,5 +61,5 @@ Paste or capture the source material here without rewriting it into a wiki artic
 
 ## Processing Notes
 
-- Status: inbox
-- Next action: compile durable ideas into `wiki/`, close core related links, then mark processed.
+- Workflow status: inbox
+- Next action: compile durable ideas into `concepts/`, close core related links, then mark processed.

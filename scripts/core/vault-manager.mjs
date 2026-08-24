@@ -11,6 +11,7 @@ import {
   userConfigPath,
   writeUserConfig
 } from "./vault-config.mjs";
+import { VAULT_SCHEMA_VERSION } from "./vault-layout.mjs";
 
 const args = process.argv.slice(2);
 const command = args[0] || "list";
@@ -59,23 +60,23 @@ async function copyTemplates(target) {
 
 async function copyRawReadme(target) {
   const source = path.join(TOOL_ROOT, "assets", "raw-README.md");
-  await writeIfMissing(path.join(target, "raw", "README.md"), await fs.readFile(source, "utf8"));
+  await writeIfMissing(path.join(target, "references", "README.md"), await fs.readFile(source, "utf8"));
 }
 
 async function initVault() {
   const requested = positional()[0] || process.cwd();
   const target = path.resolve(requested);
-  await fs.mkdir(path.join(target, "raw", "sources"), { recursive: true });
-  await fs.mkdir(path.join(target, "raw", "assets"), { recursive: true });
-  await fs.mkdir(path.join(target, "raw", "snapshots"), { recursive: true });
-  await fs.mkdir(path.join(target, "wiki"), { recursive: true });
+  await fs.mkdir(path.join(target, "references", "sources"), { recursive: true });
+  await fs.mkdir(path.join(target, "references", "assets"), { recursive: true });
+  await fs.mkdir(path.join(target, "references", "originals"), { recursive: true });
+  await fs.mkdir(path.join(target, "concepts"), { recursive: true });
   await fs.mkdir(path.join(target, ".my-wiki", "cache"), { recursive: true });
   await copyTemplates(target);
   await copyRawReadme(target);
 
-  await writeIfMissing(path.join(target, VAULT_MARKER), `${JSON.stringify({ version: 1 }, null, 2)}\n`);
-  await writeIfMissing(path.join(target, "wiki", "index.md"), "---\ntitle: Knowledge Index\ntype: index\nstatus: active\n---\n\n# Knowledge Index\n\nAdd durable wiki pages here as the vault grows.\n");
-  await writeIfMissing(path.join(target, "wiki", "log.md"), "---\ntitle: Knowledge Maintenance Log\ntype: log\nstatus: active\n---\n\n# Knowledge Maintenance Log\n");
+  await writeIfMissing(path.join(target, VAULT_MARKER), `${JSON.stringify({ version: VAULT_SCHEMA_VERSION, format: "okf", okf_version: "0.2" }, null, 2)}\n`);
+  await writeIfMissing(path.join(target, "index.md"), "---\nokf_version: \"0.2\"\n---\n\n# Knowledge Index\n\nAdd durable Wiki concepts here as the vault grows.\n");
+  await writeIfMissing(path.join(target, "log.md"), "# Knowledge Update Log\n");
 
   const config = readUserConfig();
   const name = option("--name");

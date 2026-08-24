@@ -15,6 +15,7 @@ import {
   wikiUniverseNames
 } from "./wiki-lib.mjs";
 import { extractUniverseArchive, hashBuffer, hashFile, walkFiles } from "./universe-package-lib.mjs";
+import { auditOkfDirectory } from "./okf-lib.mjs";
 
 const args = process.argv.slice(2);
 
@@ -49,9 +50,11 @@ try {
   const manifestEntry = extractedByPath.get("manifest.json");
   if (!manifestEntry) throw new Error("My Wiki package has no manifest.json");
   const manifest = JSON.parse(await fs.readFile(manifestEntry.file, "utf8"));
-  if (manifest.format !== "my-wiki-universe" || manifest.version !== 1) {
-    throw new Error(`Unsupported My Wiki package format: ${manifest.format || "unknown"} v${manifest.version || "unknown"}`);
+  if (manifest.format !== "okf" || manifest.okf_version !== "0.2" || manifest.package?.type !== "my-wiki-galaxy" || manifest.package?.version !== 2) {
+    throw new Error(`Unsupported My Wiki package format: ${manifest.format || "unknown"} ${manifest.okf_version || "unknown"}`);
   }
+  const packageAudit = await auditOkfDirectory(staging);
+  if (!packageAudit.valid) throw new Error(`My Wiki package is not valid OKF v0.2: ${JSON.stringify(packageAudit.issues.slice(0, 10))}`);
 
   for (const expected of manifest.files || []) {
     const entry = extractedByPath.get(expected.path);
@@ -61,7 +64,7 @@ try {
     if (actual.sha256 !== expected.sha256) throw new Error(`Package file checksum mismatch: ${expected.path}`);
   }
 
-  const sourceUniverse = normalizeUniverseName(manifest.universe);
+  const sourceUniverse = normalizeUniverseName(manifest.galaxy || manifest.universe);
   const targetUniverse = normalizeUniverseName(as || sourceUniverse);
   if (!targetUniverse) throw new Error("Package universe name is empty");
 
@@ -71,23 +74,23 @@ try {
   const existingRawByPath = new Map();
   const existingWikiByTitle = new Map();
   for (const node of scan.nodes) {
-    if (node.id.startsWith("raw/sources/")) {
+    if (node.id.startsWith("references/sources/")) {
       const contentHash = String(node.frontmatter.content_hash || "");
       if (contentHash) existingRawByHash.set(contentHash, node);
       const sourceUrl = String(node.frontmatter.source_url || "");
       if (sourceUrl) existingRawBySourceUrl.set(sourceUrl, node);
       existingRawByPath.set(node.path.toLowerCase(), node);
     }
-    if (node.id.startsWith("wiki/")) {
+    if (node.id.startsWith("concepts/")) {
       existingWikiByTitle.set(node.title.toLowerCase(), node);
       for (const alias of node.aliases) existingWikiByTitle.set(alias.toLowerCase(), node);
     }
   }
 
-  const packageRaw = (manifest.files || []).filter((file) => file.kind === "raw");
-  const packageWiki = (manifest.files || []).filter((file) => file.kind === "wiki");
+  const packageRaw = (manifest.files || []).filter((file) => file.kind === "reference");
+  const packageWiki = (manifest.files || []).filter((file) => file.kind === "concept");
   const packageAssets = (manifest.files || []).filter((file) => file.kind === "asset");
-  const packageSnapshots = (manifest.files || []).filter((file) => file.kind === "snapshot");
+  const packageSnapshots = (manifest.files || []).filter((file) => file.kind === "original");
   const reserved = new Set(scan.nodes.map((node) => node.path.toLowerCase()));
   const rawPathMap = new Map();
   const rawPlans = [];
@@ -133,11 +136,11 @@ try {
   for (const [oldRaw, newRaw] of rawPathMap) {
     const oldBase = path.posix.basename(oldRaw);
     const newBase = path.posix.basename(newRaw);
-    assetPathMap.set(`raw/assets/${oldBase}`, `raw/assets/${newBase}`);
+    assetPathMap.set(`references/assets/${oldBase}`, `references/assets/${newBase}`);
   }
 
   const rawPlanBySource = new Map(rawPlans.map((plan) => [plan.source, plan]));
-  const existingSnapshotFiles = await walkFiles(path.join(vault, "raw", "snapshots"));
+  const existingSnapshotFiles = await walkFiles(path.join(vault, "references", "originals"));
   const reservedSnapshots = new Set(existingSnapshotFiles.map((file) => path.relative(vault, file).replace(/\\/g, "/").toLowerCase()));
   const snapshotPathMap = new Map();
   const snapshotPlans = [];
@@ -189,7 +192,7 @@ try {
     content = rewritePackagePaths(content, rawPathMap, assetPathMap, snapshotPathMap);
 
     const title = String(parseFrontmatter(content).title || path.basename(item.path, ".md"));
-    const pathMatch = scan.nodes.find((node) => node.path.toLowerCase() === item.path.toLowerCase() && node.id.startsWith("wiki/"));
+    const pathMatch = scan.nodes.find((node) => node.path.toLowerCase() === item.path.toLowerCase() && node.id.startsWith("concepts/"));
     const titleMatch = existingWikiByTitle.get(title.toLowerCase());
     const existing = pathMatch || titleMatch;
     if (existing) {
@@ -243,7 +246,8 @@ try {
     raw: summarizePlans(rawPlans),
     assets: summarizePlans(assetPlans),
     snapshots: summarizePlans(snapshotPlans),
-    existingWikiMetadataUpdates: existingWikiUpdates.size
+    existingWikiMetadataUpdates: existingWikiUpdates.size,
+    okf: packageAudit
   };
 
   if (!apply) {
@@ -389,7 +393,7 @@ function safeName(value) {
 
 function managedSnapshotPath(value) {
   const normalized = path.posix.normalize(String(value || "").trim().replace(/\\/g, "/"));
-  return normalized.startsWith("raw/snapshots/") ? normalized : "";
+  return normalized.startsWith("references/originals/") ? normalized : "";
 }
 
 const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;

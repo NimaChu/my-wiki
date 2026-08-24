@@ -11,12 +11,15 @@ import {
 } from "./wiki-lib.mjs";
 import { checkMarkdownFormulas, shouldGateExtractedFormulas } from "./formula-gate.mjs";
 import { unicodeReplacementReport } from "./content-integrity.mjs";
+import { auditOkfWiki } from "./okf-lib.mjs";
 
 const scan = await scanVault();
 const stats = statsFromScan(scan);
-const missingFrontmatter = scan.nodes.filter((node) => Object.keys(node.frontmatter).length === 0);
-const missingStatus = scan.nodes.filter((node) => !node.frontmatter.status);
-const missingType = scan.nodes.filter((node) => !node.frontmatter.type);
+const reservedWiki = new Set(["index", "log"]);
+const lintableNodes = scan.nodes.filter((node) => !reservedWiki.has(node.id));
+const missingFrontmatter = lintableNodes.filter((node) => Object.keys(node.frontmatter).length === 0);
+const missingStatus = lintableNodes.filter((node) => !node.frontmatter.status);
+const missingType = lintableNodes.filter((node) => !node.frontmatter.type);
 const malformedFrontmatterMetadata = frontmatterMetadataIssues(scan);
 const missingClaimSources = scan.nodes.filter((node) =>
   isWikiKnowledgeNode(node) &&
@@ -34,7 +37,7 @@ const orphanedWiki = scan.nodes.filter((node) =>
 const formulaSyntaxIssues = [];
 const formulaStrictIssues = [];
 const unicodeReplacementIssues = [];
-for (const node of scan.nodes.filter((candidate) => candidate.id.startsWith("raw/sources/"))) {
+for (const node of scan.nodes.filter((candidate) => candidate.id.startsWith("references/sources/"))) {
   const result = unicodeReplacementReport(node.content, { captureOnly: true });
   if (!result.blocked) continue;
   unicodeReplacementIssues.push({
@@ -47,7 +50,7 @@ for (const node of scan.nodes.filter((candidate) => candidate.id.startsWith("raw
 }
 for (const node of scan.nodes.filter((candidate) =>
   candidate.content.includes("$") &&
-  candidate.id.startsWith("raw/sources/") &&
+  candidate.id.startsWith("references/sources/") &&
   shouldGateExtractedFormulas({
     extractionMethod: candidate.frontmatter.extraction_method,
     formulaRiskPages: candidate.frontmatter.extraction_formula_risk_pages
@@ -105,5 +108,7 @@ const report = {
   missingStatus: missingStatus.map((node) => node.path),
   missingType: missingType.map((node) => node.path)
 };
+
+report.okfIssues = (await auditOkfWiki(scan.vault)).issues;
 
 console.log(JSON.stringify(report, null, 2));

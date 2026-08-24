@@ -20,19 +20,18 @@ test("vault scans knowledge notes but excludes Markdown snapshots and assets", a
   const vault = await mkdtemp(path.join(os.tmpdir(), "my-wiki-scan-boundaries-"));
   context.after(() => rm(vault, { recursive: true, force: true }));
 
-  await writeMarkdown(path.join(vault, "raw", "sources", "source.md"), "Source");
-  await writeMarkdown(path.join(vault, "raw", "snapshots", "original.md"), "Original snapshot");
-  await writeMarkdown(path.join(vault, "raw", "assets", "source", "caption.md"), "Asset metadata");
+  await writeMarkdown(path.join(vault, "references", "sources", "source.md"), "Source");
+  await writeMarkdown(path.join(vault, "references", "originals", "original.md"), "Original snapshot");
+  await writeMarkdown(path.join(vault, "references", "assets", "source", "caption.md"), "Asset metadata");
   await writeMarkdown(path.join(vault, "raw", "legacy.md"), "Misplaced source");
-  await writeMarkdown(path.join(vault, "wiki", "topic.md"), "Topic", "concept");
+  await writeMarkdown(path.join(vault, "concepts", "topic.md"), "Topic", "concept");
 
   const scan = await scanVault(vault);
   assert.deepEqual(scan.nodes.map((node) => node.id).sort(), [
-    "raw/legacy",
-    "raw/sources/source",
-    "wiki/topic"
+    "concepts/topic",
+    "references/sources/source"
   ]);
-  assert.deepEqual(rawLayoutIssues(scan), [{ source: "raw/legacy", reason: "misplaced-source" }]);
+  assert.deepEqual(rawLayoutIssues(scan), []);
 });
 
 test("processed Raw notes with U+FFFD in Capture fail evidence closure", () => {
@@ -59,8 +58,8 @@ related:
 - Encoding gate: mentions � outside Capture and must not change the count.
 `;
   const node = {
-    id: "raw/sources/damaged-scan",
-    path: "raw/sources/damaged-scan.md",
+    id: "references/sources/damaged-scan",
+    path: "references/sources/damaged-scan.md",
     content,
     status: "processed",
     frontmatter: { extraction_status: "complete", extracted_characters: 120 },
@@ -68,8 +67,8 @@ related:
     links: []
   };
   assert.deepEqual(processedRawIssues({ nodes: [node], resolve: () => null }), [
-    { source: "raw/sources/damaged-scan", reason: "missing-related" },
-    { source: "raw/sources/damaged-scan", reason: "unicode-replacement-character", count: 1, pages: [7] }
+    { source: "references/sources/damaged-scan", reason: "missing-related" },
+    { source: "references/sources/damaged-scan", reason: "unicode-replacement-character", count: 1, pages: [7] }
   ]);
 });
 
@@ -85,10 +84,10 @@ test("frontmatter metadata normalization repairs escaped wrappers and the gate r
     "# Calculus",
     ""
   ].join("\n");
-  const node = { id: "wiki/Calculus", path: "wiki/Calculus.md", content: malformed };
+  const node = { id: "concepts/Calculus", path: "concepts/Calculus.md", content: malformed };
   assert.deepEqual(frontmatterMetadataIssues({ nodes: [node] }), [
-    { source: "wiki/Calculus.md", field: "title", value: '\\"Calculus\\"', reason: "escaped-quote" },
-    { source: "wiki/Calculus.md", field: "universes", value: '\\"数学\\"', reason: "escaped-quote" }
+    { source: "concepts/Calculus.md", field: "title", value: '\\"Calculus\\"', reason: "escaped-quote" },
+    { source: "concepts/Calculus.md", field: "universes", value: '\\"数学\\"', reason: "escaped-quote" }
   ]);
 
   const normalized = normalizeEscapedFrontmatterQuotes(malformed);
@@ -98,11 +97,11 @@ test("frontmatter metadata normalization repairs escaped wrappers and the gate r
 
   const residual = normalized.replace('title: "Calculus"', "title: \\\\Calculus");
   assert.deepEqual(frontmatterMetadataIssues({ nodes: [{ ...node, content: residual }] }), [
-    { source: "wiki/Calculus.md", field: "title", value: "\\\\Calculus", reason: "boundary-backslash" }
+    { source: "concepts/Calculus.md", field: "title", value: "\\\\Calculus", reason: "boundary-backslash" }
   ]);
 
   const inline = normalized.replace("universes:\n  - \"数学\"", 'universes: ["数学]');
   assert.deepEqual(frontmatterMetadataIssues({ nodes: [{ ...node, content: inline }] }), [
-    { source: "wiki/Calculus.md", field: "universes", value: '["数学]', reason: "unbalanced-quote" }
+    { source: "concepts/Calculus.md", field: "universes", value: '["数学]', reason: "unbalanced-quote" }
   ]);
 });

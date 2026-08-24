@@ -10,6 +10,7 @@
     "graph": "node scripts/generate-graph.mjs"
   },
   "dependencies": {
+    "@milkdown/crepe": "7.21.3",
     "@napi-rs/canvas": "0.1.80",
     "fast-xml-parser": "5.10.1",
     "jszip": "3.10.1",
@@ -28,8 +29,8 @@
     "remark-math": "^6.0.0",
     "remark-parse": "11.0.0",
     "tesseract.js": "6.0.1",
-    "unified": "11.0.5",
-    "undici": "^6.27.0"
+    "undici": "^6.28.0",
+    "unified": "11.0.5"
   },
   "overrides": {
     "pdfjs-dist": {

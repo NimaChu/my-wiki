@@ -28,7 +28,7 @@ export function universeAudit(scan) {
         for (const link of node.links) {
           const targetId = scan.resolve(link);
           if (!targetId) continue;
-          if (targetId.startsWith("raw/")) rawEvidence.add(targetId);
+          if (targetId.startsWith("references/sources/")) rawEvidence.add(targetId);
           const target = byId.get(targetId);
           if (target && isWikiKnowledgeNode(target)) {
             for (const targetGroup of wikiUniverseNames(target)) {
@@ -67,7 +67,7 @@ function crossGroupWikiPairs(scan, byId) {
   for (const edge of scan.edges) {
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
-    if (!source?.id.startsWith("wiki/") || !target?.id.startsWith("wiki/")) continue;
+    if (!source?.id.startsWith("concepts/") || !target?.id.startsWith("concepts/")) continue;
     if (!isWikiKnowledgeNode(source) || !isWikiKnowledgeNode(target)) continue;
     for (const sourceGroup of wikiUniverseNames(source)) {
       for (const targetGroup of wikiUniverseNames(target)) {

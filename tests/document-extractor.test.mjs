@@ -433,7 +433,7 @@ test("sparse relationship diagrams are detected and page assets are inserted in 
 test("embedded page assets write an image index and re-extraction can restore their page references", async () => {
   const vault = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-asset-test-"));
   try {
-    const notePath = path.join(vault, "raw", "sources", "book.md");
+    const notePath = path.join(vault, "references", "sources", "book.md");
     await fs.mkdir(path.dirname(notePath), { recursive: true });
     const materialized = await materializeEmbeddedAssets({
       vault,
@@ -443,7 +443,7 @@ test("embedded page assets write an image index and re-extraction can restore th
       assets: [{ reference: "my-wiki-asset:map.png", name: "page-021-content-map.png", buffer: Buffer.from("image"), page: 21, alt: "第一章内容结构框图", status: "rendered-diagram-fallback" }]
     });
     assert.match(materialized.markdown, /\.\.\/assets\/book\/page-021-content-map\.png/);
-    const index = JSON.parse(await fs.readFile(path.join(vault, "raw", "assets", "book", "image-index.json"), "utf8"));
+    const index = JSON.parse(await fs.readFile(path.join(vault, "references", "assets", "book", "image-index.json"), "utf8"));
     assert.equal(index.images[0].page, 21);
     const restored = reinsertIndexedPageAssets("### Page 21\n\n四、内容结构框图", index.images);
     assert.equal(restored.inserted, 1);
@@ -457,9 +457,10 @@ test("embedded page assets write an image index and re-extraction can restore th
 test("re-extraction updates an existing raw note in place without losing relations", () => {
   const source = `---
 title: "Scanned textbook"
-type: raw-source
+type: Reference
 source_type: "pdf"
-status: needs-followup
+status: stable
+workflow_status: needs-followup
 needs_followup: true
 followup_reasons:
   - "extraction:skipped-large"
@@ -520,7 +521,8 @@ related:
     warnings: ["Degraded PDF pages: 2", "Preserved visual review candidates: 45,90"]
   });
 
-  assert.match(updated, /^status: "inbox"$/m);
+  assert.match(updated, /^status: stable$/m);
+  assert.match(updated, /^workflow_status: "inbox"$/m);
   assert.match(updated, /^needs_followup: false$/m);
   assert.match(updated, /^followup_reasons: \[\]$/m);
   assert.match(updated, /^extraction_status: "complete"$/m);
@@ -536,7 +538,7 @@ related:
   assert.match(updated, /\[\[大学数学教材\]\]/);
   assert.match(updated, /### Page 1\n\nReadable text/);
   assert.doesNotMatch(updated, /The PDF was too large/);
-  assert.doesNotMatch(updated, /"needs-followup"/);
+  assert.doesNotMatch(updated, /^workflow_status: "needs-followup"$/m);
   assert.match(updated, /Extraction warnings: Degraded PDF pages: 2; Preserved visual review candidates: 45,90/);
 });
 

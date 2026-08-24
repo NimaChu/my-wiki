@@ -1,8 +1,18 @@
 import { promises as fs } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { parseDocument, stringify as stringifyYaml } from "yaml";
 import { TOOL_ROOT, resolveVaultPath } from "./vault-config.mjs";
 import { unicodeReplacementReport } from "./content-integrity.mjs";
+import {
+  ASSETS_DIR,
+  CONCEPTS_DIR,
+  ORIGINALS_DIR,
+  SOURCES_DIR,
+  isConceptId,
+  isSourceId,
+  workflowStatus
+} from "./vault-layout.mjs";
 
 export const DEFAULT_VAULT = TOOL_ROOT;
 
@@ -23,11 +33,11 @@ export const RELATION_TYPES = new Set([
   "product_of"
 ]);
 export const WIKI_UTILITY_IDS = new Set([
-  "wiki/index",
-  "wiki/log",
-  "wiki/README",
-  "wiki/Autodesk FlexSim 2026 Help",
-  "wiki/FlexSim 2026 Ingest QA"
+  "index",
+  "log",
+  "concepts/README",
+  "concepts/Autodesk FlexSim 2026 Help",
+  "concepts/FlexSim 2026 Ingest QA"
 ]);
 
 const linkPattern = /\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g;
@@ -86,9 +96,23 @@ export function stripFrontmatter(content) {
 export function parseFrontmatter(content) {
   const bounds = frontmatterBounds(content);
   if (!bounds) return {};
+  const source = content.slice(bounds.dataStart, bounds.dataEnd);
+  const document = parseDocument(source, {
+    logLevel: "silent",
+    prettyErrors: false,
+    schema: "core",
+    uniqueKeys: false
+  });
+  if (document.errors.length === 0) {
+    const parsed = document.toJS({ mapAsMap: false });
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  }
+
+  // Keep malformed legacy notes visible to lint and repair instead of making
+  // the entire vault unreadable. OKF audit reports the YAML parser errors.
   const data = {};
   let key = null;
-  for (const line of content.slice(bounds.dataStart, bounds.dataEnd).split(/\r?\n/)) {
+  for (const line of source.split(/\r?\n/)) {
     const keyMatch = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
     if (keyMatch) {
       key = keyMatch[1];
@@ -103,6 +127,35 @@ export function parseFrontmatter(content) {
     }
   }
   return data;
+}
+
+export function parseFrontmatterDocument(content) {
+  const bounds = frontmatterBounds(content);
+  if (!bounds) return { data: {}, errors: ["missing-frontmatter"], bounds: null };
+  const document = parseDocument(content.slice(bounds.dataStart, bounds.dataEnd), {
+    logLevel: "silent",
+    prettyErrors: false,
+    schema: "core",
+    uniqueKeys: true
+  });
+  const parsed = document.errors.length === 0 ? document.toJS({ mapAsMap: false }) : {};
+  return {
+    data: parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {},
+    errors: document.errors.map((error) => error.message),
+    bounds
+  };
+}
+
+export function stringifyFrontmatter(frontmatter) {
+  const yaml = stringifyYaml(frontmatter, {
+    blockQuote: "literal",
+    defaultKeyType: "PLAIN",
+    defaultStringType: "QUOTE_DOUBLE",
+    lineWidth: 0,
+    minContentWidth: 0,
+    singleQuote: false
+  }).trimEnd();
+  return `---\n${yaml}\n---`;
 }
 
 const GUARDED_FRONTMATTER_FIELDS = new Set(["title", "universes", "universe", "group"]);
@@ -131,7 +184,7 @@ export function frontmatterMetadataIssues(scan, { paths } = {}) {
   const allowedPaths = paths ? new Set(paths) : null;
   const issues = [];
   for (const node of scan.nodes || []) {
-    if (!node.id.startsWith("wiki/") || (allowedPaths && !allowedPaths.has(node.path))) continue;
+    if (!isConceptId(node.id) || (allowedPaths && !allowedPaths.has(node.path))) continue;
     const bounds = frontmatterBounds(node.content);
     if (!bounds) continue;
     let key = "";
@@ -202,12 +255,30 @@ export function asArray(value) {
   return [String(value)];
 }
 
-export function extractLinks(content) {
-  return Array.from(new Set(Array.from(content.matchAll(linkPattern), (match) => match[1].trim()).filter(Boolean)));
+export function extractLinks(content, { markdown = true } = {}) {
+  const wikiLinks = Array.from(content.matchAll(linkPattern), (match) => match[1].trim());
+  const markdownLinks = markdown ? Array.from(
+    content.matchAll(/(?<!!)\[[^\]]*\]\(\s*(?:<([^>]+)>|((?:\\.|[^()\s]|\([^()]*\))+))(?:\s+["'][^"']*["'])?\s*\)/g),
+    (match) => match[1] || match[2]
+  ).filter((target) => {
+    if (!target || /^(?:https?:|mailto:|data:|#)/i.test(target)) return false;
+    return target.split("#")[0].split("?")[0].toLowerCase().endsWith(".md");
+  }) : [];
+  return Array.from(new Set([...wikiLinks, ...markdownLinks].filter(Boolean)));
 }
 
 export function extractFrontmatterLinks(frontmatter, keys = ["related", "sources", "relation_hints"]) {
-  return keys.flatMap((key) => asArray(frontmatter[key]).flatMap((value) => extractLinks(String(value))));
+  return keys.flatMap((key) => {
+    const value = frontmatter[key];
+    const items = Array.isArray(value) ? value : value === undefined || value === null ? [] : [value];
+    return items.flatMap((item) => {
+      if (item && typeof item === "object") {
+        const resource = String(item.resource || "").trim();
+        return resource ? [resource] : [];
+      }
+      return extractLinks(String(item));
+    });
+  });
 }
 
 export function slugify(value) {
@@ -250,7 +321,7 @@ export function wikiUniverseNames(nodeOrFrontmatter = {}, title = "", tags = [])
 
 export function isWikiKnowledgeNode(nodeOrId) {
   const id = typeof nodeOrId === "string" ? nodeOrId : nodeOrId?.id || "";
-  return id.startsWith("wiki/") && !id.endsWith("/README") && !WIKI_UTILITY_IDS.has(id);
+  return isConceptId(id) && !id.endsWith("/README") && !WIKI_UTILITY_IDS.has(id);
 }
 
 export function wikiTopicPeerMap(scan) {
@@ -346,12 +417,15 @@ export function parseRelationHints(frontmatter) {
 }
 
 export async function scanVault(vault = vaultPath()) {
-  const roots = ["raw", "wiki", "templates", "_archive"];
-  const files = (await Promise.all(roots.map((root) => walkMarkdown(path.join(vault, root)))))
-    .flat()
+  const roots = [CONCEPTS_DIR, SOURCES_DIR, "templates", "_archive"];
+  const rootFiles = (await Promise.all(["index.md", "log.md"].map(async (name) => {
+    const file = path.join(vault, name);
+    return await exists(file) ? file : null;
+  }))).filter(Boolean);
+  const files = [...rootFiles, ...(await Promise.all(roots.map((root) => walkMarkdown(path.join(vault, ...root.split("/")))))).flat()]
     .filter((file) => {
       const relative = path.relative(vault, file).replace(/\\/g, "/").toLowerCase();
-      return !relative.startsWith("raw/assets/") && !relative.startsWith("raw/snapshots/");
+      return !relative.startsWith(`${ASSETS_DIR}/`) && !relative.startsWith(`${ORIGINALS_DIR}/`);
     });
   const nodes = [];
   for (const file of files) {
@@ -359,7 +433,7 @@ export async function scanVault(vault = vaultPath()) {
     const frontmatter = parseFrontmatter(content);
     const id = relativeId(vault, file);
     const title = frontmatter.title && !String(frontmatter.title).includes("{{") ? String(frontmatter.title) : titleFromPath(file);
-    const bodyLinks = extractLinks(stripFrontmatter(content));
+    const bodyLinks = extractLinks(stripFrontmatter(content), { markdown: isConceptId(id) });
     const frontmatterLinks = extractFrontmatterLinks(frontmatter);
     const links = Array.from(new Set([...bodyLinks, ...frontmatterLinks]));
     nodes.push({
@@ -367,8 +441,8 @@ export async function scanVault(vault = vaultPath()) {
       file,
       path: id + ".md",
       title,
-      type: String(frontmatter.type || (id.startsWith("raw/") ? "raw-source" : "note")),
-      status: String(frontmatter.status || "unknown"),
+      type: String(frontmatter.type || (isSourceId(id) ? "Reference" : isConceptId(id) ? "Concept" : "note")),
+      status: isSourceId(id) ? workflowStatus(frontmatter, id) : String(frontmatter.status || "unknown"),
       tags: asArray(frontmatter.tags),
       aliases: asArray(frontmatter.aliases),
       sourceCount: Number(frontmatter.source_count || 0),
@@ -395,8 +469,23 @@ export async function scanVault(vault = vaultPath()) {
     for (const alias of node.aliases) byAlias.set(alias.toLowerCase(), node.id);
   }
 
-  const resolve = (target) => {
-    const normalized = target.replace(/\.md$/, "").replace(/\\/g, "/").toLowerCase();
+  const resolve = (target, sourceId = "") => {
+    let decoded = String(target || "").trim();
+    try {
+      decoded = decodeURIComponent(decoded);
+    } catch {
+      // Keep the literal path when a legacy link contains malformed escapes.
+    }
+    decoded = decoded.split("#")[0].split("?")[0].replace(/\\/g, "/");
+    const pathLike = decoded.startsWith("/") || decoded.startsWith("./") || decoded.startsWith("../") || decoded.endsWith(".md");
+    if (pathLike) {
+      const rooted = decoded.startsWith("/")
+        ? decoded.slice(1)
+        : path.posix.normalize(path.posix.join(path.posix.dirname(sourceId), decoded));
+      const normalizedPath = rooted.replace(/\.md$/, "").toLowerCase();
+      return byId.get(normalizedPath) || null;
+    }
+    const normalized = decoded.replace(/\.md$/, "").toLowerCase();
     return byId.get(normalized) || byTitle.get(normalized) || byBase.get(normalized) || byAlias.get(normalized) || null;
   };
 
@@ -408,7 +497,7 @@ export async function scanVault(vault = vaultPath()) {
 
   for (const node of nodes) {
     for (const link of node.links) {
-      const target = resolve(link);
+      const target = resolve(link, node.id);
       if (target) {
         const key = `${node.id}->${target}`;
         if (!seenEdges.has(key)) {
@@ -423,7 +512,7 @@ export async function scanVault(vault = vaultPath()) {
         invalidRelations.push({ source: node.id, relation: relation.raw, reason: "invalid-kind" });
         continue;
       }
-      const target = resolve(relation.target);
+      const target = resolve(relation.target, node.id);
       if (!target) {
         invalidRelations.push({ source: node.id, relation: relation.raw, reason: "unresolved-target" });
         continue;
@@ -444,19 +533,19 @@ export async function scanVault(vault = vaultPath()) {
 
 export function processedRawIssues(scan) {
   return scan.nodes
-    .filter((node) => node.id.startsWith("raw/") && node.status === "processed")
+    .filter((node) => isSourceId(node.id) && node.status === "processed")
     .flatMap((node) => {
       const issues = [];
-      const relatedTargets = node.relatedLinks.map((link) => ({ link, target: scan.resolve(link) }));
+      const relatedTargets = node.relatedLinks.map((link) => ({ link, target: scan.resolve(link, node.id) }));
       if (relatedTargets.length === 0) issues.push({ source: node.id, reason: "missing-related" });
       for (const item of relatedTargets.filter((item) => !item.target)) {
         issues.push({ source: node.id, reason: "unresolved-related", target: item.link });
       }
       const resolvedRelated = relatedTargets.map((item) => item.target).filter(Boolean);
       const hasWikiBacklink = scan.nodes.some((candidate) =>
-        candidate.id.startsWith("wiki/") &&
+        isConceptId(candidate.id) &&
         resolvedRelated.includes(candidate.id) &&
-        candidate.links.includes(node.id)
+        candidate.links.some((link) => scan.resolve(link, candidate.id) === node.id)
       );
       if (resolvedRelated.length > 0 && !hasWikiBacklink) issues.push({ source: node.id, reason: "missing-wiki-backlink" });
       if (String(node.frontmatter.needs_followup || "") === "true") issues.push({ source: node.id, reason: "explicit-followup" });
@@ -534,11 +623,11 @@ function frontmatterValueLines(key, value) {
 
 export function rawLayoutIssues(scan) {
   return scan.nodes
-    .filter((node) => node.id.startsWith("raw/") && node.type === "raw-source")
+    .filter((node) => isSourceId(node.id))
     .flatMap((node) => {
       const issues = [];
       const parts = node.id.split("/");
-      if (parts[1] !== "sources" || parts.length !== 3) {
+      if (parts[0] !== "references" || parts[1] !== "sources" || parts.length !== 3) {
         issues.push({ source: node.id, reason: "misplaced-source" });
       }
       return issues;
@@ -561,9 +650,9 @@ function localAttachmentTarget(value) {
 export async function rawAttachmentIssues(scan, { allLocalImages = false } = {}) {
   const issues = [];
   const seen = new Set();
-  for (const node of scan.nodes.filter((candidate) => candidate.id.startsWith("raw/") || candidate.id.startsWith("wiki/"))) {
+  for (const node of scan.nodes.filter((candidate) => isSourceId(candidate.id) || isConceptId(candidate.id))) {
     const references = [];
-    if (node.type === "raw-source") {
+    if (isSourceId(node.id)) {
       for (const key of ["snapshot_path", "snapshot_markdown_path", "snapshot_html_path", "snapshot_json_path", "image_index_path"]) {
         const value = String(node.frontmatter[key] || "");
         if (value) references.push({ key, value, rootStyle: true });
@@ -579,11 +668,11 @@ export async function rawAttachmentIssues(scan, { allLocalImages = false } = {})
     for (const reference of references) {
       const target = localAttachmentTarget(reference.value);
       if (!target) continue;
-      const rootStyle = reference.rootStyle || /^(?:raw|wiki|templates|_archive)\//.test(target);
+      const rootStyle = reference.rootStyle || /^(?:references|concepts|templates|_archive)\//.test(target);
       const resolved = rootStyle ? path.join(scan.vault, target) : path.resolve(path.dirname(node.file), target);
       const resolvedRelative = path.relative(scan.vault, resolved).replace(/\\/g, "/");
-      const managedSyntax = /(?:^|\/)(?:assets|snapshots)(?:\/|$)/.test(target);
-      const managedLocation = /^(?:raw\/(?:assets|snapshots))(?:\/|$)/.test(resolvedRelative);
+      const managedSyntax = /(?:^|\/)(?:assets|originals)(?:\/|$)/.test(target);
+      const managedLocation = /^(?:references\/(?:assets|originals))(?:\/|$)/.test(resolvedRelative);
       if (!allLocalImages && !reference.rootStyle && !managedSyntax && !managedLocation) continue;
       const key = `${node.id}|${reference.key}|${resolved.toLowerCase()}`;
       if (seen.has(key)) continue;
@@ -597,22 +686,22 @@ export async function rawAttachmentIssues(scan, { allLocalImages = false } = {})
 }
 
 export function statsFromScan(scan) {
-  const inbox = scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "inbox").length;
-  const imaPointers = scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "ima-pointer").length;
-  const needsFollowup = scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "needs-followup").length;
+  const inbox = scan.nodes.filter((node) => isSourceId(node.id) && node.status === "inbox").length;
+  const imaPointers = scan.nodes.filter((node) => isSourceId(node.id) && node.status === "ima-pointer").length;
+  const needsFollowup = scan.nodes.filter((node) => isSourceId(node.id) && node.status === "needs-followup").length;
   const wikiTopicPeers = wikiTopicPeerMap(scan);
   return {
     nodes: scan.nodes.length,
     edges: scan.edges.length,
     typedRelations: scan.typedRelations.length,
-    rawSources: scan.nodes.filter((node) => node.id.startsWith("raw/") && node.type === "raw-source").length,
-    wikiPages: scan.nodes.filter((node) => node.id.startsWith("wiki/")).length,
+    rawSources: scan.nodes.filter((node) => isSourceId(node.id)).length,
+    wikiPages: scan.nodes.filter((node) => isConceptId(node.id)).length,
     pendingRaw: inbox + imaPointers + needsFollowup,
     inbox,
     imaPointers,
-    processed: scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "processed").length,
+    processed: scan.nodes.filter((node) => isSourceId(node.id) && node.status === "processed").length,
     needsFollowup,
-    stale: scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "stale").length,
+    stale: scan.nodes.filter((node) => isSourceId(node.id) && node.status === "stale").length,
     unresolved: scan.unresolved.length,
     invalidRelations: scan.invalidRelations.length,
     rawLayoutIssues: rawLayoutIssues(scan).length,
@@ -621,7 +710,19 @@ export function statsFromScan(scan) {
 }
 
 export async function appendLog(message, vault = vaultPath()) {
-  const logPath = path.join(vault, "wiki", "log.md");
-  const stamp = new Date().toISOString();
-  await fs.appendFile(logPath, `\n- [${stamp}] ${message}\n`, "utf8");
+  const logPath = path.join(vault, "log.md");
+  const date = new Date().toISOString().slice(0, 10);
+  const entry = `* **Update**: ${message}`;
+  let content = await exists(logPath) ? await fs.readFile(logPath, "utf8") : "# Knowledge Update Log\n";
+  content = stripFrontmatter(content).replace(/^\s+/, "");
+  const heading = `## ${date}`;
+  if (content.includes(heading)) {
+    content = content.replace(heading, `${heading}\n${entry}`);
+  } else {
+    const titleEnd = content.indexOf("\n");
+    const title = titleEnd >= 0 ? content.slice(0, titleEnd) : "# Knowledge Update Log";
+    const rest = titleEnd >= 0 ? content.slice(titleEnd).replace(/^\s+/, "") : "";
+    content = `${title}\n\n${heading}\n${entry}${rest ? `\n\n${rest}` : ""}\n`;
+  }
+  await fs.writeFile(logPath, content.endsWith("\n") ? content : `${content}\n`, "utf8");
 }

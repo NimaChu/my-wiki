@@ -50,10 +50,10 @@ test("project instructions stay a concise router to the canonical Skill", async 
   const workflows = await fs.readFile(path.join(root, "my-wiki-skill", "references", "workflows.md"), "utf8");
   assert.match(workflows, /Search the user's exact wording/);
   assert.match(workflows, /Chinese and English, abbreviations, aliases, or translations/);
-  assert.match(workflows, /Never substitute model memory for an existing vault page/);
+  assert.match(workflows, /Never substitute model memory for an existing vault Concept/);
   assert.match(workflows, /Loop 工程是什么/);
   assert.match(workflows, /broad, durable galaxy names/);
-  assert.match(workflows, /Apply one entity-extraction principle to every Raw/);
+  assert.match(workflows, /Apply one entity-extraction principle to every Reference/);
   assert.match(workflows, /webpage, article, note, slide deck, transcript, book/);
   const packageMetadata = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
   assert.equal(packageMetadata.scripts["pdf:setup"], "node scripts/setup-pdf-engine.mjs");
@@ -71,7 +71,7 @@ test("project setup registers the checkout without creating a vault", async (con
   const registered = JSON.parse(await fs.readFile(config, "utf8"));
   assert.equal(registered.projectRoot, root);
   await assert.rejects(fs.access(path.join(root, "raw")));
-  await assert.rejects(fs.access(path.join(root, "wiki")));
+  await assert.rejects(fs.access(path.join(root, "concepts")));
 });
 
 test("standalone Skill bridge invokes a registered project", async (context) => {

@@ -1570,7 +1570,6 @@ h3 {
 .document-icon-button,
 .document-mode-switch button,
 .document-save-button,
-.document-format-toolbar button,
 .document-state button {
   display: inline-flex;
   align-items: center;
@@ -1591,9 +1590,7 @@ h3 {
 .document-icon-button:hover,
 .document-icon-button:focus-visible,
 .document-mode-switch button:hover,
-.document-mode-switch button:focus-visible,
-.document-format-toolbar button:hover,
-.document-format-toolbar button:focus-visible {
+.document-mode-switch button:focus-visible {
   border-color: rgba(104, 166, 161, 0.58);
   background: rgba(104, 166, 161, 0.16);
   outline: none;
@@ -1629,7 +1626,7 @@ h3 {
 
 .document-mode-switch {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 3px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 7px;
@@ -2050,108 +2047,89 @@ h3 {
 
 .document-editor {
   display: grid;
-  grid-template-rows: 46px minmax(0, 1fr) 32px auto;
-  width: min(1180px, calc(100% - 40px));
+  grid-template-rows: minmax(0, 1fr) 32px auto;
+  width: min(960px, calc(100% - 40px));
   min-height: 100%;
   margin: 0 auto;
   padding: 22px 0 28px;
 }
 
-.document-format-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  overflow-x: auto;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  scrollbar-width: thin;
-}
-
-.document-format-toolbar button {
-  flex: 0 0 34px;
-  width: 34px;
-  height: 32px;
-  padding: 0;
-}
-
-.document-format-toolbar button:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-
-.document-toolbar-separator {
-  flex: 0 0 1px;
-  width: 1px;
-  height: 20px;
-  margin: 0 3px;
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.document-editor-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  min-width: 0;
-  min-height: 0;
-}
-
-.document-editor.is-split .document-editor-body {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.document-source-pane {
+.document-live-editor {
   position: relative;
   min-width: 0;
   min-height: 0;
+  opacity: 0;
+  transition: opacity 140ms ease;
 }
 
-.document-source-pane textarea {
-  width: 100%;
-  height: 100%;
-  min-height: calc(100vh - 190px);
-  resize: none;
-  border: 0;
-  background: transparent;
-  color: #e8e4db;
-  padding: 24px 10px 80px;
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-  font-size: 15px;
-  line-height: 1.7;
-  outline: none;
-  tab-size: 2;
+.document-live-editor.is-ready {
+  opacity: 1;
 }
 
-.document-editor.is-split .document-source-pane {
-  border-right: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.document-preview-pane {
-  min-width: 0;
-  min-height: 0;
-  overflow: auto;
-  padding: 30px 34px 80px;
-  background: rgba(255, 255, 255, 0.018);
-}
-
-.document-preview-pane .document-markdown {
-  font-size: 15px;
-}
-
-.document-preview-pane .document-markdown h1 {
-  font-size: 34px;
-}
-
-.document-image-drop {
+.document-live-editor-loading {
   position: absolute;
-  inset: 16px;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 8px;
-  border: 1px dashed rgba(143, 198, 193, 0.7);
+  inset: 22px 0 auto;
+  color: #899293;
+  font-size: 12px;
+}
+
+.document-live-editor .milkdown {
+  --crepe-color-background: #181a1b;
+  --crepe-color-on-background: #e8e4db;
+  --crepe-color-surface: #202324;
+  --crepe-color-surface-low: #1d2021;
+  --crepe-color-on-surface: #d9ddd8;
+  --crepe-color-on-surface-variant: #9da6a8;
+  --crepe-color-outline: #737e80;
+  --crepe-color-primary: #8fc6c1;
+  --crepe-color-secondary: #314b49;
+  --crepe-color-on-secondary: #d7ece9;
+  --crepe-color-hover: #292f2f;
+  --crepe-color-selected: #30413f;
+  --crepe-color-inline-area: #232728;
+  --crepe-color-inline-code: #e6a59e;
+  --crepe-base-font-size: 16px;
+  --crepe-font-title: Inter, ui-sans-serif, system-ui, sans-serif;
+  --crepe-font-default: Inter, ui-sans-serif, system-ui, sans-serif;
+  --crepe-font-code: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  min-height: calc(100vh - 150px);
+  background: transparent;
+}
+
+.document-live-editor .milkdown .milkdown-top-bar {
+  top: -22px;
+  margin: 0 0 18px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 7px;
-  background: rgba(20, 31, 31, 0.92);
-  color: #b6ddd9;
-  pointer-events: none;
+  background: rgba(32, 35, 36, 0.97);
+}
+
+.document-live-editor .milkdown .ProseMirror {
+  min-height: calc(100vh - 230px);
+  padding: 18px 24px 90px;
+  color: #e8e4db;
+  line-height: 1.75;
+  outline: none;
+}
+
+.document-live-editor .milkdown .ProseMirror h1 {
+  font-size: 38px;
+  letter-spacing: 0;
+}
+
+.document-live-editor .milkdown .ProseMirror h2 {
+  font-size: 27px;
+  letter-spacing: 0;
+}
+
+.document-live-editor .milkdown .ProseMirror h3 {
+  font-size: 21px;
+  letter-spacing: 0;
+}
+
+.document-live-editor .milkdown img {
+  max-width: 100%;
+  height: auto;
 }
 
 .document-editor-status {
@@ -3344,23 +3322,13 @@ h3 {
     padding-top: 12px;
   }
 
-  .document-editor.is-split .document-editor-body {
-    grid-template-columns: minmax(0, 1fr);
+  .document-live-editor .milkdown .milkdown-top-bar {
+    overflow-x: auto;
+    flex-wrap: nowrap;
   }
 
-  .document-editor.is-split .document-source-pane {
-    min-height: 46vh;
-    border-right: 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  .document-editor.is-split .document-source-pane textarea {
-    min-height: 46vh;
-  }
-
-  .document-preview-pane {
-    max-height: 52vh;
-    padding: 24px 18px 60px;
+  .document-live-editor .milkdown .ProseMirror {
+    padding: 14px 10px 72px;
   }
 }
 

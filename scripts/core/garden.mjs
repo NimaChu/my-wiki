@@ -4,8 +4,8 @@ import { universeAudit } from "./universe-audit-lib.mjs";
 
 const scan = await scanVault();
 const stats = statsFromScan(scan);
-const inbox = scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "inbox");
-const imaPointers = scan.nodes.filter((node) => node.id.startsWith("raw/") && node.status === "ima-pointer");
+const inbox = scan.nodes.filter((node) => node.id.startsWith("references/sources/") && node.status === "inbox");
+const imaPointers = scan.nodes.filter((node) => node.id.startsWith("references/sources/") && node.status === "ima-pointer");
 const followup = scan.nodes.filter((node) => node.status === "needs-followup");
 const wikiTopicPeers = wikiTopicPeerMap(scan);
 const weakWiki = scan.nodes.filter((node) =>

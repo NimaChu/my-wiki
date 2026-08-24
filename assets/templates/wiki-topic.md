@@ -1,7 +1,8 @@
 ---
-title: "{{title}}"
 type: topic
-status: active
+title: "{{title}}"
+description: "One-sentence description of this durable knowledge concept."
+status: stable
 universes: []
 aliases:
 reviewed_at:
@@ -9,7 +10,7 @@ source_count: 0
 relation_hints:
 tags:
   - topic
-sources:
+sources: []
 ---
 
 # {{title}}

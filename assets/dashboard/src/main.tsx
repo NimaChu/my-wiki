@@ -2,29 +2,15 @@ import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from "rea
 import { createRoot } from "react-dom/client";
 import {
   ArrowLeft,
-  Bold,
   Check,
-  Code2,
-  Columns2,
   Edit3,
   Eye,
-  Heading2,
-  Image as ImageIcon,
-  Italic,
-  List,
-  ListOrdered,
-  ListTodo,
-  Link as LinkIcon,
   LoaderCircle,
   PanelLeft,
-  Quote,
   Save,
   Settings2,
-  Sigma,
   Sparkles,
-  Table2,
   Trash2,
-  UploadCloud,
   Wrench,
   X
 } from "lucide-react";
@@ -41,6 +27,7 @@ import "./styles.css";
 
 const richMarkdownModule = import("./RichMarkdown");
 const RichMarkdown = lazy(() => richMarkdownModule);
+const MarkdownLiveEditor = lazy(() => import("./MarkdownLiveEditor"));
 
 type WikiNode = {
   id: string;
@@ -147,16 +134,16 @@ const copy = {
     graphUnavailable: "Graph unavailable",
     loadingGraph: "Loading graph",
     localWorkspace: "My second brain",
-    searchAndFilter: "Search My Wiki pages",
+    searchAndFilter: "Search My Wiki knowledge",
     search: "Search",
-    searchPlaceholder: "Search wiki pages, tags, paths",
+    searchPlaceholder: "Search concepts, tags, paths",
     clearSearch: "Clear search",
     universe: "Knowledge galaxy",
     allUniverses: "Knowledge universe",
     universeCount: "{count} galaxies",
     back: "Back",
     evidenceTitle: "Evidence: {title}",
-    neighbors: "Nearby Wiki planets",
+    neighbors: "Nearby concept planets",
     degree: "Degree",
     high: "High",
     graphAria: "My Wiki knowledge universe",
@@ -164,31 +151,31 @@ const copy = {
     language: "Language",
     switchChinese: "Switch to Chinese",
     switchEnglish: "Switch to English",
-    selectNode: "Select a Wiki planet",
+    selectNode: "Select a concept planet",
     evidence: "Evidence ({count})",
     backToKnowledge: "Back to Knowledge",
     status: "Status",
     type: "Type",
     links: "Links",
     backlinks: "Backlinks",
-    noWikiText: "No wiki text available",
+    noWikiText: "No concept content available",
     attention: "Attention",
     brokenPrefix: "Broken",
     gatePrefix: "Gate",
     evidenceLinks: "Evidence Links",
     connectedPages: "Connected Pages",
     noConnectedPages: "No connected pages",
-    wikiEvidenceSummary: "{wiki} Wiki planets, {raw} raw evidence notes",
+    wikiEvidenceSummary: "{wiki} concept planets, {raw} references",
     visible: "Visible",
-    wiki: "Wiki planets",
-    raw: "Raw",
+    wiki: "Concept planets",
+    raw: "References",
     tags: "Tags",
     statuses: "Statuses",
     pending: "Awaiting maintenance",
     inbox: "Inbox",
     processed: "Maintained",
     broken: "Broken",
-    centralWikiPages: "Central Wiki Planets",
+    centralWikiPages: "Central Concept Planets",
     linkStatus: "{count} links / {status}",
     vaultOverview: "Vault Overview",
     graphHealth: "Global graph health and maintenance state",
@@ -199,7 +186,7 @@ const copy = {
     agentCli: "Agent CLI",
     agentModel: "Model",
     cliDefault: "CLI default",
-    noPendingRaw: "No raw items awaiting maintenance",
+    noPendingRaw: "No references awaiting maintenance",
     processBatch: "Maintain batch",
     deleteBatch: "Delete all",
     deletingBatch: "Deleting",
@@ -217,7 +204,7 @@ const copy = {
     backToGraph: "Back to graph",
     readingMode: "Read",
     editingMode: "Edit",
-    splitMode: "Split",
+    liveEditingMode: "Live editing",
     documentOutline: "Document outline",
     noDocumentOutline: "No headings in this document",
     editDocument: "Edit document",
@@ -230,30 +217,17 @@ const copy = {
     savingDocument: "Saving",
     documentSaved: "Saved",
     unsavedChanges: "You have unsaved changes. Close this document?",
-    insertHeading: "Heading",
-    insertBold: "Bold",
-    insertItalic: "Italic",
-    insertCode: "Inline code",
-    insertLink: "Link",
-    insertImage: "Image",
-    insertQuote: "Quote",
-    insertBulletList: "Bullet list",
-    insertNumberedList: "Numbered list",
-    insertTaskList: "Task list",
-    insertTable: "Table",
-    insertFormula: "Formula",
-    insertCodeBlock: "Code block",
-    uploadImage: "Paste or drop an image",
+    editorPlaceholder: "Start writing Markdown...",
     uploadingImage: "Adding image",
     imageUploadFailed: "Could not add image",
     documentStats: "{words} words · {characters} characters · {lines} lines",
     unsavedDocument: "Unsaved",
     imageUnavailable: "Local image unavailable",
-    repairItem: "Repair this Raw",
-    repairingItem: "Repairing Raw",
-    repairComplete: "Raw repair complete",
-    repairStillBlocked: "Raw still needs follow-up",
-    repairFailed: "Raw repair failed",
+    repairItem: "Repair this reference",
+    repairingItem: "Repairing reference",
+    repairComplete: "Reference repair complete",
+    repairStillBlocked: "Reference still needs follow-up",
+    repairFailed: "Reference repair failed",
     queuedTask: "Queued",
     extractingTask: "Extracting",
     distillingTask: "Distilling",
@@ -263,16 +237,16 @@ const copy = {
     graphUnavailable: "知识图谱不可用",
     loadingGraph: "正在加载知识图谱",
     localWorkspace: "我的第二大脑",
-    searchAndFilter: "搜索 My Wiki 页面",
+    searchAndFilter: "搜索 My Wiki 知识",
     search: "搜索",
-    searchPlaceholder: "搜索 Wiki 页面、标签或路径",
+    searchPlaceholder: "搜索概念、标签或路径",
     clearSearch: "清空搜索",
     universe: "知识星系",
     allUniverses: "知识宇宙",
     universeCount: "{count} 个星系",
     back: "返回",
     evidenceTitle: "证据：{title}",
-    neighbors: "邻近 Wiki 星球",
+    neighbors: "邻近概念星球",
     degree: "连接度",
     high: "高",
     graphAria: "My Wiki 知识宇宙",
@@ -280,31 +254,31 @@ const copy = {
     language: "语言",
     switchChinese: "切换为中文",
     switchEnglish: "切换为英文",
-    selectNode: "请选择一个 Wiki 星球",
+    selectNode: "请选择一个概念星球",
     evidence: "查看证据（{count}）",
     backToKnowledge: "返回知识层",
     status: "状态",
     type: "类型",
     links: "链接",
     backlinks: "反向链接",
-    noWikiText: "暂无 Wiki 正文",
+    noWikiText: "暂无概念正文",
     attention: "需要注意",
     brokenPrefix: "断裂链接",
     gatePrefix: "维护门槛",
     evidenceLinks: "证据链接",
     connectedPages: "关联页面",
     noConnectedPages: "暂无关联页面",
-    wikiEvidenceSummary: "{wiki} 个 Wiki 星球，{raw} 条原始证据",
+    wikiEvidenceSummary: "{wiki} 个概念星球，{raw} 条参考资料",
     visible: "当前显示",
-    wiki: "Wiki 星球",
-    raw: "原始资料",
+    wiki: "概念星球",
+    raw: "参考资料",
     tags: "标签",
     statuses: "状态类型",
     pending: "待维护",
     inbox: "收件箱",
     processed: "已维护",
     broken: "断裂链接",
-    centralWikiPages: "核心 Wiki 星球",
+    centralWikiPages: "核心概念星球",
     linkStatus: "{count} 条链接 / {status}",
     vaultOverview: "知识库概览",
     graphHealth: "全局图谱健康与维护状态",
@@ -315,7 +289,7 @@ const copy = {
     agentCli: "Agent CLI",
     agentModel: "模型",
     cliDefault: "CLI 默认",
-    noPendingRaw: "没有待维护的原始资料",
+    noPendingRaw: "没有待维护的参考资料",
     processBatch: "批量维护",
     deleteBatch: "批量删除",
     deletingBatch: "正在删除",
@@ -333,7 +307,7 @@ const copy = {
     backToGraph: "返回图谱",
     readingMode: "阅读",
     editingMode: "编辑",
-    splitMode: "分屏",
+    liveEditingMode: "实时编辑",
     documentOutline: "文档大纲",
     noDocumentOutline: "本文档没有标题",
     editDocument: "编辑文档",
@@ -346,30 +320,17 @@ const copy = {
     savingDocument: "正在保存",
     documentSaved: "已保存",
     unsavedChanges: "文档还有未保存的修改，确定关闭吗？",
-    insertHeading: "标题",
-    insertBold: "粗体",
-    insertItalic: "斜体",
-    insertCode: "行内代码",
-    insertLink: "链接",
-    insertImage: "图片",
-    insertQuote: "引用",
-    insertBulletList: "无序列表",
-    insertNumberedList: "有序列表",
-    insertTaskList: "任务列表",
-    insertTable: "表格",
-    insertFormula: "公式",
-    insertCodeBlock: "代码块",
-    uploadImage: "粘贴或拖入图片",
+    editorPlaceholder: "开始编写 Markdown...",
     uploadingImage: "正在添加图片",
     imageUploadFailed: "图片添加失败",
     documentStats: "{words} 词 · {characters} 字符 · {lines} 行",
     unsavedDocument: "未保存",
     imageUnavailable: "本地图片不可用",
-    repairItem: "修复这条 Raw",
-    repairingItem: "正在修复 Raw",
-    repairComplete: "Raw 修复完成",
-    repairStillBlocked: "Raw 仍需跟进",
-    repairFailed: "Raw 修复失败",
+    repairItem: "修复这条参考资料",
+    repairingItem: "正在修复参考资料",
+    repairComplete: "参考资料修复完成",
+    repairStillBlocked: "参考资料仍需跟进",
+    repairFailed: "参考资料修复失败",
     queuedTask: "等待执行",
     extractingTask: "正在提取",
     distillingTask: "正在蒸馏",
@@ -464,7 +425,8 @@ function localizedType(value: string, language: Language) {
     company: "组织",
     person: "人物",
     comparison: "对比",
-    "raw-source": "原始资料"
+    "raw-source": "参考资料",
+    reference: "参考资料"
   };
   return types[value.toLowerCase()] ?? value;
 }
@@ -545,7 +507,7 @@ function App() {
     const needle = filters.query.trim().toLowerCase();
     const hasSearch = needle !== "";
     const wikiNodes = graph.nodes.filter((node) => {
-      if (!node.id.startsWith("wiki/")) return false;
+      if (!node.id.startsWith("concepts/")) return false;
       if (!hasSearch) return true;
       const universes = nodeUniverses(node);
       const searchable = [node.title, node.path, node.type, node.status, ...universes, ...node.tags].join(" ").toLowerCase();
@@ -561,8 +523,8 @@ function App() {
 
   const evidenceCenterId = useMemo(() => {
     if (graphMode !== "evidence") return null;
-    if (evidenceWikiId && nodeById.get(evidenceWikiId)?.id.startsWith("wiki/")) return evidenceWikiId;
-    if (selectedId && nodeById.get(selectedId)?.id.startsWith("wiki/")) return selectedId;
+    if (evidenceWikiId && nodeById.get(evidenceWikiId)?.id.startsWith("concepts/")) return evidenceWikiId;
+    if (selectedId && nodeById.get(selectedId)?.id.startsWith("concepts/")) return selectedId;
     return pickLocalCenter(wikiFilteredNodes)?.id ?? null;
   }, [evidenceWikiId, graphMode, nodeById, selectedId, wikiFilteredNodes]);
 
@@ -619,8 +581,8 @@ function App() {
   const evidenceCenter = evidenceCenterId ? nodeById.get(evidenceCenterId) ?? null : null;
   const panelNode = graphMode === "evidence" ? evidenceCenter : selected;
   const evidenceButtonId = useMemo(() => {
-    if (activeSelectedId && nodeById.get(activeSelectedId)?.id.startsWith("wiki/")) return activeSelectedId;
-    if (selectedId && nodeById.get(selectedId)?.id.startsWith("wiki/")) return selectedId;
+    if (activeSelectedId && nodeById.get(activeSelectedId)?.id.startsWith("concepts/")) return activeSelectedId;
+    if (selectedId && nodeById.get(selectedId)?.id.startsWith("concepts/")) return selectedId;
     return pickLocalCenter(wikiFilteredNodes)?.id ?? null;
   }, [activeSelectedId, nodeById, selectedId, wikiFilteredNodes]);
   const highlighted = useMemo(() => {
@@ -635,7 +597,7 @@ function App() {
 
   const openEvidence = (id: string) => {
     const node = nodeById.get(id);
-    if (!node?.id.startsWith("wiki/")) return;
+    if (!node?.id.startsWith("concepts/")) return;
     setEvidenceReturnView({
       graphScope,
       focusedGroup,
@@ -905,7 +867,7 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
   const [document, setDocument] = useState<MarkdownDocument | null>(null);
   const [draft, setDraft] = useState("");
   const [savedBody, setSavedBody] = useState("");
-  const [mode, setMode] = useState<"read" | "edit" | "split">("read");
+  const [mode, setMode] = useState<"read" | "edit">("read");
   const [outlineVisible, setOutlineVisible] = useState(() => !window.matchMedia("(max-width: 760px)").matches);
   const [renderAll, setRenderAll] = useState(false);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
@@ -914,10 +876,8 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
-  const [draggingImage, setDraggingImage] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
-  const editorRef = useRef<HTMLTextAreaElement | null>(null);
-  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const liveEditorRef = useRef<HTMLDivElement | null>(null);
   const dirty = draft !== savedBody;
   const outline = useMemo(() => markdownOutline(draft), [draft]);
   const stats = useMemo(() => markdownDocumentStats(draft), [draft]);
@@ -925,6 +885,16 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
   useEffect(() => {
     window.document.body.classList.add("has-markdown-workspace");
     return () => window.document.body.classList.remove("has-markdown-workspace");
+  }, []);
+
+  useEffect(() => {
+    const narrowViewport = window.matchMedia("(max-width: 760px)");
+    const closeOutline = (event: MediaQueryListEvent) => {
+      if (event.matches) setOutlineVisible(false);
+    };
+    if (narrowViewport.matches) setOutlineVisible(false);
+    narrowViewport.addEventListener("change", closeOutline);
+    return () => narrowViewport.removeEventListener("change", closeOutline);
   }, []);
 
   useEffect(() => {
@@ -998,13 +968,13 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
     setMode("read");
   };
 
-  const saveDocument = async () => {
-    if (!document || saving || !dirty) return;
+  const saveDocument = async (body = draft) => {
+    if (!document || saving || body === savedBody) return;
     setSaving(true);
     setSaveError("");
     setSaved(false);
     try {
-      const next = await localApi.saveMarkdown(document.path, draft, document.version);
+      const next = await localApi.saveMarkdown(document.path, body, document.version);
       setDocument(next);
       setDraft(next.body);
       setSavedBody(next.body);
@@ -1018,89 +988,31 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
     }
   };
 
-  const insertMarkup = (before: string, after = before, placeholder = "") => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    const start = editor.selectionStart;
-    const end = editor.selectionEnd;
-    const selected = draft.slice(start, end) || placeholder;
-    const next = `${draft.slice(0, start)}${before}${selected}${after}${draft.slice(end)}`;
-    setDraft(next);
-    window.requestAnimationFrame(() => {
-      editor.focus();
-      editor.setSelectionRange(start + before.length, start + before.length + selected.length);
-    });
-  };
-
-  const insertPlainText = (text: string) => {
-    const editor = editorRef.current;
-    const start = editor?.selectionStart ?? draft.length;
-    const end = editor?.selectionEnd ?? start;
-    setDraft((current) => `${current.slice(0, start)}${text}${current.slice(end)}`);
-    setSaved(false);
-    window.requestAnimationFrame(() => {
-      editor?.focus();
-      editor?.setSelectionRange(start + text.length, start + text.length);
-    });
-  };
-
-  const insertLinePrefix = (prefix: string, placeholder: string) => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    const start = editor.selectionStart;
-    const end = editor.selectionEnd;
-    const lineStart = draft.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
-    const lineEndMatch = draft.indexOf("\n", end);
-    const lineEnd = lineEndMatch === -1 ? draft.length : lineEndMatch;
-    const selected = draft.slice(lineStart, lineEnd) || placeholder;
-    const transformed = selected.split("\n").map((line) => `${prefix}${line}`).join("\n");
-    setDraft(`${draft.slice(0, lineStart)}${transformed}${draft.slice(lineEnd)}`);
-    setSaved(false);
-    window.requestAnimationFrame(() => {
-      editor.focus();
-      editor.setSelectionRange(lineStart + prefix.length, lineStart + transformed.length);
-    });
-  };
-
-  const uploadImages = async (files: File[]) => {
-    if (!document || uploadingImage) return;
-    const images = files.filter((file) => /\.(?:png|jpe?g|gif|webp)$/i.test(file.name));
-    if (!images.length) return;
+  const uploadImage = async (file: File): Promise<string> => {
+    if (!document) throw new Error(t("imageUploadFailed"));
     setUploadingImage(true);
     setSaveError("");
     try {
-      for (const file of images) {
-        const uploaded = await localApi.uploadMarkdownImage(document.path, file);
-        const alt = file.name.replace(/\.[^.]+$/, "") || t("insertImage");
-        insertPlainText(`\n![${alt}](${uploaded.source})\n`);
-      }
+      const uploaded = await localApi.uploadMarkdownImage(document.path, file);
+      return uploaded.source;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       setSaveError(`${t("imageUploadFailed")}: ${detail}`);
+      throw error;
     } finally {
       setUploadingImage(false);
-      setDraggingImage(false);
-      if (imageInputRef.current) imageInputRef.current.value = "";
     }
   };
 
   const jumpToOutline = (item: MarkdownOutlineItem) => {
     if (mode === "edit") {
-      const editor = editorRef.current;
-      editor?.focus();
-      editor?.setSelectionRange(item.offset, item.offset);
-      if (editor) editor.scrollTop = Math.max(0, item.offset / Math.max(1, draft.length) * editor.scrollHeight - editor.clientHeight * 0.25);
+      const headings = Array.from(liveEditorRef.current?.querySelectorAll("h1, h2, h3, h4") || []);
+      const target = headings.find((heading) => heading.textContent?.trim() === item.text);
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
     setRenderAll(true);
     window.setTimeout(() => window.document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" }), 40);
-  };
-
-  const handleEditorKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
-      event.preventDefault();
-      void saveDocument();
-    }
   };
 
   return (
@@ -1122,11 +1034,7 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
               </button>
               <button type="button" className={mode === "edit" ? "is-active" : ""} onClick={() => setMode("edit")} title={t("editDocument")}>
                 <Edit3 size={16} />
-                <span>{t("editingMode")}</span>
-              </button>
-              <button type="button" className={mode === "split" ? "is-active" : ""} onClick={() => setMode("split")} title={t("splitMode")}>
-                <Columns2 size={16} />
-                <span>{t("splitMode")}</span>
+                <span>{t("liveEditingMode")}</span>
               </button>
             </div>
             <button
@@ -1208,80 +1116,21 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
             </article>
           )}
           {document && mode !== "read" && (
-          <section className={`document-editor is-${mode}${draggingImage ? " is-dragging-image" : ""}`}>
-            <div className="document-format-toolbar" role="toolbar" aria-label={t("editingMode")}>
-              <button type="button" onClick={() => insertLinePrefix("## ", t("insertHeading"))} title={t("insertHeading")} aria-label={t("insertHeading")}><Heading2 size={17} /></button>
-              <button type="button" onClick={() => insertMarkup("**", "**", t("insertBold"))} title={t("insertBold")} aria-label={t("insertBold")}><Bold size={17} /></button>
-              <button type="button" onClick={() => insertMarkup("*", "*", t("insertItalic"))} title={t("insertItalic")} aria-label={t("insertItalic")}><Italic size={17} /></button>
-              <button type="button" onClick={() => insertMarkup("`", "`", t("insertCode"))} title={t("insertCode")} aria-label={t("insertCode")}><Code2 size={17} /></button>
-              <button type="button" onClick={() => insertMarkup("[", "](https://)", t("insertLink"))} title={t("insertLink")} aria-label={t("insertLink")}><LinkIcon size={17} /></button>
-              <span className="document-toolbar-separator" />
-              <button type="button" onClick={() => insertLinePrefix("> ", t("insertQuote"))} title={t("insertQuote")} aria-label={t("insertQuote")}><Quote size={17} /></button>
-              <button type="button" onClick={() => insertLinePrefix("- ", t("insertBulletList"))} title={t("insertBulletList")} aria-label={t("insertBulletList")}><List size={17} /></button>
-              <button type="button" onClick={() => insertLinePrefix("1. ", t("insertNumberedList"))} title={t("insertNumberedList")} aria-label={t("insertNumberedList")}><ListOrdered size={17} /></button>
-              <button type="button" onClick={() => insertLinePrefix("- [ ] ", t("insertTaskList"))} title={t("insertTaskList")} aria-label={t("insertTaskList")}><ListTodo size={17} /></button>
-              <span className="document-toolbar-separator" />
-              <button type="button" onClick={() => insertPlainText("\n| Column 1 | Column 2 |\n| --- | --- |\n| Value 1 | Value 2 |\n")} title={t("insertTable")} aria-label={t("insertTable")}><Table2 size={17} /></button>
-              <button type="button" onClick={() => insertPlainText("\n$$\nE = mc^2\n$$\n")} title={t("insertFormula")} aria-label={t("insertFormula")}><Sigma size={17} /></button>
-              <button type="button" onClick={() => insertPlainText("\n```\ncode\n```\n")} title={t("insertCodeBlock")} aria-label={t("insertCodeBlock")}><Code2 size={17} /></button>
-              <button type="button" onClick={() => imageInputRef.current?.click()} disabled={uploadingImage} title={t("uploadImage")} aria-label={t("uploadImage")}>
-                {uploadingImage ? <LoaderCircle className="spin" size={17} /> : <ImageIcon size={17} />}
-              </button>
-              <input
-                ref={imageInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/gif,image/webp"
-                multiple
-                hidden
-                onChange={(event) => void uploadImages(Array.from(event.target.files || []))}
-              />
-            </div>
-            <div className="document-editor-body">
-              <div
-                className="document-source-pane"
-                onDragEnter={(event) => { event.preventDefault(); setDraggingImage(true); }}
-                onDragOver={(event) => event.preventDefault()}
-                onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDraggingImage(false); }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  setDraggingImage(false);
-                  void uploadImages(Array.from(event.dataTransfer.files));
+          <section className="document-editor" ref={liveEditorRef}>
+            <Suspense fallback={<div className="document-state"><LoaderCircle className="spin" size={24} /></div>}>
+              <MarkdownLiveEditor
+                markdown={draft}
+                title={document.title}
+                placeholder={t("editorPlaceholder")}
+                onChange={(next) => {
+                  setDraft(next);
+                  setSaved(false);
                 }}
-              >
-                <textarea
-                  ref={editorRef}
-                  value={draft}
-                  onChange={(event) => {
-                    setDraft(event.target.value);
-                    setSaved(false);
-                  }}
-                  onKeyDown={handleEditorKeyDown}
-                  onPaste={(event) => {
-                    const images = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
-                    if (!images.length) return;
-                    event.preventDefault();
-                    void uploadImages(images);
-                  }}
-                  spellCheck
-                  aria-label={document.title}
-                />
-                {draggingImage && <div className="document-image-drop"><UploadCloud size={24} /><span>{t("uploadImage")}</span></div>}
-              </div>
-              {mode === "split" && (
-                <article className="document-preview-pane">
-                  <Suspense fallback={<div className="document-state"><LoaderCircle className="spin" size={24} /></div>}>
-                    <RichMarkdown
-                      content={draft}
-                      imageUrls={imageUrls}
-                      imageFallback={t("imageUnavailable")}
-                      renderingLabel={t("renderingDocument")}
-                      renderMoreLabel={t("renderMoreDocument")}
-                      renderAll={renderAll}
-                    />
-                  </Suspense>
-                </article>
-              )}
-            </div>
+                onSave={(next) => void saveDocument(next)}
+                onUploadImage={uploadImage}
+                resolveImageUrl={(source) => localApi.markdownImageUrl(document.path, source)}
+              />
+            </Suspense>
             <footer className="document-editor-status">
               <span>{t("documentStats", stats)}</span>
               {uploadingImage && <span><LoaderCircle className="spin" size={13} /> {t("uploadingImage")}</span>}
@@ -1710,7 +1559,7 @@ function NodeInspector({
     .filter(Boolean) as WikiNode[];
   const broken = graph.unresolved.filter((item) => item.source === node.id);
   const issues = graph.processedIssues.filter((item) => item.source === node.id);
-  const isWikiNode = node.id.startsWith("wiki/");
+  const isWikiNode = node.id.startsWith("concepts/");
   const evidenceCount = isWikiNode ? evidenceIdsForWiki(graph, node.id).size - 1 : 0;
 
   if (isWikiNode) {
@@ -2046,12 +1895,13 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
   const { language, t } = useI18n();
   const [deletedIds, setDeletedIds] = useState<Set<string>>(() => new Set());
   const ids = [...new Set([...graph.queues.inbox, ...graph.queues.needsFollowup, ...graph.queues.stale])]
-    .filter((id) => id.startsWith("raw/") && !deletedIds.has(id));
+    .filter((id) => id.startsWith("references/sources/") && !deletedIds.has(id));
   const nodes = ids.map((id) => nodeById.get(id)).filter(Boolean) as WikiNode[];
   const batchNodes = nodes.slice(0, 500);
   const [agentState, setAgentState] = useState<AgentInfo | null>(null);
   const [captureItems, setCaptureItems] = useState<InboxItem[]>([]);
   const [activeJobs, setActiveJobs] = useState<Map<string, Job>>(() => new Map());
+  const [pendingPaths, setPendingPaths] = useState<Set<string>>(() => new Set());
   const [deletingPath, setDeletingPath] = useState<string | null>(null);
   const [deletingBatch, setDeletingBatch] = useState(false);
   const [result, setResult] = useState<MaintenanceResult | null>(null);
@@ -2063,10 +1913,10 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
 
   useEffect(() => {
     const refresh = async () => {
-      const [agent, inbox] = await Promise.all([localApi.agent(), localApi.inbox()]);
+      const [agent, captures] = await Promise.all([localApi.agent(), localApi.captureJobs()]);
       setAgentState(agent);
       setActiveJobs(new Map((agent.activeRawJobs || []).flatMap((job) => rawJobPath(job) ? [[rawJobPath(job), job] as const] : [])));
-      setCaptureItems(inbox.items.filter((item) => item.jobId && item.snapshotPath && ["queued", "running"].includes(item.jobStatus || "")));
+      setCaptureItems(captures.items.filter((item) => item.jobId && item.snapshotPath && ["queued", "running"].includes(item.jobStatus || "")));
     };
     void refresh().catch(() => setAgentState(null));
     const timer = window.setInterval(() => void refresh().catch(() => {}), 1500);
@@ -2088,6 +1938,8 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
     setErrorAction("maintenance");
     setResult(null);
     setRepairResult(null);
+    const selectedPaths = selectedNodes.map((node) => node.path);
+    setPendingPaths((current) => new Set([...current, ...selectedPaths]));
     try {
       const distillSelection = queueAgentSettings.distill;
       const outcome = selectedNodes.length === 1 && selectedNodes[0].status !== "needs-followup"
@@ -2097,6 +1949,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
         ...current,
         ...outcome.jobs.flatMap((job) => rawJobPath(job) ? [[rawJobPath(job), job] as const] : [])
       ]));
+      setPendingPaths((current) => new Set([...current].filter((item) => !selectedPaths.includes(item))));
       const settled = await Promise.allSettled(outcome.jobs.map(async (job) => {
         try {
           return await waitForJob(job);
@@ -2115,18 +1968,22 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
       localApi.agent().then(setAgentState).catch(() => {});
+    } finally {
+      setPendingPaths((current) => new Set([...current].filter((item) => !selectedPaths.includes(item))));
     }
   };
 
   const repairNode = async (node: WikiNode) => {
-    if (node.status !== "needs-followup" || activeJobs.has(node.path) || !agentState?.available) return;
+    if (node.status !== "needs-followup" || activeJobs.has(node.path) || pendingPaths.has(node.path) || !agentState?.available) return;
     setError("");
     setErrorAction("repair");
     setResult(null);
     setRepairResult(null);
+    setPendingPaths((current) => new Set(current).add(node.path));
     try {
       const initial = await localApi.repair(node.path, queueAgentSettings.repair);
       setActiveJobs((current) => new Map(current).set(node.path, initial));
+      setPendingPaths((current) => { const next = new Set(current); next.delete(node.path); return next; });
       const complete = await waitForJob(initial);
       setRepairResult(complete.result as RepairResult);
       setAgentState(await localApi.agent());
@@ -2134,11 +1991,13 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
       localApi.agent().then(setAgentState).catch(() => {});
+    } finally {
+      setPendingPaths((current) => { const next = new Set(current); next.delete(node.path); return next; });
     }
   };
 
   const deleteNode = async (node: WikiNode) => {
-    if (activeJobs.has(node.path) || deletingPath || deletingBatch) return;
+    if (activeJobs.has(node.path) || pendingPaths.has(node.path) || deletingPath || deletingBatch) return;
     if (!window.confirm(t("deleteQueueConfirm", { title: node.title }))) return;
     setDeletingPath(node.path);
     setError("");
@@ -2274,7 +2133,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
             <div className="queue-item" key={node.id}>
               <button className="queue-item-main" type="button" onClick={() => onSelect(node.id)}>
                 <strong>{node.title}</strong>
-                <span>{rawTaskLabel(activeJobs.get(node.path), language) || localizedStatus(node.status, language)}</span>
+                <span>{pendingPaths.has(node.path) ? t("queuedTask") : rawTaskLabel(activeJobs.get(node.path), language) || localizedStatus(node.status, language)}</span>
                 {node.status === "needs-followup" && node.visualGapPages?.length ? (
                   <small className="queue-item-followup">{localizedVisualGap(node.visualGapPages, language)}</small>
                 ) : node.status === "needs-followup" && node.followupReasons?.length ? (
@@ -2291,10 +2150,10 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
                   type="button"
                   aria-label={actionLabel}
                   title={agentState?.available === false ? t("agentUnavailable") : actionLabel}
-                  disabled={activeJobs.has(node.path) || Boolean(deletingPath) || deletingBatch || !agentState?.available}
+                  disabled={pendingPaths.has(node.path) || activeJobs.has(node.path) || Boolean(deletingPath) || deletingBatch || !agentState?.available}
                   onClick={() => void (repairing ? repairNode(node) : processNodes([node]))}
                 >
-                  {activeJobs.has(node.path) ? <LoaderCircle className="spin" size={14} /> : repairing ? <Wrench size={14} /> : <Sparkles size={14} />}
+                  {pendingPaths.has(node.path) || activeJobs.has(node.path) ? <LoaderCircle className="spin" size={14} /> : repairing ? <Wrench size={14} /> : <Sparkles size={14} />}
                 </button>
                   );
                 })()}
@@ -2303,7 +2162,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
                   type="button"
                   aria-label={t("deleteQueueItem")}
                   title={t("deleteQueueItem")}
-                  disabled={activeJobs.has(node.path) || Boolean(deletingPath) || deletingBatch}
+                  disabled={pendingPaths.has(node.path) || activeJobs.has(node.path) || Boolean(deletingPath) || deletingBatch}
                   onClick={() => void deleteNode(node)}
                 >
                   {deletingPath === node.path ? <LoaderCircle className="spin" size={14} /> : <Trash2 size={14} />}
@@ -2399,7 +2258,7 @@ function QueueProgress({ progress, language }: { progress: TaskProgress; languag
     ocr: ["OCR 文字识别", "OCR text recognition"],
     "quality-check": ["检查页面与公式", "Checking pages and formulas"],
     assembling: ["整理 Markdown 与图片", "Assembling Markdown and images"],
-    "writing-raw": ["写入 Raw 证据", "Writing Raw evidence"],
+    "writing-raw": ["写入参考资料", "Writing reference evidence"],
     complete: ["提取完成", "Extraction complete"]
   };
   const label = phaseLabels[progress.phase]?.[language === "zh" ? 0 : 1] || (language === "zh" ? "正在提取" : "Extracting");
@@ -2413,7 +2272,7 @@ function QueueProgress({ progress, language }: { progress: TaskProgress; languag
 }
 
 function buildUniverseSummary(graph: WikiGraph, group: string) {
-  const wikiNodes = graph.nodes.filter((node) => node.id.startsWith("wiki/") && nodeUniverses(node).includes(group));
+  const wikiNodes = graph.nodes.filter((node) => node.id.startsWith("concepts/") && nodeUniverses(node).includes(group));
   const wikiIds = new Set(wikiNodes.map((node) => node.id));
   const evidenceIds = new Set<string>();
   const tagCounts = new Map<string, number>();
@@ -2423,8 +2282,8 @@ function buildUniverseSummary(graph: WikiGraph, group: string) {
   }
 
   for (const edge of graph.edges) {
-    if (wikiIds.has(edge.source) && edge.target.startsWith("raw/")) evidenceIds.add(edge.target);
-    if (wikiIds.has(edge.target) && edge.source.startsWith("raw/")) evidenceIds.add(edge.source);
+    if (wikiIds.has(edge.source) && edge.target.startsWith("references/sources/")) evidenceIds.add(edge.target);
+    if (wikiIds.has(edge.target) && edge.source.startsWith("references/sources/")) evidenceIds.add(edge.source);
   }
 
   const topPages = [...wikiNodes]
@@ -2463,7 +2322,7 @@ function buildLayout(
   const height = viewBox.height;
   const isLocal = scope === "local";
   const degree = new Map(nodes.map((node) => [node.id, node.out.length + node.backlinks.length]));
-  if (!isLocal && nodes.every((node) => node.id.startsWith("wiki/"))) {
+  if (!isLocal && nodes.every((node) => node.id.startsWith("concepts/"))) {
     return buildWikiUniverseLayout(nodes, edges, degree, rotation, isUniverseOverview);
   }
   if (!isLocal && nodes.length > 450) return buildLargeGraphLayout(nodes, degree);
@@ -2522,8 +2381,8 @@ function buildLayout(
       const distance = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
       const target =
         isLocal ? 118 :
-        a.id.startsWith("wiki/") && b.id.startsWith("wiki/") ? 92 :
-        a.id.startsWith("raw/") && b.id.startsWith("raw/") ? 82 :
+        a.id.startsWith("concepts/") && b.id.startsWith("concepts/") ? 92 :
+        a.id.startsWith("references/sources/") && b.id.startsWith("references/sources/") ? 82 :
         178;
       const force = (distance - target) * (isLocal ? 0.018 : 0.008) * alpha;
       const fx = (dx / distance) * force;
@@ -2539,8 +2398,8 @@ function buildLayout(
       const centerPull =
         isLocal && node.id === selectedId ? 0.09 :
         isLocal ? 0.018 :
-        node.id.startsWith("wiki/") ? 0.028 :
-        node.id.startsWith("raw/") ? 0.038 :
+        node.id.startsWith("concepts/") ? 0.028 :
+        node.id.startsWith("references/sources/") ? 0.038 :
         0.02;
       node.vx += (target.x - node.x) * centerPull * alpha;
       node.vy += (target.y - node.y) * centerPull * alpha;
@@ -2816,7 +2675,7 @@ function buildWikiUniverseConnections(nodes: WikiNode[], edges: WikiEdge[]) {
   };
 
   for (const node of nodes) {
-    if (!node.id.startsWith("wiki/")) continue;
+    if (!node.id.startsWith("concepts/")) continue;
     const universes = nodeUniverses(node);
     for (let i = 0; i < universes.length; i += 1) {
       for (let j = i + 1; j < universes.length; j += 1) {
@@ -2829,7 +2688,7 @@ function buildWikiUniverseConnections(nodes: WikiNode[], edges: WikiEdge[]) {
   for (const edge of edges) {
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
-    if (!source?.id.startsWith("wiki/") || !target?.id.startsWith("wiki/")) continue;
+    if (!source?.id.startsWith("concepts/") || !target?.id.startsWith("concepts/")) continue;
     for (const sourceUniverse of nodeUniverses(source)) {
       for (const targetUniverse of nodeUniverses(target)) {
         addConnection(sourceUniverse, targetUniverse, 1);
@@ -2972,19 +2831,19 @@ function applyGraphScope(nodes: WikiNode[], graph: WikiGraph | null, selectedId:
 function evidenceIdsForWiki(graph: WikiGraph, wikiId: string) {
   const ids = new Set([wikiId]);
   for (const edge of graph.edges) {
-    if (edge.source === wikiId && edge.target.startsWith("raw/")) ids.add(edge.target);
-    if (edge.target === wikiId && edge.source.startsWith("raw/")) ids.add(edge.source);
+    if (edge.source === wikiId && edge.target.startsWith("references/sources/")) ids.add(edge.target);
+    if (edge.target === wikiId && edge.source.startsWith("references/sources/")) ids.add(edge.source);
   }
   return ids;
 }
 
 function pickLocalCenter(nodes: WikiNode[]) {
-  const knowledgeCandidates = nodes.filter((node) => node.id.startsWith("wiki/") && isDefaultLocalCandidate(node));
+  const knowledgeCandidates = nodes.filter((node) => node.id.startsWith("concepts/") && isDefaultLocalCandidate(node));
   if (knowledgeCandidates.length > 0) {
     return [...knowledgeCandidates].sort((a, b) => nodeDegree(b) - nodeDegree(a) || a.title.localeCompare(b.title))[0] ?? null;
   }
-  const candidates = nodes.some((node) => node.id.startsWith("wiki/"))
-    ? nodes.filter((node) => node.id.startsWith("wiki/"))
+  const candidates = nodes.some((node) => node.id.startsWith("concepts/"))
+    ? nodes.filter((node) => node.id.startsWith("concepts/"))
     : nodes;
   return [...candidates].sort((a, b) => nodeDegree(b) - nodeDegree(a) || a.title.localeCompare(b.title))[0] ?? null;
 }
@@ -3003,7 +2862,7 @@ function clusterTarget(node: WikiNode, groupIndex = new Map<string, number>(), t
 }
 
 function nodeRadius(node: LayoutNode) {
-  if (node.id.startsWith("raw/")) return Math.min(5.4, 2.2 + Math.sqrt(Math.max(node.degree, 1)) * 0.62);
+  if (node.id.startsWith("references/sources/")) return Math.min(5.4, 2.2 + Math.sqrt(Math.max(node.degree, 1)) * 0.62);
   return Math.min(12.5, 3.6 + Math.sqrt(Math.max(node.degree, 1)) * 1.38);
 }
 
@@ -3082,8 +2941,8 @@ function nodeDegree(node: WikiNode) {
 
 function nodeFill(node: WikiNode) {
   const group = primaryUniverse(node);
-  if (node.id.startsWith("raw/")) return colorForGroup(group);
-  if (node.id.startsWith("wiki/")) return colorForDegree(nodeDegree(node));
+  if (node.id.startsWith("references/sources/")) return colorForGroup(group);
+  if (node.id.startsWith("concepts/")) return colorForDegree(nodeDegree(node));
   return "#aeb7bd";
 }
 
@@ -3153,7 +3012,7 @@ function buildGroupLabels(layout: LayoutNode[], language: Language): GroupLabel[
 
 function declaredUniversePlaceholder(universe: string): WikiNode {
   return {
-    id: `wiki/__declared_universe__/${stableHash(universe)}`,
+    id: `concepts/__declared_universe__/${stableHash(universe)}`,
     path: "",
     title: universe,
     type: "declared-universe",
@@ -3234,9 +3093,9 @@ function stableHash(value: string) {
 }
 
 function inferFallbackGroup(node: WikiNode) {
-  if (node.id.startsWith("raw/autodesk-flexsim-2026/")) return "FlexSim / Corpus";
-  if (node.id.startsWith("raw/")) return "Raw / Other";
-  if (node.id.startsWith("wiki/")) return inferWikiGroup(node.title, node.tags);
+  if (node.id.startsWith("references/sources/autodesk-flexsim-2026/")) return "FlexSim / Corpus";
+  if (node.id.startsWith("references/sources/")) return "Raw / Other";
+  if (node.id.startsWith("concepts/")) return inferWikiGroup(node.title, node.tags);
   return node.id.split("/")[0] || "Other";
 }
 

@@ -222,7 +222,7 @@ function validateArchivePath(value) {
   if (!normalized || normalized === "." || normalized.startsWith("../") || normalized.includes("/../") || path.posix.isAbsolute(normalized)) {
     throw new Error(`Invalid My Wiki package path: ${value}`);
   }
-  if (normalized !== "manifest.json" && !normalized.startsWith("wiki/") && !normalized.startsWith("raw/sources/") && !normalized.startsWith("raw/assets/") && !normalized.startsWith("raw/snapshots/")) {
+  if (normalized !== "manifest.json" && normalized !== "index.md" && normalized !== "log.md" && !normalized.startsWith("concepts/") && !normalized.startsWith("references/sources/") && !normalized.startsWith("references/assets/") && !normalized.startsWith("references/originals/")) {
     throw new Error(`Unsupported My Wiki package entry: ${normalized}`);
   }
   return normalized;

@@ -9,9 +9,13 @@ This repository is the runnable My Wiki application. It is neither a knowledge v
 - `deploy/` contains standalone deployment options.
 - `tests/` covers application and workflow contracts.
 - `my-wiki-skill/SKILL.md` is the canonical Agent playbook for capture, query, maintenance, evidence, galaxies, sharing, and Dashboard operations.
-- The user's vault is external to this repository and owns its `raw/`, `wiki/`, templates, assets, snapshots, and runtime state.
+- The user's vault is external to this repository and owns root `index.md`/`log.md`, `concepts/`, `references/`, templates, and `.my-wiki/` runtime state.
 
 The project can run directly with `npm run wiki -- <command>` and does not require a globally installed Skill. The adapter under `my-wiki-skill/` is optional for Agents working from other workspaces.
+
+## Knowledge Model
+
+Use the native OKF terms in explanations and new documentation: a durable knowledge page is a **Concept**, captured evidence is a **Reference**, and the preserved binary or webpage snapshot is an **original**. My Wiki visualizes Concepts as concept planets grouped into knowledge galaxies. Historical command names, internal variables, and package fields may still contain `wiki`, `raw`, or `universe` for compatibility; do not infer the old `wiki/` or `raw/` directories from those identifiers.
 
 ## Route Requests
 

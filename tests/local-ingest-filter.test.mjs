@@ -50,14 +50,14 @@ test("recovered ingest reuses its preserved snapshot instead of creating a dupli
   const root = await mkdtemp(path.join(os.tmpdir(), "my-wiki-ingest-recovery-"));
   const vault = path.join(root, "vault");
   const upload = path.join(root, "recovered.txt");
-  const snapshotReference = "raw/snapshots/2026-08-12--recovered.txt";
+  const snapshotReference = "references/originals/2026-08-12--recovered.txt";
   const snapshot = path.join(vault, ...snapshotReference.split("/"));
   const evidence = "Substantive recovered evidence remains readable after a Dashboard restart.";
   await mkdir(path.dirname(snapshot), { recursive: true });
-  await mkdir(path.join(vault, "wiki"), { recursive: true });
+  await mkdir(path.join(vault, "concepts"), { recursive: true });
   await writeFile(upload, evidence, "utf8");
   await writeFile(snapshot, evidence, "utf8");
-  await writeFile(path.join(vault, "wiki", "log.md"), "# Log\n", "utf8");
+  await writeFile(path.join(vault, "log.md"), "# Log\n", "utf8");
   context.after(() => rm(root, { recursive: true, force: true }));
   let observedSnapshot = null;
 
@@ -72,15 +72,15 @@ test("recovered ingest reuses its preserved snapshot instead of creating a dupli
 
   assert.equal(result.count, 1);
   assert.equal(observedSnapshot.relative, snapshotReference);
-  assert.deepEqual(await readdir(path.join(vault, "raw", "snapshots")), ["2026-08-12--recovered.txt"]);
+  assert.deepEqual(await readdir(path.join(vault, "references", "originals")), ["2026-08-12--recovered.txt"]);
   const note = await readFile(result.items[0].path, "utf8");
-  assert.match(note, /^snapshot_path: "raw\/snapshots\/2026-08-12--recovered\.txt"$/m);
+  assert.match(note, /^snapshot_path: "references\/originals\/2026-08-12--recovered\.txt"$/m);
 });
 
 test("captured raw evidence preserves an optional maintenance galaxy suggestion", async (context) => {
   const vault = await mkdtemp(path.join(os.tmpdir(), "my-wiki-galaxy-suggestion-"));
   context.after(() => rm(vault, { recursive: true, force: true }));
-  await mkdir(path.join(vault, "wiki"), { recursive: true });
+  await mkdir(path.join(vault, "concepts"), { recursive: true });
 
   const result = await captureSource({
     vault,

@@ -36,9 +36,9 @@ async function createFixture(context) {
   const root = await mkdtemp(path.join(os.tmpdir(), "my-wiki-markdown-"));
   const vault = path.join(root, "vault");
   const dashboard = path.join(root, "dashboard");
-  const wikiFile = path.join(vault, "wiki", "note.md");
-  const rawFile = path.join(vault, "raw", "sources", "evidence.md");
-  const imageFile = path.join(vault, "raw", "assets", "capture", "image.png");
+  const wikiFile = path.join(vault, "concepts", "note.md");
+  const rawFile = path.join(vault, "references", "sources", "evidence.md");
+  const imageFile = path.join(vault, "references", "assets", "capture", "image.png");
   await mkdir(path.dirname(wikiFile), { recursive: true });
   await mkdir(path.dirname(rawFile), { recursive: true });
   await mkdir(path.dirname(imageFile), { recursive: true });
@@ -54,12 +54,12 @@ async function createFixture(context) {
 test("Markdown document access accepts vault Wiki and raw source notes only", async (context) => {
   const fixture = await createFixture(context);
 
-  assert.equal(await resolveMarkdownVaultFile(fixture.vault, "wiki/note.md"), await realpath(fixture.wikiFile));
-  assert.equal(await resolveMarkdownVaultFile(fixture.vault, "raw/sources/evidence.md"), await realpath(fixture.rawFile));
-  await assert.rejects(resolveMarkdownVaultFile(fixture.vault, "raw/snapshots/secret.md"), /Only Wiki and raw source Markdown/);
-  await assert.rejects(resolveMarkdownVaultFile(fixture.vault, "../note.md"), /Only Wiki and raw source Markdown/);
+  assert.equal(await resolveMarkdownVaultFile(fixture.vault, "concepts/note.md"), await realpath(fixture.wikiFile));
+  assert.equal(await resolveMarkdownVaultFile(fixture.vault, "references/sources/evidence.md"), await realpath(fixture.rawFile));
+  await assert.rejects(resolveMarkdownVaultFile(fixture.vault, "references/originals/secret.md"), /Only Concept and Reference Markdown/);
+  await assert.rejects(resolveMarkdownVaultFile(fixture.vault, "../note.md"), /Only Concept and Reference Markdown/);
 
-  const document = await readMarkdownDocument(fixture.vault, "wiki/note.md");
+  const document = await readMarkdownDocument(fixture.vault, "concepts/note.md");
   assert.equal(document.title, "Note");
   assert.equal(document.body, "# Note\n\nOriginal body.\n");
   assert.match(document.version, /^[a-f0-9]{64}$/);
@@ -79,12 +79,12 @@ test("Markdown API reads and saves the body while preserving frontmatter and rej
   const session = await request(port, "GET", "/api/v1/session");
   const auth = { "x-my-wiki-token": session.body.token };
 
-  const opened = await request(port, "GET", "/api/v1/markdown?path=wiki%2Fnote.md", { headers: auth });
+  const opened = await request(port, "GET", "/api/v1/markdown?path=concepts%2Fnote.md", { headers: auth });
   assert.equal(opened.status, 200);
   assert.equal(opened.body.body, "# Note\n\nOriginal body.\n");
 
   const update = JSON.stringify({
-    path: "wiki/note.md",
+    path: "concepts/note.md",
     body: "# Note\n\nUpdated body.",
     expectedVersion: opened.body.version
   });
@@ -118,13 +118,13 @@ test("Markdown API reads and saves the body while preserving frontmatter and rej
 
 test("Maintenance queue items can be deleted with their unshared snapshot and owned assets", async (context) => {
   const fixture = await createFixture(context);
-  const snapshotFile = path.join(fixture.vault, "raw", "snapshots", "evidence.pdf");
-  const ownedAssetFile = path.join(fixture.vault, "raw", "assets", "evidence", "page.png");
+  const snapshotFile = path.join(fixture.vault, "references", "originals", "evidence.pdf");
+  const ownedAssetFile = path.join(fixture.vault, "references", "assets", "evidence", "page.png");
   await mkdir(path.dirname(snapshotFile), { recursive: true });
   await mkdir(path.dirname(ownedAssetFile), { recursive: true });
   await writeFile(snapshotFile, Buffer.from("snapshot"));
   await writeFile(ownedAssetFile, Buffer.from("asset"));
-  await writeFile(fixture.rawFile, "---\ntitle: Evidence\ntype: raw-source\nstatus: inbox\nsnapshot_path: raw/snapshots/evidence.pdf\n---\n# Evidence\n\nDuplicate upload.\n", "utf8");
+  await writeFile(fixture.rawFile, "---\ntitle: Evidence\ntype: Reference\nstatus: stable\nworkflow_status: inbox\nsnapshot_path: references/originals/evidence.pdf\n---\n# Evidence\n\nDuplicate upload.\n", "utf8");
 
   const server = http.createServer(createDashboardApi({
     dashboardRoot: fixture.dashboard,
@@ -138,10 +138,10 @@ test("Maintenance queue items can be deleted with their unshared snapshot and ow
   const session = await request(port, "GET", "/api/v1/session");
   const auth = { "x-my-wiki-token": session.body.token };
 
-  const deleted = await request(port, "DELETE", "/api/v1/inbox/item?path=raw%2Fsources%2Fevidence.md", { headers: auth });
+  const deleted = await request(port, "DELETE", "/api/v1/inbox/item?path=references%2Fsources%2Fevidence.md", { headers: auth });
   assert.equal(deleted.status, 200);
   assert.equal(deleted.body.deleted, true);
-  assert.deepEqual(deleted.body.removedArtifacts.sort(), ["raw/assets/evidence", "raw/snapshots/evidence.pdf"]);
+  assert.deepEqual(deleted.body.removedArtifacts.sort(), ["references/assets/evidence", "references/originals/evidence.pdf"]);
   await assert.rejects(readFile(fixture.rawFile), { code: "ENOENT" });
   await assert.rejects(readFile(snapshotFile), { code: "ENOENT" });
   await assert.rejects(readFile(ownedAssetFile), { code: "ENOENT" });
@@ -149,7 +149,7 @@ test("Maintenance queue items can be deleted with their unshared snapshot and ow
 
 test("Maintenance queue deletion protects raw notes referenced by other knowledge", async (context) => {
   const fixture = await createFixture(context);
-  await writeFile(fixture.rawFile, "---\ntitle: Evidence\ntype: raw-source\nstatus: inbox\n---\n# Evidence\n\nPending evidence.\n", "utf8");
+  await writeFile(fixture.rawFile, "---\ntitle: Evidence\ntype: Reference\nstatus: stable\nworkflow_status: inbox\n---\n# Evidence\n\nPending evidence.\n", "utf8");
   await writeFile(fixture.wikiFile, "---\ntitle: Note\nstatus: active\n---\n# Note\n\n[[Evidence]]\n", "utf8");
 
   const server = http.createServer(createDashboardApi({
@@ -164,7 +164,7 @@ test("Maintenance queue deletion protects raw notes referenced by other knowledg
   const session = await request(port, "GET", "/api/v1/session");
   const auth = { "x-my-wiki-token": session.body.token };
 
-  const blocked = await request(port, "DELETE", "/api/v1/inbox/item?path=raw%2Fsources%2Fevidence.md", { headers: auth });
+  const blocked = await request(port, "DELETE", "/api/v1/inbox/item?path=references%2Fsources%2Fevidence.md", { headers: auth });
   assert.equal(blocked.status, 409);
   assert.match(blocked.body.error, /referenced by other knowledge/);
   assert.match(await readFile(fixture.rawFile, "utf8"), /Pending evidence/);
@@ -172,9 +172,9 @@ test("Maintenance queue deletion protects raw notes referenced by other knowledg
 
 test("Maintenance queue batch deletion removes eligible items and reports protected items", async (context) => {
   const fixture = await createFixture(context);
-  const disposableFile = path.join(fixture.vault, "raw", "sources", "disposable.md");
-  await writeFile(fixture.rawFile, "---\ntitle: Evidence\ntype: raw-source\nstatus: inbox\n---\n# Evidence\n\nReferenced evidence.\n", "utf8");
-  await writeFile(disposableFile, "---\ntitle: Disposable\ntype: raw-source\nstatus: inbox\n---\n# Disposable\n\nDuplicate upload.\n", "utf8");
+  const disposableFile = path.join(fixture.vault, "references", "sources", "disposable.md");
+  await writeFile(fixture.rawFile, "---\ntitle: Evidence\ntype: Reference\nstatus: stable\nworkflow_status: inbox\n---\n# Evidence\n\nReferenced evidence.\n", "utf8");
+  await writeFile(disposableFile, "---\ntitle: Disposable\ntype: Reference\nstatus: stable\nworkflow_status: inbox\n---\n# Disposable\n\nDuplicate upload.\n", "utf8");
   await writeFile(fixture.wikiFile, "---\ntitle: Note\nstatus: active\n---\n# Note\n\n[[Evidence]]\n", "utf8");
 
   const server = http.createServer(createDashboardApi({
@@ -188,7 +188,7 @@ test("Maintenance queue batch deletion removes eligible items and reports protec
   const port = typeof address === "object" && address ? address.port : 0;
   const session = await request(port, "GET", "/api/v1/session");
   const auth = { "x-my-wiki-token": session.body.token };
-  const body = JSON.stringify({ paths: ["raw/sources/evidence.md", "raw/sources/disposable.md"] });
+  const body = JSON.stringify({ paths: ["references/sources/evidence.md", "references/sources/disposable.md"] });
 
   const result = await request(port, "DELETE", "/api/v1/inbox/items", {
     headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(body) },
@@ -197,29 +197,29 @@ test("Maintenance queue batch deletion removes eligible items and reports protec
 
   assert.equal(result.status, 200);
   assert.equal(result.body.count, 1);
-  assert.deepEqual(result.body.deleted.map((item) => item.path), ["raw/sources/disposable.md"]);
-  assert.deepEqual(result.body.failed.map((item) => item.path), ["raw/sources/evidence.md"]);
+  assert.deepEqual(result.body.deleted.map((item) => item.path), ["references/sources/disposable.md"]);
+  assert.deepEqual(result.body.failed.map((item) => item.path), ["references/sources/evidence.md"]);
   await assert.rejects(readFile(disposableFile), { code: "ENOENT" });
   assert.match(await readFile(fixture.rawFile, "utf8"), /Referenced evidence/);
 });
 
-test("Markdown images resolve relative to the note but stay inside raw/assets", async (context) => {
+test("Markdown images resolve relative to the note but stay inside references/assets", async (context) => {
   const fixture = await createFixture(context);
 
   assert.equal(
-    await resolveMarkdownImageFile(fixture.vault, "raw/sources/evidence.md", "../assets/capture/image.png"),
+    await resolveMarkdownImageFile(fixture.vault, "references/sources/evidence.md", "../assets/capture/image.png"),
     await realpath(fixture.imageFile)
   );
   assert.equal(
-    await resolveMarkdownImageFile(fixture.vault, "wiki/note.md", "/raw/assets/capture/image.png"),
+    await resolveMarkdownImageFile(fixture.vault, "concepts/note.md", "/references/assets/capture/image.png"),
     await realpath(fixture.imageFile)
   );
   await assert.rejects(
-    resolveMarkdownImageFile(fixture.vault, "raw/sources/evidence.md", "../../wiki/note.md"),
+    resolveMarkdownImageFile(fixture.vault, "references/sources/evidence.md", "../../concepts/note.md"),
     /Only local vault images/
   );
   await assert.rejects(
-    resolveMarkdownImageFile(fixture.vault, "raw/sources/evidence.md", "https://example.com/image.png"),
+    resolveMarkdownImageFile(fixture.vault, "references/sources/evidence.md", "https://example.com/image.png"),
     /Only local Markdown images/
   );
 });
@@ -236,7 +236,7 @@ test("Markdown image API serves validated local image bytes", async (context) =>
   const address = server.address();
   const port = typeof address === "object" && address ? address.port : 0;
   const session = await request(port, "GET", "/api/v1/session");
-  const route = `/api/v1/markdown-image?note=${encodeURIComponent("raw/sources/evidence.md")}&src=${encodeURIComponent("../assets/capture/image.png")}&token=${session.body.token}`;
+  const route = `/api/v1/markdown-image?note=${encodeURIComponent("references/sources/evidence.md")}&src=${encodeURIComponent("../assets/capture/image.png")}&token=${session.body.token}`;
   const response = await request(port, "GET", route);
 
   assert.equal(response.status, 200);
@@ -261,7 +261,7 @@ test("Markdown image API stores validated pasted images in managed editor assets
   const uploaded = await request(
     port,
     "POST",
-    "/api/v1/markdown-image?note=wiki%2Fnote.md&filename=Diagram.png",
+    "/api/v1/markdown-image?note=concepts%2Fnote.md&filename=Diagram.png",
     {
       headers: { ...auth, "content-type": "image/png", "content-length": png.length },
       body: png
@@ -269,14 +269,14 @@ test("Markdown image API stores validated pasted images in managed editor assets
   );
 
   assert.equal(uploaded.status, 201);
-  assert.match(uploaded.body.path, /^raw\/assets\/editor\/note-[a-f0-9]{8}\/diagram-[a-f0-9]{8}\.png$/);
-  assert.match(uploaded.body.source, /^\.\.\/raw\/assets\/editor\//);
+  assert.match(uploaded.body.path, /^references\/assets\/editor\/note-[a-f0-9]{8}\/diagram-[a-f0-9]{8}\.png$/);
+  assert.match(uploaded.body.source, /^\.\.\/references\/assets\/editor\//);
   assert.deepEqual(await readFile(path.join(fixture.vault, uploaded.body.path)), png);
 
   const invalid = await request(
     port,
     "POST",
-    "/api/v1/markdown-image?note=wiki%2Fnote.md&filename=not-an-image.png",
+    "/api/v1/markdown-image?note=concepts%2Fnote.md&filename=not-an-image.png",
     {
       headers: { ...auth, "content-type": "image/png", "content-length": 4 },
       body: Buffer.from("nope")
@@ -404,10 +404,10 @@ test("File uploads enter the Inbox queue before extraction completes", async (co
     port: 0,
     agentRunner: { info: async () => ({}) },
     localFileIngestor: async (input) => {
-      await input.onSnapshot({ relative: "raw/snapshots/queued.pdf" });
+      await input.onSnapshot({ relative: "references/originals/queued.pdf" });
       input.onProgress({ phase: "ocr", current: 12, total: 40, percent: 30, message: "Recognized page 12 of 40." });
       await extractionGate;
-      return { kind: "file", count: 1, items: [{ status: "inbox", path: "raw/sources/queued.md" }] };
+      return { kind: "file", count: 1, items: [{ status: "inbox", path: "references/sources/queued.md" }] };
     }
   }));
   context.after(() => server.close());
@@ -467,7 +467,7 @@ test("Dashboard recovers a persisted capture job after a service restart", async
   const fixture = await createFixture(context);
   const jobId = "11111111-1111-4111-8111-111111111111";
   const uploadFile = path.join(fixture.vault, ".my-wiki", "uploads", `${jobId}-recovered.pdf`);
-  const snapshotFile = path.join(fixture.vault, "raw", "snapshots", "2026-08-12--recovered.pdf");
+  const snapshotFile = path.join(fixture.vault, "references", "originals", "2026-08-12--recovered.pdf");
   const receiptFile = path.join(fixture.vault, ".my-wiki", "capture-jobs", `${jobId}.json`);
   await mkdir(path.dirname(uploadFile), { recursive: true });
   await mkdir(path.dirname(snapshotFile), { recursive: true });
@@ -484,7 +484,7 @@ test("Dashboard recovers a persisted capture job after a service restart", async
     suggestedUniverse: "数学",
     sourcePath: "",
     temporary: `.my-wiki/uploads/${jobId}-recovered.pdf`,
-    snapshotReference: "raw/snapshots/2026-08-12--recovered.pdf"
+    snapshotReference: "references/originals/2026-08-12--recovered.pdf"
   }, null, 2)}\n`, "utf8");
 
   let finishExtraction;
@@ -498,7 +498,7 @@ test("Dashboard recovers a persisted capture job after a service restart", async
       receivedInput = input;
       await input.onSnapshot({ relative: input.snapshotReference });
       await extractionGate;
-      return { kind: "file", count: 1, items: [{ status: "inbox", path: "raw/sources/recovered.md" }] };
+      return { kind: "file", count: 1, items: [{ status: "inbox", path: "references/sources/recovered.md" }] };
     }
   }));
   context.after(() => server.close());
@@ -515,7 +515,7 @@ test("Dashboard recovers a persisted capture job after a service restart", async
   for (let attempt = 0; attempt < 20 && !receivedInput; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
-  assert.equal(receivedInput.snapshotReference, "raw/snapshots/2026-08-12--recovered.pdf");
+  assert.equal(receivedInput.snapshotReference, "references/originals/2026-08-12--recovered.pdf");
 
   finishExtraction();
   let completed;
@@ -541,7 +541,7 @@ test("Chunked uploads assemble the original bytes before entering the Inbox queu
       receivedInput = input;
       const { file } = input;
       received = await readFile(file);
-      return { kind: "zip", count: 1, items: [{ status: "inbox", path: "raw/sources/chunked.md" }] };
+      return { kind: "zip", count: 1, items: [{ status: "inbox", path: "references/sources/chunked.md" }] };
     }
   }));
   context.after(() => server.close());
@@ -662,7 +662,7 @@ test("Chunked knowledge package uploads bypass single-request proxy limits", asy
 
 test("Maintenance uses a total timeout without an idle timeout", async (context) => {
   const fixture = await createFixture(context);
-  const sourceFile = path.join(fixture.vault, "raw", "sources", "maintenance-source.md");
+  const sourceFile = path.join(fixture.vault, "references", "sources", "maintenance-source.md");
   await writeFile(sourceFile, `---
 title: Maintenance Source
 status: inbox
@@ -710,7 +710,7 @@ This source contains substantive readable evidence for a maintenance timeout tes
   const session = await request(port, "GET", "/api/v1/session");
   const auth = { "x-my-wiki-token": session.body.token };
   const body = JSON.stringify({
-    paths: ["raw/sources/maintenance-source.md"],
+    paths: ["references/sources/maintenance-source.md"],
     batchSize: 1,
     provider: "opencode"
   });
@@ -745,7 +745,7 @@ test("mixed Raw maintenance runs independently with a shared concurrency limit o
     { name: "distill-c", status: "inbox", reasons: [] }
   ];
   for (const source of sources) {
-    await writeFile(path.join(fixture.vault, "raw", "sources", `${source.name}.md`), [
+    await writeFile(path.join(fixture.vault, "references", "sources", `${source.name}.md`), [
       "---",
       `title: ${source.name}`,
       "type: raw-source",
@@ -800,7 +800,7 @@ test("mixed Raw maintenance runs independently with a shared concurrency limit o
   const session = await request(port, "GET", "/api/v1/session");
   const auth = { "x-my-wiki-token": session.body.token };
   const body = JSON.stringify({
-    paths: sources.map((source) => `raw/sources/${source.name}.md`),
+    paths: sources.map((source) => `references/sources/${source.name}.md`),
     batchSize: 3,
     distillProvider: "opencode",
     distillModel: "distill-model",
@@ -823,7 +823,7 @@ test("mixed Raw maintenance runs independently with a shared concurrency limit o
   assert.equal(agent.body.rawTaskLimit, 2);
   assert.equal(agent.body.activeRawJobs.length, 3);
 
-  const duplicateBody = JSON.stringify({ path: "raw/sources/repair-b.md", provider: "opencode" });
+  const duplicateBody = JSON.stringify({ path: "references/sources/repair-b.md", provider: "opencode" });
   const duplicate = await request(port, "POST", "/api/v1/agent/repair", {
     headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(duplicateBody) },
     body: duplicateBody
@@ -840,14 +840,15 @@ test("mixed Raw maintenance runs independently with a shared concurrency limit o
 
 test("Maintenance normalizes escaped Wiki metadata and rejects residual malformed frontmatter", async (context) => {
   const fixture = await createFixture(context);
-  const sourceFile = path.join(fixture.vault, "raw", "sources", "metadata-gate-source.md");
-  const normalizedWikiFile = path.join(fixture.vault, "wiki", "normalized-topic.md");
-  const rejectedWikiFile = path.join(fixture.vault, "wiki", "rejected-topic.md");
+  const sourceFile = path.join(fixture.vault, "references", "sources", "metadata-gate-source.md");
+  const normalizedWikiFile = path.join(fixture.vault, "concepts", "normalized-topic.md");
+  const rejectedWikiFile = path.join(fixture.vault, "concepts", "rejected-topic.md");
   await writeFile(sourceFile, [
     "---",
     "title: Metadata Gate Source",
-    "status: inbox",
-    "type: raw-source",
+    "type: Reference",
+    "status: stable",
+    "workflow_status: inbox",
     "source_type: webpage",
     "capture_method: dashboard-url",
     "captured: 2026-08-12T00:00:00.000Z",
@@ -870,7 +871,7 @@ test("Maintenance normalizes escaped Wiki metadata and rejects residual malforme
     }),
     run: async () => {
       const raw = await readFile(sourceFile, "utf8");
-      await writeFile(sourceFile, raw.replace("status: inbox", "status: processed"), "utf8");
+      await writeFile(sourceFile, raw.replace("workflow_status: inbox", "workflow_status: processed"), "utf8");
       await writeFile(normalizedWikiFile, [
         "---",
         "title: \\\"Calculus\\\"",
@@ -879,7 +880,7 @@ test("Maintenance normalizes escaped Wiki metadata and rejects residual malforme
         "universes:",
         "  - \\\"数学\\\"",
         "sources:",
-        "  - \\\"[[raw/sources/metadata-gate-source]]\\\"",
+        "  - \\\"[[references/sources/metadata-gate-source]]\\\"",
         "---",
         "# Calculus",
         ""
@@ -897,8 +898,8 @@ test("Maintenance normalizes escaped Wiki metadata and rejects residual malforme
       ].join("\n"), "utf8");
       return {
         summary: "Created Wiki pages.",
-        processed: ["raw/sources/metadata-gate-source.md"],
-        createdWiki: ["wiki/normalized-topic.md", "wiki/rejected-topic.md"],
+        processed: ["references/sources/metadata-gate-source.md"],
+        createdWiki: ["concepts/normalized-topic.md", "concepts/rejected-topic.md"],
         updatedWiki: [],
         remainingNotes: ""
       };
@@ -911,7 +912,7 @@ test("Maintenance normalizes escaped Wiki metadata and rejects residual malforme
   const port = typeof address === "object" && address ? address.port : 0;
   const session = await request(port, "GET", "/api/v1/session");
   const auth = { "x-my-wiki-token": session.body.token };
-  const body = JSON.stringify({ paths: ["raw/sources/metadata-gate-source.md"], batchSize: 1, provider: "opencode" });
+  const body = JSON.stringify({ paths: ["references/sources/metadata-gate-source.md"], batchSize: 1, provider: "opencode" });
   const queued = await request(port, "POST", "/api/v1/agent/maintenance", {
     headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(body) },
     body
@@ -931,19 +932,19 @@ test("Maintenance normalizes escaped Wiki metadata and rejects residual malforme
   assert.equal(completed.body.result.frontmatterMetadataIssues.length, 1);
   assert.equal(completed.body.result.frontmatterMetadataIssues[0].reason, "boundary-backslash");
   assert.match(completed.body.result.summary, /postflight rejected malformed Wiki frontmatter/);
-  assert.match(await readFile(sourceFile, "utf8"), /^status: "inbox"$|^status: inbox$/m);
+  assert.match(await readFile(sourceFile, "utf8"), /^workflow_status: "inbox"$|^workflow_status: inbox$/m);
 
   const normalized = await readFile(normalizedWikiFile, "utf8");
   assert.match(normalized, /^title: "Calculus"$/m);
   assert.match(normalized, /^  - "数学"$/m);
-  assert.match(normalized, /^  - "\[\[raw\/sources\/metadata-gate-source\]\]"$/m);
+  assert.match(normalized, /^  - "\[\[references\/sources\/metadata-gate-source\]\]"$/m);
   assert.doesNotMatch(normalized, /\\"/);
 });
 
 test("Repair Agent fixes a needs-followup Raw and unlocks it only after formula revalidation", async (context) => {
   const fixture = await createFixture(context);
-  const sourceFile = path.join(fixture.vault, "raw", "sources", "formula-repair.md");
-  const snapshotFile = path.join(fixture.vault, "raw", "snapshots", "formula-repair.pdf");
+  const sourceFile = path.join(fixture.vault, "references", "sources", "formula-repair.md");
+  const snapshotFile = path.join(fixture.vault, "references", "originals", "formula-repair.pdf");
   await mkdir(path.dirname(snapshotFile), { recursive: true });
   await writeFile(snapshotFile, Buffer.from("preserved-pdf"));
   await writeFile(sourceFile, `---
@@ -962,7 +963,7 @@ extraction_formula_risk_pages: "4"
 extraction_formula_strict_warning_pages: "4"
 extraction_formula_strict_warning_count: 1
 capture_method: dashboard-upload
-snapshot_path: raw/snapshots/formula-repair.pdf
+snapshot_path: references/originals/formula-repair.pdf
 tags:
   - raw
   - needs-followup
@@ -1021,7 +1022,7 @@ $$
   const port = typeof address === "object" && address ? address.port : 0;
   const session = await request(port, "GET", "/api/v1/session");
   const auth = { "x-my-wiki-token": session.body.token };
-  const body = JSON.stringify({ path: "raw/sources/formula-repair.md", provider: "opencode" });
+  const body = JSON.stringify({ path: "references/sources/formula-repair.md", provider: "opencode" });
   const queued = await request(port, "POST", "/api/v1/agent/repair", {
     headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(body) },
     body
@@ -1046,10 +1047,10 @@ $$
   assert.match(runOptions.prompt, /strict-warning/);
   assert.match(runOptions.prompt, /Too few columns/);
   assert.match(runOptions.prompt, /Structured evidence-gate context/);
-  assert.match(runOptions.prompt, /Edit only raw\/sources\/formula-repair\.md/);
+  assert.match(runOptions.prompt, /Edit only references\/sources\/formula-repair\.md/);
 
   const repaired = await readFile(sourceFile, "utf8");
-  assert.match(repaired, /^status: "?inbox"?$/m);
+  assert.match(repaired, /^workflow_status: "?inbox"?$/m);
   assert.match(repaired, /^needs_followup: false$/m);
   assert.match(repaired, /^followup_reasons: \[\]$/m);
   assert.match(repaired, /^extraction_formula_strict_warning_pages:\s*$/m);
@@ -1062,8 +1063,8 @@ $$
 
 test("Repair re-extracts missing PDF visual evidence with the selected CLI before invoking the text Agent", async (context) => {
   const fixture = await createFixture(context);
-  const sourceFile = path.join(fixture.vault, "raw", "sources", "visual-repair.md");
-  const snapshotFile = path.join(fixture.vault, "raw", "snapshots", "visual-repair.pdf");
+  const sourceFile = path.join(fixture.vault, "references", "sources", "visual-repair.md");
+  const snapshotFile = path.join(fixture.vault, "references", "originals", "visual-repair.pdf");
   await mkdir(path.dirname(snapshotFile), { recursive: true });
   await writeFile(snapshotFile, Buffer.from("preserved-pdf"));
   await writeFile(sourceFile, `---
@@ -1080,7 +1081,7 @@ extracted_characters: 240
 extraction_low_quality_pages: "13,15"
 extraction_missing_visual_pages: "13,15"
 capture_method: dashboard-upload
-snapshot_path: raw/snapshots/visual-repair.pdf
+snapshot_path: references/originals/visual-repair.pdf
 tags:
   - raw
   - needs-followup
@@ -1113,7 +1114,7 @@ The main body contains substantial readable evidence; only two figure-only pages
       .replace("extraction_status: low-quality", "extraction_status: complete")
       .replace("extraction_low_quality_pages: \"13,15\"", "extraction_low_quality_pages: \"\"")
       .replace("extraction_missing_visual_pages: \"13,15\"", "extraction_missing_visual_pages: \"\"\nextraction_rendered_visual_pages: \"13,15\""), "utf8");
-    return { count: 1, results: [{ path: "raw/sources/visual-repair.md", status: "inbox" }] };
+    return { count: 1, results: [{ path: "references/sources/visual-repair.md", status: "inbox" }] };
   };
   const agentRunner = {
     info: async () => ({
@@ -1136,7 +1137,7 @@ The main body contains substantial readable evidence; only two figure-only pages
   const port = server.address().port;
   const session = await request(port, "GET", "/api/v1/session");
   const auth = { "x-my-wiki-token": session.body.token };
-  const body = JSON.stringify({ path: "raw/sources/visual-repair.md", provider: "codex", model: "vision-model" });
+  const body = JSON.stringify({ path: "references/sources/visual-repair.md", provider: "codex", model: "vision-model" });
   const queued = await request(port, "POST", "/api/v1/agent/repair", {
     headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(body) },
     body
@@ -1158,8 +1159,8 @@ The main body contains substantial readable evidence; only two figure-only pages
 
 test("Repair revalidation clears stale managed reasons without invoking an Agent", async (context) => {
   const fixture = await createFixture(context);
-  const sourceFile = path.join(fixture.vault, "raw", "sources", "stale-repair.md");
-  const snapshotFile = path.join(fixture.vault, "raw", "snapshots", "stale-repair.pdf");
+  const sourceFile = path.join(fixture.vault, "references", "sources", "stale-repair.md");
+  const snapshotFile = path.join(fixture.vault, "references", "originals", "stale-repair.pdf");
   await mkdir(path.dirname(snapshotFile), { recursive: true });
   await writeFile(snapshotFile, Buffer.from("preserved-pdf"));
   await writeFile(sourceFile, `---
@@ -1176,7 +1177,7 @@ extraction_method: mineru
 extracted_characters: 240
 extraction_formula_risk_pages: "4"
 capture_method: dashboard-upload
-snapshot_path: raw/snapshots/stale-repair.pdf
+snapshot_path: references/originals/stale-repair.pdf
 tags:
   - raw
   - needs-followup
@@ -1218,7 +1219,7 @@ The current extracted evidence is readable and its formula $a^2+b^2=c^2$ is vali
   const port = typeof address === "object" && address ? address.port : 0;
   const session = await request(port, "GET", "/api/v1/session");
   const auth = { "x-my-wiki-token": session.body.token };
-  const body = JSON.stringify({ path: "raw/sources/stale-repair.md", provider: "opencode" });
+  const body = JSON.stringify({ path: "references/sources/stale-repair.md", provider: "opencode" });
   const queued = await request(port, "POST", "/api/v1/agent/repair", {
     headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(body) },
     body
@@ -1235,7 +1236,7 @@ The current extracted evidence is readable and its formula $a^2+b^2=c^2$ is vali
   assert.equal(completed.body.result.unlocked, true);
   assert.equal(agentRuns, 0);
   const repaired = await readFile(sourceFile, "utf8");
-  assert.match(repaired, /^status: "?inbox"?$/m);
+  assert.match(repaired, /^workflow_status: "?inbox"?$/m);
   assert.match(repaired, /^followup_reasons: \[\]$/m);
   assert.match(repaired, /- Missing local attachments: none/);
 });
@@ -1352,10 +1353,10 @@ test("Viki preserves image block placement and rejects invalid answer images", a
       runOptions = options;
       return {
         answerMarkdown: "First supporting claim.\n\nSecond supporting claim.",
-        sources: [{ path: "wiki/note.md", title: "Note" }],
+        sources: [{ path: "concepts/note.md", title: "Note" }],
         images: [
-          { path: "raw/assets/capture/image.png", caption: "Supporting diagram", afterBlock: 99 },
-          { path: "wiki/not-an-image.png", caption: "Rejected", afterBlock: 0 }
+          { path: "references/assets/capture/image.png", caption: "Supporting diagram", afterBlock: 99 },
+          { path: "concepts/not-an-image.png", caption: "Rejected", afterBlock: 0 }
         ]
       };
     }
@@ -1394,11 +1395,11 @@ test("Viki preserves image block placement and rejects invalid answer images", a
 
   assert.equal(completed.body.status, "complete");
   assert.deepEqual(completed.body.result.images, [{
-    path: "raw/assets/capture/image.png",
+    path: "references/assets/capture/image.png",
     caption: "Supporting diagram",
     afterBlock: 1
   }]);
-  assert.deepEqual(completed.body.result.sources, [{ path: "wiki/note.md", title: "Note" }]);
+  assert.deepEqual(completed.body.result.sources, [{ path: "concepts/note.md", title: "Note" }]);
   assert.equal(runOptions.model, "internal/default");
   assert.match(runOptions.prompt, /afterBlock/);
 });
@@ -1417,9 +1418,9 @@ test("Viki promotes valid Markdown image tags into authenticated answer images",
     run: async () => ({
       answerMarkdown: [
         "First supporting claim.",
-        "![Agent workflow](raw/assets/capture/image.png)",
+        "![Agent workflow](references/assets/capture/image.png)",
         "Second supporting claim.",
-        "![Rejected](wiki/not-an-image.png)"
+        "![Rejected](concepts/not-an-image.png)"
       ].join("\n\n"),
       sources: [],
       images: []
@@ -1455,10 +1456,10 @@ test("Viki promotes valid Markdown image tags into authenticated answer images",
   assert.equal(completed.body.result.answerMarkdown, [
     "First supporting claim.",
     "Second supporting claim.",
-    "![Rejected](wiki/not-an-image.png)"
+    "![Rejected](concepts/not-an-image.png)"
   ].join("\n\n"));
   assert.deepEqual(completed.body.result.images, [{
-    path: "raw/assets/capture/image.png",
+    path: "references/assets/capture/image.png",
     caption: "Agent workflow",
     afterBlock: 0
   }]);

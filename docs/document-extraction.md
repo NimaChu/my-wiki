@@ -14,7 +14,7 @@ preserved snapshot
   -> Raw source + extraction report
 ```
 
-The untouched input remains under `raw/snapshots/`. Runtime extraction artifacts are stored under `.my-wiki/extractions/` and are not part of a shared knowledge package unless an export explicitly includes them.
+The untouched input remains under `references/originals/`. Runtime extraction artifacts are stored under `.my-wiki/extractions/` and are not part of a shared knowledge package unless an export explicitly includes them.
 
 ## Engine responsibilities
 

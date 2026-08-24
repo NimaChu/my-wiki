@@ -1,7 +1,8 @@
 ---
-title: "{{title}}"
 type: concept
-status: active
+title: "{{title}}"
+description: "One-sentence definition of this durable concept."
+status: stable
 universes: []
 aliases:
 reviewed_at:
@@ -9,7 +10,7 @@ source_count: 0
 relation_hints:
 tags:
   - concept
-sources:
+sources: []
 ---
 
 # {{title}}

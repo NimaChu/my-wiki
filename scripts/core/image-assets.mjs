@@ -23,10 +23,10 @@ function has(name) {
 
 function usage() {
   console.log(`Usage:
-  my-wiki images --source raw/sources/source-note.md [--limit 40] [--no-download] [--no-update-note]
+  my-wiki images --source references/sources/source-note.md [--limit 40] [--no-download] [--no-update-note]
 
 Extract image evidence from a raw note and its snapshots, mirror remote images into
-raw/assets/<source-note>/, write image-index.json, and update the raw note's Images section.`);
+references/assets/<source-note>/, write image-index.json, and update the raw note's Images section.`);
 }
 
 function stripFrontmatter(content) {
@@ -271,7 +271,7 @@ const noteContent = await fs.readFile(sourcePath, "utf8");
 const frontmatter = parseFrontmatter(noteContent);
 const baseUrl = arg("--base-url", frontmatter.source_url || "");
 const sourceBase = path.basename(sourcePath, ".md");
-const assetDir = path.join(vault, "raw", "assets", sourceBase);
+const assetDir = path.join(vault, "references", "assets", sourceBase);
 await fs.mkdir(assetDir, { recursive: true });
 
 const candidates = await readCandidateTexts({

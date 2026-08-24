@@ -114,8 +114,8 @@ test("non-formula re-extraction keeps the extracted Markdown when no formula gat
 test("formula-aware capture records syntax metadata and enters follow-up", async () => {
   const vault = await mkdtemp(path.join(os.tmpdir(), "my-wiki-formula-capture-"));
   try {
-    await mkdir(path.join(vault, "wiki"), { recursive: true });
-    await writeFile(path.join(vault, "wiki", "log.md"), "# Log\n", "utf8");
+    await mkdir(path.join(vault, "concepts"), { recursive: true });
+    await writeFile(path.join(vault, "log.md"), "# Log\n", "utf8");
     const result = await captureSource({
       vault,
       title: "Formula source",
@@ -145,8 +145,8 @@ $$`,
 test("formula-aware capture records strict warning metadata and enters follow-up", async () => {
   const vault = await mkdtemp(path.join(os.tmpdir(), "my-wiki-formula-strict-capture-"));
   try {
-    await mkdir(path.join(vault, "wiki"), { recursive: true });
-    await writeFile(path.join(vault, "wiki", "log.md"), "# Log\n", "utf8");
+    await mkdir(path.join(vault, "concepts"), { recursive: true });
+    await writeFile(path.join(vault, "log.md"), "# Log\n", "utf8");
     const result = await captureSource({
       vault,
       title: "Strict formula source",
@@ -176,8 +176,9 @@ $$`,
 test("re-extraction stays complete but locks maintenance when formula syntax fails", async () => {
   const source = `---
 title: "Source"
-type: raw-source
-status: inbox
+type: Reference
+status: stable
+workflow_status: inbox
 needs_followup: false
 followup_reasons: []
 tags:
@@ -208,7 +209,8 @@ $$`);
   });
 
   assert.match(updated, /^extraction_status: "complete"$/m);
-  assert.match(updated, /^status: "needs-followup"$/m);
+  assert.match(updated, /^status: stable$/m);
+  assert.match(updated, /^workflow_status: "needs-followup"$/m);
   assert.match(updated, /formula-syntax-error:pages=38/);
   assert.match(updated, /^extraction_formula_syntax_error_pages: "38"$/m);
 });

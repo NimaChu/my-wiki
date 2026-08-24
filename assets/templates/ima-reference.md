@@ -1,8 +1,10 @@
 ---
 title: "{{title}}"
-type: raw-source
+type: Reference
 source_type: ima
-status: inbox
+description: "Captured evidence for {{title}}."
+status: stable
+workflow_status: inbox
 author:
 published:
 captured: {{date}}
@@ -58,7 +60,7 @@ related:
 
 ## Images
 
-- Inline Markdown/HTML images are preserved in Capture. Run `my-wiki images --source raw/sources/source-note.md` when image references are present.
+- Inline Markdown/HTML images are preserved in Capture. Run `my-wiki images --source references/sources/source-note.md` when image references are present.
 
 ## Extracted Claims
 
@@ -70,6 +72,6 @@ related:
 
 ## Processing Notes
 
-- Status: inbox
+- Workflow status: inbox
 - Imported locally from IMA; do not depend on the external platform during routine maintenance or query.
 - Next action: compile durable ideas into wiki pages, close core related links, then mark processed.

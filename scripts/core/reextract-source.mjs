@@ -24,12 +24,12 @@ export async function reextractSources({
   const scan = await scanVault(vault);
   const normalizedSource = normalizeSourceReference(source);
   const candidates = scan.nodes.filter((node) => {
-    if (!node.id.startsWith("raw/sources/")) return false;
+    if (!node.id.startsWith("references/sources/")) return false;
     if (normalizedSource) return normalizeSourceReference(node.id) === normalizedSource || normalizeSourceReference(node.path) === normalizedSource;
     return allFollowup && node.status === "needs-followup" && String(node.frontmatter.snapshot_path || "").trim();
   });
   if (normalizedSource && candidates.length === 0) throw new Error(`Raw source not found: ${source}`);
-  if (!normalizedSource && !allFollowup) throw new Error("Provide --source raw/sources/<note>.md or --all-followup.");
+  if (!normalizedSource && !allFollowup) throw new Error("Provide --source references/sources/<note>.md or --all-followup.");
 
   const results = [];
   for (const node of candidates) {
@@ -114,7 +114,7 @@ export function applyExtractionToRawNote(content, extracted) {
   if (!complete) tags.push("needs-followup");
   if (Number(extracted.assetCount || 0) > 0 && !tags.includes("images")) tags.push("images");
   let updated = upsertFrontmatterValues(content, {
-    status: complete ? "inbox" : "needs-followup",
+    workflow_status: complete ? "inbox" : "needs-followup",
     needs_followup: !complete,
     followup_reasons: complete
       ? []
@@ -237,7 +237,7 @@ export function reinsertIndexedPageAssets(content, images = []) {
 }
 
 async function readIndexedPageAssets({ vault, notePath, rawBase }) {
-  const indexFile = path.join(vault, "raw", "assets", rawBase, "image-index.json");
+  const indexFile = path.join(vault, "references", "assets", rawBase, "image-index.json");
   let parsed;
   try {
     parsed = JSON.parse(await fs.readFile(indexFile, "utf8"));

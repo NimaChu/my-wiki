@@ -21,6 +21,28 @@ test("Codex and OpenCode receive page images through native CLI attachment flags
   assert.ok(opencode.args.includes("/pages/2.png"));
 });
 
+test("Codex discovery resolves symlinks so bundled companion executables remain adjacent", async () => {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-codex-symlink-test-"));
+  const bundle = path.join(temporary, "bundle");
+  const bin = path.join(temporary, "bin");
+  const command = path.join(bundle, "codex");
+  const symlink = path.join(bin, "codex");
+  await fs.mkdir(bundle);
+  await fs.mkdir(bin);
+  await fs.writeFile(command, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  await fs.symlink(command, symlink);
+
+  try {
+    const info = await createLocalAgentRunner({
+      env: { ...process.env, PATH: bin, MY_WIKI_AGENT_PROVIDER: "codex" }
+    }).info();
+    assert.equal(info.available, true);
+    assert.equal(info.providers.find((item) => item.provider === "codex")?.command, await fs.realpath(command));
+  } finally {
+    await fs.rm(temporary, { recursive: true, force: true });
+  }
+});
+
 test("provider model catalogs normalize OpenCode lines and visible Codex models", () => {
   assert.deepEqual(parseProviderModels("opencode", `
 internal-litellm/gpt-5.6-sol

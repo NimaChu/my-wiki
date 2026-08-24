@@ -43,7 +43,7 @@ For MCP output that is already Markdown, pipe it into `wiki:capture` or save it 
 
 ## Boundaries
 
-- MCP output is not the durable source of truth until it is written into `raw/`.
+- MCP output is not the durable source of truth until it is written as a local Reference under `references/sources/`.
 - Do not refresh or start the dashboard after MCP capture unless visualization is requested.
 - Respect site terms, robots policy, privacy constraints, and user authorization.
 - If Firecrawl tools are not visible in the current Codex thread, reload/open a new thread so the workspace MCP config can be discovered.

@@ -1,4 +1,4 @@
-const IMAGE_PATH = /^(raw\/assets|raw\/snapshots)\/.+\.(png|jpe?g|gif|webp|svg)$/i;
+const IMAGE_PATH = /^references\/(assets|originals)\/.+\.(png|jpe?g|gif|webp|svg)$/i;
 
 export function promoteVaultMarkdownImages(content, suppliedImages = []) {
   const originalBlocks = String(content || "").replace(/\r\n/g, "\n").split(/\n{2,}/).filter(Boolean);

@@ -33,10 +33,16 @@
     "wiki:sync-ima": "node scripts/my-wiki.mjs sync-ima",
     "wiki:fetch-ima": "node scripts/my-wiki.mjs fetch-ima",
     "wiki:distill-query": "node scripts/my-wiki.mjs distill-query",
+    "wiki:okf-audit": "node scripts/my-wiki.mjs okf-audit",
+    "wiki:okf-migrate": "node scripts/my-wiki.mjs okf-migrate",
+    "wiki:export-okf": "node scripts/my-wiki.mjs export-okf",
     "wiki:refresh": "node scripts/my-wiki.mjs refresh",
     "dashboard": "node scripts/my-wiki.mjs dashboard",
     "dashboard:open": "node scripts/my-wiki.mjs open-dashboard",
     "dashboard:build": "node scripts/my-wiki.mjs build-dashboard",
     "graph": "node scripts/my-wiki.mjs refresh"
+  },
+  "dependencies": {
+    "yaml": "^2.9.0"
   }
 }

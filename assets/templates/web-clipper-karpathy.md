@@ -1,8 +1,10 @@
 ---
 title: "{{title}}"
-type: raw-source
+type: Reference
+description: "Captured evidence for {{title}}."
 source_type: webpage
-status: inbox
+status: stable
+workflow_status: inbox
 author: "{{author}}"
 published: "{{published}}"
 captured: "{{date}}"
@@ -48,5 +50,5 @@ related:
 
 ## Processing Notes
 
-- Status: inbox
-- Next action: compile durable ideas into `wiki/`, close core related links, then mark processed.
+- Workflow status: inbox
+- Next action: compile durable ideas into `concepts/`, close core related links, then mark processed.

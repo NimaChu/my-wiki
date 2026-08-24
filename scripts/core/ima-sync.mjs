@@ -16,7 +16,7 @@ import {
 } from "./ima-local-lib.mjs";
 
 const vault = vaultPath();
-const rawImaDir = path.join(vault, "raw", "sources");
+const rawImaDir = path.join(vault, "references", "sources");
 const args = process.argv.slice(2);
 
 function usage() {
@@ -39,9 +39,9 @@ Options:
   --base-url <url>    IMA OpenAPI base URL. Defaults to https://ima.qq.com.
 
 Default behavior is local-first: each imported IMA item becomes a normal
-raw/sources/*.md source note with status: inbox. Text content is stored in Capture,
-binary originals are mirrored under raw/snapshots/, and image items are
-mirrored under raw/assets/.
+references/sources/*.md OKF Reference with status: stable and workflow_status: inbox. Text content is stored in Capture,
+binary originals are mirrored under references/originals/, and image items are
+mirrored under references/assets/.
 `);
 }
 
@@ -96,7 +96,7 @@ async function listKnowledgeBases(client) {
   const bases = [];
   let cursor = "";
   do {
-    const data = await client.call("openapi/wiki/v1/search_knowledge_base", {
+    const data = await client.call("openapi/concepts/v1/search_knowledge_base", {
       query: kbFilter || "",
       cursor,
       limit: 20
@@ -125,7 +125,7 @@ async function listFolder(client, kb, folder) {
       limit: 50
     };
     if (folder?.id) body.folder_id = folder.id;
-    const data = await client.call("openapi/wiki/v1/get_knowledge_list", body);
+    const data = await client.call("openapi/concepts/v1/get_knowledge_list", body);
     items.push(...(data.knowledge_list || []));
     cursor = data.is_end ? "" : data.next_cursor || "";
   } while (cursor);

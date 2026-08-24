@@ -14,6 +14,7 @@ import { compactPageRanges } from "./pdf-quality.mjs";
 import { checkMarkdownFormulas, formulaGateFollowupReasons, shouldGateExtractedFormulas } from "./formula-gate.mjs";
 import { unicodeReplacementFollowupReasons, unicodeReplacementNote, unicodeReplacementReport } from "./content-integrity.mjs";
 import { finalizeExtractionReport, persistExtractionArtifacts } from "./extraction-standard.mjs";
+import { normalizeReferenceNode } from "./okf-lib.mjs";
 
 const DEFAULT_FETCH_BYTES = 100 * 1024 * 1024;
 
@@ -59,7 +60,7 @@ export async function captureSource({
   if (!vault) throw new Error("captureSource requires a vault path");
   const date = new Date().toISOString().slice(0, 10);
   const capturedAt = new Date().toISOString();
-  const rawDir = path.join(vault, "raw", "sources");
+  const rawDir = path.join(vault, "references", "sources");
   const resolvedCollection = inferRawCollection({ collection, sourceUrl: url, sourceType, captureMethod });
   const resolvedSuggestedUniverse = String(suggestedUniverse || "").trim()
     ? validateUniverseName(suggestedUniverse)
@@ -142,13 +143,15 @@ export async function captureSource({
     ? `- Encoding gate: ${unicodeReplacementNote(unicodeReplacementGate)}\n`
     : "";
 
-  const body = `---
+  const draft = `---
 title: ${yamlString(title)}
-type: raw-source
+type: Reference
+description: ${yamlString(`Captured evidence for ${title}.`)}
 source_type: ${yamlString(sourceType)}
 collection: ${yamlString(resolvedCollection)}
 suggested_universe: ${yamlString(resolvedSuggestedUniverse)}
-status: ${resolvedStatus}
+status: stable
+workflow_status: ${resolvedStatus}
 needs_followup: ${requiresFollowup}
 followup_reasons:${followupReasons.length ? `\n${yamlList(followupReasons)}` : " []"}
 author: ${yamlString(author)}
@@ -205,12 +208,23 @@ ${formulaNote}${encodingNote}${warningsNote}${attachmentNote}- Image mirror fail
 - Next action: compile durable ideas into wiki pages, close core related links, then mark processed.
 `;
 
+  const vaultRelative = path.relative(vault, target).replace(/\\/g, "/");
+  const body = normalizeReferenceNode({
+    id: vaultRelative.replace(/\.md$/i, ""),
+    path: vaultRelative,
+    title,
+    content: draft
+  }, { nodes: [], resolve: () => null }, {
+    generatedBy: "process:my-wiki-capture",
+    generatedAt: capturedAt
+  });
+
   await fs.writeFile(target, body, "utf8");
   await appendLog(`CAPTURE_RAW source="${path.relative(vault, target)}" type="${sourceType}" snapshot="${snapshot?.path || ""}"`, vault);
 
   return {
     path: target,
-    vaultRelative: path.relative(vault, target).replace(/\\/g, "/"),
+    vaultRelative,
     title,
     collection: resolvedCollection,
     suggestedUniverse: resolvedSuggestedUniverse,
@@ -243,7 +257,7 @@ function compactPageList(pages) {
 }
 
 async function saveSnapshot({ vault, rawBase, url, snapshotFile, snapshotReference, shouldSnapshot, fetchMaxBytes, validateUrl }) {
-  const snapshotsDir = path.join(vault, "raw", "snapshots");
+  const snapshotsDir = path.join(vault, "references", "originals");
   await fs.mkdir(snapshotsDir, { recursive: true });
   if (snapshotReference) {
     const target = path.resolve(vault, snapshotReference);
@@ -294,7 +308,7 @@ async function saveSnapshot({ vault, rawBase, url, snapshotFile, snapshotReferen
 async function copyExplicitImages({ vault, target, rawBase, imageInputs, shouldMirrorImages, fetchMaxBytes, validateUrl }) {
   const explicitImages = [];
   if (imageInputs.length === 0) return explicitImages;
-  const assetDir = path.join(vault, "raw", "assets", rawBase);
+  const assetDir = path.join(vault, "references", "assets", rawBase);
   await fs.mkdir(assetDir, { recursive: true });
   for (const image of imageInputs) {
     if (/^https?:\/\//i.test(image) && shouldMirrorImages) {
@@ -330,7 +344,7 @@ async function copyExplicitImages({ vault, target, rawBase, imageInputs, shouldM
 
 export async function materializeEmbeddedAssets({ vault, notePath, rawBase, markdown, assets }) {
   if (!assets.length) return { markdown, copied: 0, images: [], written: [] };
-  const assetDir = path.join(vault, "raw", "assets", rawBase);
+  const assetDir = path.join(vault, "references", "assets", rawBase);
   await fs.mkdir(assetDir, { recursive: true });
   const used = new Set();
   const images = [];
@@ -366,7 +380,7 @@ export async function materializeEmbeddedAssets({ vault, notePath, rawBase, mark
 async function updateEmbeddedImageIndex({ vault, notePath, rawBase, written }) {
   const images = written.filter((item) => isImageFilename(item.name));
   if (!images.length) return;
-  const assetDir = path.join(vault, "raw", "assets", rawBase);
+  const assetDir = path.join(vault, "references", "assets", rawBase);
   const indexFile = path.join(assetDir, "image-index.json");
   let current = { source_note: path.relative(vault, notePath).replace(/\\/g, "/"), images: [] };
   try {
@@ -433,7 +447,7 @@ function portableAssetReference(value) {
 }
 
 async function mirrorMarkdownImages({ vault, notePath, noteSlug, markdown, fetchMaxBytes, validateUrl }) {
-  const assetDir = path.join(vault, "raw", "assets", noteSlug);
+  const assetDir = path.join(vault, "references", "assets", noteSlug);
   await fs.mkdir(assetDir, { recursive: true });
   let copied = 0;
   const failures = [];

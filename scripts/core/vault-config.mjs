@@ -56,7 +56,7 @@ export function resolveVaultSpecifier(specifier, { cwd = process.cwd(), config =
 
 export function looksLikeVault(target) {
   return fs.existsSync(path.join(target, VAULT_MARKER)) || (
-    fs.existsSync(path.join(target, "raw")) && fs.existsSync(path.join(target, "wiki"))
+    fs.existsSync(path.join(target, "references", "sources")) && fs.existsSync(path.join(target, "concepts"))
   );
 }
 
@@ -78,10 +78,10 @@ function configuredFromAncestors(start) {
   }
 }
 
-function legacyVaultFromAncestors(start) {
+function vaultFromAncestors(start) {
   let current = path.resolve(start);
   while (true) {
-    if (fs.existsSync(path.join(current, "raw")) && fs.existsSync(path.join(current, "wiki"))) return current;
+    if (fs.existsSync(path.join(current, "references", "sources")) && fs.existsSync(path.join(current, "concepts"))) return current;
     const parent = path.dirname(current);
     if (parent === current) return "";
     current = parent;
@@ -98,8 +98,8 @@ export function resolveVaultPath({ specifier = "", cwd = process.cwd(), required
   if (nearby) return nearby;
 
   if (config.defaultVault) return resolveVaultSpecifier(config.defaultVault, { cwd, config });
-  const legacy = legacyVaultFromAncestors(cwd);
-  if (legacy) return legacy;
+  const discovered = vaultFromAncestors(cwd);
+  if (discovered) return discovered;
   if (looksLikeVault(TOOL_ROOT)) return TOOL_ROOT;
   if (!required) return "";
 

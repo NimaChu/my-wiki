@@ -48,6 +48,10 @@ const commands = {
   "import-universe": ["import-universe.mjs", ...rest],
   "repair-links": ["repair-links.mjs", ...rest],
   "distill-query": ["distill-query.mjs", ...rest],
+  "okf-audit": ["okf-audit.mjs", ...rest],
+  "okf-migrate": ["okf-migrate.mjs", ...rest],
+  "migrate-vault-v2": ["../migrations/vault-schema-v2.mjs", ...rest],
+  "export-okf": ["export-okf.mjs", ...rest],
   "sync-ima": ["ima-sync.mjs", ...rest],
   "fetch-ima": ["ima-fetch.mjs", ...rest],
   search: ["search.mjs", ...rest]
@@ -71,21 +75,25 @@ Usage:
   my-wiki capture --title "Title" --url "https://..." --type webpage
   my-wiki capture --file /path/to/document.pdf [--collection "Research"]
   my-wiki capture --directory /path/to/documents [--collection "Research"]
-  my-wiki reextract --source raw/sources/source-note.md
+  my-wiki reextract --source references/sources/source-note.md
   my-wiki reextract --all-followup
   my-wiki organize-raw [--apply]
-  my-wiki images --source raw/sources/source-note.md
+  my-wiki images --source references/sources/source-note.md
   my-wiki capture --title "Title" --url "https://..." --refresh-dashboard
   my-wiki capture --title "Title" --url "https://..." --serve-dashboard
   my-wiki search "query terms"
   my-wiki sync-ima [--kb "Knowledge base name"] [--no-images]
-  my-wiki fetch-ima raw/sources/source.md [--metadata|--force]
+  my-wiki fetch-ima references/sources/source.md [--metadata|--force]
   my-wiki garden
   my-wiki universes [--apply]
   my-wiki export-universe "Universe Name" [--output package.mywiki]
   my-wiki import-universe package.mywiki [--as "Universe Name"] [--apply]
   my-wiki repair-links
-  my-wiki distill-query --title "Durable answer" --summary-file /tmp/answer.md --source raw/...
+  my-wiki distill-query --title "Durable answer" --summary-file /tmp/answer.md --source references/sources/...
+  my-wiki okf-audit
+  my-wiki okf-migrate [--apply]
+  my-wiki migrate-vault-v2
+  my-wiki export-okf [--galaxy "AI"] [--output /path/to/bundle]
 
 Environment:
   MY_WIKI_VAULT=personal-or-/path/to/vault

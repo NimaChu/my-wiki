@@ -10,7 +10,7 @@ const dash = dashboardPath(vault);
 const lockPath = path.join(dash, ".graph-watch.pid");
 const logPath = path.join(dash, "graph-watch.log");
 const dashboardPidPath = path.join(dash, ".dashboard-server.pid");
-const roots = ["raw", "wiki"];
+const roots = ["references", "concepts"];
 const intervalMs = Number(process.env.WIKI_GRAPH_WATCH_INTERVAL_MS || 5000);
 
 function log(message) {

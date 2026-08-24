@@ -109,7 +109,7 @@ export function mediaTypeLabel(value) {
 }
 
 export async function fetchImaOriginal(client, mediaId) {
-  const info = await client.call("openapi/wiki/v1/get_media_info", { media_id: mediaId });
+  const info = await client.call("openapi/concepts/v1/get_media_info", { media_id: mediaId });
   if (Number(info.media_type) === 11 && info.notebook_ext_info?.notebook_id) {
     const note = await client.call("openapi/note/v1/get_doc_content", {
       note_id: info.notebook_ext_info.notebook_id,
@@ -213,7 +213,7 @@ export async function materializeOriginal({ vault = vaultPath(), notePath, title
     const ext = extensionForOriginal(original);
     const isImage = String(original.contentType || "").toLowerCase().startsWith("image/") || Number(original.mediaType) === 9;
     if (isImage) {
-      const assetDir = path.join(vault, "raw", "assets", noteBase);
+      const assetDir = path.join(vault, "references", "assets", noteBase);
       await fs.mkdir(assetDir, { recursive: true });
       const target = path.join(assetDir, `original${ext}`);
       await fs.writeFile(target, original.binary);
@@ -223,7 +223,7 @@ export async function materializeOriginal({ vault = vaultPath(), notePath, title
       result.capture = result.imageMarkdown;
       result.localFiles.push(vaultRelative);
     } else {
-      const snapshotDir = path.join(vault, "raw", "snapshots");
+      const snapshotDir = path.join(vault, "references", "originals");
       await fs.mkdir(snapshotDir, { recursive: true });
       const target = path.join(snapshotDir, `${noteBase}--original${ext}`);
       await fs.writeFile(target, original.binary);
@@ -256,10 +256,12 @@ export function rawImaMarkdown({ kb, item, target, original, materialized }) {
 
   return `---
 title: ${yamlString(title)}
-type: raw-source
+type: Reference
+description: ${yamlString(`Captured evidence for ${title}.`)}
 source_type: ima
 collection: "ima"
-status: inbox
+status: stable
+workflow_status: inbox
 author: ${yamlString(item.author || "")}
 published: ${yamlString(item.published || item.create_time || "")}
 captured: ${yamlString(capturedAt)}

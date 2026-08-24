@@ -36,14 +36,14 @@ function usage() {
   console.log(`IMA local raw fetch
 
 Usage:
-  my-wiki fetch-ima raw/sources/source.md
-  my-wiki fetch-ima raw/sources/source.md --metadata
-  my-wiki fetch-ima raw/sources/source.md --force
-  my-wiki fetch-ima raw/sources/source.md --stdout
-  my-wiki fetch-ima raw/sources/source.md --output /tmp/source.md
+  my-wiki fetch-ima references/sources/source.md
+  my-wiki fetch-ima references/sources/source.md --metadata
+  my-wiki fetch-ima references/sources/source.md --force
+  my-wiki fetch-ima references/sources/source.md --stdout
+  my-wiki fetch-ima references/sources/source.md --output /tmp/source.md
 
 Default behavior upgrades or refreshes one IMA raw note into local-first form:
-status: inbox, source_type: ima, Capture filled with fetched text or a local
+status: stable, workflow_status: inbox, source_type: ima, Capture filled with fetched text or a local
 snapshot reference, and image references mirrored when possible.
 
 Options:
@@ -138,7 +138,8 @@ const materialized = await materializeOriginal({
 
 let updated = upsertFrontmatter(note.content, {
   source_type: "ima",
-  status: "inbox",
+  status: "stable",
+  workflow_status: "inbox",
   source_url: original.sourceUrl || note.frontmatter.source_url || "",
   snapshot_path: materialized.snapshotPath || note.frontmatter.snapshot_path || "",
   content_hash: materialized.contentHash,

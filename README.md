@@ -93,7 +93,7 @@ Agent 会启动本地网页应用。你可以：
 - 进入知识星系，查看三维 Wiki 星球关系网络；
 - 打开 Wiki 页面，继续进入它背后的 raw 原文证据层；
 - 搜索 Wiki、关系和来源，而不破坏当前图谱层级；
-- 双击 Wiki 或证据点进入轻量 Markdown 工作台，在阅读、源码和实时分屏间切换；文档大纲、公式/表格工具、图片粘贴与拖入都直接作用于受控的本地 Markdown 与 `raw/assets/`，不引入第二套笔记数据库；
+- 双击 Wiki 或证据点进入轻量 Markdown 工作台，在阅读、源码和实时分屏间切换；文档大纲、公式/表格工具、图片粘贴与拖入都直接作用于受控的本地 Markdown 与 `references/assets/`，不引入第二套笔记数据库；
 - 输入网页链接，或上传文件、文件夹和 Markdown + 图片 ZIP 图文包；
 - 查看统一维护队列：快照保存后即可看到自动提取进度，并可按 Raw 独立蒸馏或修复；批量维护会依据每条状态自动选择动作。提取、蒸馏和修复共用 2 个并发槽位，同一 Raw 不会重复执行；
 - 查看大文件与知识包进度：分片上传、逐页 OCR 和分批 MinerU 显示实际字节或页数，单进程提取、导入预览与最终写入显示当前处理阶段；
@@ -161,6 +161,25 @@ My Wiki 不是给每份文档生成一段摘要。一份资料可以更新多个
 
 这使 My Wiki 不只是个人资料整理工具，也可以成为可传播、可验证、可继续维护的知识生态基础。
 
+### Open Knowledge Format v0.2
+
+Wiki 概念默认采用 [Google Open Knowledge Format v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format) 可消费的 Markdown 表达：标准 YAML frontmatter、`draft|stable|deprecated` 生命周期、结构化来源对象、标准 Markdown 关系链接和按来源 ID 连接的证据脚注。My Wiki 的知识星系、别名和证据闭环字段作为 OKF 允许的扩展键保留；系统不会把“已经蒸馏”冒充为人工验证。
+
+```bash
+# 审计当前 Wiki 的 OKF v0.2 兼容性
+npm run wiki -- okf-audit
+
+# 预览旧 Wiki 的迁移数量；--apply 会先备份 concepts/ 再转换
+npm run wiki -- okf-migrate
+npm run wiki -- okf-migrate --apply
+
+# 导出全部知识或单个知识星系为独立 OKF directory bundle
+npm run wiki -- export-okf
+npm run wiki -- export-okf --galaxy "AI" --output /path/to/ai-okf
+```
+
+`.mywiki` 是经过 OKF v0.2 审计的可移植知识星系包：包内直接采用 `index.md`、`log.md`、`concepts/`、`references/` 布局，并在清单中保留星系名、工作流状态、校验和与冲突处理等 My Wiki 扩展。解包后的知识内容可被通用 OKF 消费者读取，My Wiki 则额外恢复可继续维护的证据闭环。
+
 ## 为什么选择 My Wiki
 
 - **本地优先**：Markdown、原件、网页快照和图片都在你控制的目录中。
@@ -171,7 +190,7 @@ My Wiki 不是给每份文档生成一段摘要。一份资料可以更新多个
 - **支持多种本地文档**：文本 PDF、扫描 PDF、图片、DOCX、PPTX、XLSX、文件夹批次和 ZIP 图文包。
 - **质量感知的 PDF 解析**：逐页检查乱码、稀疏文本和公式版面风险；中文 OCR 会清理逐字空格，低质量页面不会静默进入维护。
 - **失败不会伪装成功**：空内容、低置信度或不完整解析会锁定为 `needs-followup`，不会被当成已读资料。
-- **开放且可迁移**：知识可以移动、备份、用任意 Markdown 编辑器打开，也可以以后接入 Obsidian 或 RAG。
+- **开放且可迁移**：Wiki 可审计并导出为 OKF v0.2，知识也可用任意 Markdown 编辑器打开或接入 Obsidian、RAG 和其他 Agent 工具。
 - **零成本起步**：只需要 Node.js 和一个已经可用的本地 Agent 客户端。
 
 ### 统一文档提取与验收
@@ -263,16 +282,20 @@ npx my-wiki-skill@latest
 
 ```text
 my-vault/
-  raw/
-    sources/    原始证据的 Markdown 转写
-    assets/     每篇来源独立保存的图片与图像索引
-    snapshots/  网页快照、PDF、Office 文档和其他原件
-  wiki/         可长期复用的原子 Wiki 页面
-  templates/    当前知识库使用的 Markdown 模板
-  .my-wiki/     本地缓存、运行状态、导入导出记录
+  index.md                 OKF 知识入口
+  log.md                   OKF 更新日志
+  concepts/                可长期复用的原子 Wiki 页面
+  references/
+    sources/               原始证据的 Markdown Reference
+    assets/                每篇来源独立保存的图片与图像索引
+    originals/             网页快照、PDF、Office 文档和其他原件
+  templates/               当前知识库使用的 Markdown 模板
+  .my-wiki/                本地缓存、运行状态、导入导出记录
 ```
 
-网页与 Agent 使用相同的本地解析质量门槛。文本 PDF 会逐页提取，扫描件和图片会本地 OCR，DOCX、PPTX、XLSX 会转换为结构化 Markdown；原文件始终保留在 `raw/snapshots/`。
+`Concept.status` 与 `Reference.status` 使用 OKF 生命周期 `draft | stable | deprecated`。My Wiki 的维护流程单独写入 Reference 的扩展字段 `workflow_status: inbox | needs-followup | processed | stale`，两者不再复用同一个 `status`。
+
+网页与 Agent 使用相同的本地解析质量门槛。文本 PDF 会逐页提取，扫描件和图片会本地 OCR，DOCX、PPTX、XLSX 会转换为结构化 Markdown；原文件始终保留在 `references/originals/`。
 
 代码仓库和 npm Skill 包不包含你的知识库、本地 MCP 凭据或运行日志。知识库是否备份、同步、加密或始终留在一台电脑上，由你决定。
 
