@@ -27,7 +27,7 @@ jobs:
         working-directory: assets/dashboard
         run: npm ci
       - name: Run tests
-        run: npm test
+        run: npm test -- --test-timeout=30000 --test-force-exit
       - name: Build Dashboard
         working-directory: assets/dashboard
         run: npm run build

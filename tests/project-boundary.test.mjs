@@ -48,6 +48,7 @@ test("cross-platform checks install project and Dashboard dependencies", async (
   assert.match(workflow, /cache-dependency-path:\s*\|\s*package-lock\.json\s*assets\/dashboard\/package-lock\.json/);
   assert.match(workflow, /name: Install project dependencies\s*run: npm ci/);
   assert.match(workflow, /name: Install Dashboard dependencies\s*working-directory: assets\/dashboard\s*run: npm ci/);
+  assert.match(workflow, /run: npm test -- --test-timeout=30000 --test-force-exit/);
 });
 
 test("project instructions stay a concise router to the canonical Skill", async () => {
