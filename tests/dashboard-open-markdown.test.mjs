@@ -47,7 +47,14 @@ async function createFixture(context) {
   await writeFile(rawFile, "# Evidence\n\n![Local](../assets/capture/image.png)\n", "utf8");
   await writeFile(imageFile, Buffer.from([137, 80, 78, 71]));
   await writeFile(path.join(dashboard, ".my-wiki-runtime.json"), `${JSON.stringify({ vault })}\n`, "utf8");
-  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  context.after(async () => {
+    try {
+      await rm(root, { recursive: true, force: true });
+    } catch (error) {
+      const transientWindowsLock = process.platform === "win32" && ["ENOTEMPTY", "EBUSY", "EPERM"].includes(error?.code);
+      if (!transientWindowsLock) throw error;
+    }
+  });
   return { vault, dashboard, wikiFile, rawFile, imageFile };
 }
 
