@@ -21,7 +21,9 @@ test("Codex and OpenCode receive page images through native CLI attachment flags
   assert.ok(opencode.args.includes("/pages/2.png"));
 });
 
-test("Codex discovery resolves symlinks so bundled companion executables remain adjacent", async () => {
+test("Codex discovery resolves symlinks so bundled companion executables remain adjacent", {
+  skip: process.platform === "win32" ? "Windows uses native executable discovery instead of Unix launcher symlinks" : false
+}, async () => {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-codex-symlink-test-"));
   const bundle = path.join(temporary, "bundle");
   const bin = path.join(temporary, "bin");
