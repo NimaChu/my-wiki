@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BookOpen, Download, FileArchive, FileUp, FolderUp, Inbox, Link2, LoaderCircle, Orbit, Plus, Upload, X } from "lucide-react";
+import { BookOpen, Download, Eye, EyeOff, FileArchive, FileUp, FolderUp, Inbox, Link2, LoaderCircle, Orbit, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
 import { InboxItem, Job, localApi, TaskProgress, UniverseSummary, waitForJob } from "./api";
 
 type Language = "en" | "zh";
@@ -46,11 +46,18 @@ const labels = {
     status: "Status",
     addAnother: "Add another",
     universeTitle: "Knowledge galaxies",
-    universeDescription: "Export one galaxy or preview a package before importing it.",
+    universeDescription: "Create, rename, show, hide, delete, export, or import knowledge galaxies.",
     wikiPages: "{count} concept planets",
     rawSources: "{count} references",
     export: "Export",
     exporting: "Exporting",
+    hideGalaxy: "Hide galaxy from the knowledge universe",
+    showGalaxy: "Show galaxy in the knowledge universe",
+    renameGalaxy: "Rename galaxy",
+    renameGalaxyPrompt: "Enter a new name for \"{name}\".",
+    deleteGalaxy: "Delete galaxy",
+    deleteGalaxyPrompt: "Concepts and references will be retained. Concepts with no other galaxy will move to Uncategorized. Type \"{name}\" to delete this galaxy.",
+    deleteGalaxyMismatch: "The galaxy name did not match. Nothing was deleted.",
     download: "Download package",
     importPackage: "Import a galaxy package",
     rename: "Galaxy name after import",
@@ -121,11 +128,18 @@ const labels = {
     status: "状态",
     addAnother: "继续添加",
     universeTitle: "知识星系",
-    universeDescription: "导出单个星系，或在确认前预览知识包导入内容。",
+    universeDescription: "新增、重命名、显示、隐藏、删除、导出或导入知识星系。",
     wikiPages: "{count} 个概念星球",
     rawSources: "{count} 条参考资料",
     export: "导出",
     exporting: "正在导出",
+    hideGalaxy: "在知识宇宙中隐藏此星系",
+    showGalaxy: "在知识宇宙中显示此星系",
+    renameGalaxy: "重命名星系",
+    renameGalaxyPrompt: "请输入“{name}”的新名称。",
+    deleteGalaxy: "删除星系",
+    deleteGalaxyPrompt: "Concept 与 Reference 会保留；没有其他归属的 Concept 将移至 Uncategorized。请输入“{name}”确认删除该星系。",
+    deleteGalaxyMismatch: "输入的星系名称不匹配，未执行删除。",
     download: "下载知识包",
     importPackage: "导入知识星系包",
     rename: "导入后的星系名",
@@ -418,6 +432,7 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
   const [creatingUniverse, setCreatingUniverse] = useState(false);
   const [createdMessage, setCreatedMessage] = useState("");
   const [activeExport, setActiveExport] = useState("");
+  const [activeGalaxyAction, setActiveGalaxyAction] = useState("");
   const [download, setDownload] = useState<{ name: string; url: string } | null>(null);
   const [packageFile, setPackageFile] = useState<File | null>(null);
   const [rename, setRename] = useState("");
@@ -450,7 +465,7 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
     setCreatingUniverse(true);
     try {
       const created = await localApi.createUniverse(newUniverse.trim());
-      const summary: UniverseSummary = { name: created.name, wiki: created.wiki, raw: created.raw, declared: true };
+      const summary: UniverseSummary = { name: created.name, wiki: created.wiki, raw: created.raw, declared: true, hidden: false };
       setUniverses((current) => [...current.filter((item) => item.name !== summary.name), summary].sort((a, b) => b.wiki - a.wiki || a.name.localeCompare(b.name)));
       setNewUniverse("");
       setCreatedMessage(`${l.galaxyCreated}: ${created.name}`);
@@ -460,6 +475,58 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
       setError(errorMessage(nextError));
     } finally {
       setCreatingUniverse(false);
+    }
+  };
+
+  const refreshUniverses = async () => setUniverses((await localApi.universes()).universes);
+
+  const toggleUniverse = async (universe: UniverseSummary) => {
+    setError("");
+    setActiveGalaxyAction(universe.name);
+    try {
+      await localApi.setUniverseHidden(universe.name, !universe.hidden);
+      await refreshUniverses();
+      window.dispatchEvent(new Event("my-wiki:graph-updated"));
+    } catch (nextError) {
+      setError(errorMessage(nextError));
+    } finally {
+      setActiveGalaxyAction("");
+    }
+  };
+
+  const renameUniverse = async (universe: UniverseSummary) => {
+    const newName = window.prompt(l.renameGalaxyPrompt.replace("{name}", universe.name), universe.name)?.trim();
+    if (!newName || newName === universe.name) return;
+    setError("");
+    setActiveGalaxyAction(universe.name);
+    try {
+      await localApi.renameUniverse(universe.name, newName);
+      await refreshUniverses();
+      window.dispatchEvent(new Event("my-wiki:graph-updated"));
+    } catch (nextError) {
+      setError(errorMessage(nextError));
+    } finally {
+      setActiveGalaxyAction("");
+    }
+  };
+
+  const deleteUniverse = async (universe: UniverseSummary) => {
+    const confirmation = window.prompt(l.deleteGalaxyPrompt.replace("{name}", universe.name));
+    if (confirmation === null) return;
+    if (confirmation !== universe.name) {
+      setError(l.deleteGalaxyMismatch);
+      return;
+    }
+    setError("");
+    setActiveGalaxyAction(universe.name);
+    try {
+      await localApi.deleteUniverse(universe.name, confirmation);
+      await refreshUniverses();
+      window.dispatchEvent(new Event("my-wiki:graph-updated"));
+    } catch (nextError) {
+      setError(errorMessage(nextError));
+    } finally {
+      setActiveGalaxyAction("");
     }
   };
 
@@ -515,10 +582,17 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
             {universes.map((universe) => (
               <article className="universe-row" key={universe.name}>
                 <div><strong>{universe.name}</strong><span>{universe.wiki === 0 ? l.emptyGalaxy : `${template(l.wikiPages, universe.wiki)} · ${template(l.rawSources, universe.raw)}`}</span></div>
-                <button type="button" disabled={Boolean(activeExport) || universe.wiki === 0} onClick={() => exportOne(universe.name)}>
-                  {activeExport === universe.name ? <LoaderCircle className="spin" size={15} /> : <Download size={15} />}
-                  {activeExport === universe.name ? l.exporting : l.export}
-                </button>
+                <div className="universe-row-actions">
+                  <button type="button" className="galaxy-icon-action" disabled={Boolean(activeGalaxyAction)} aria-label={universe.hidden ? l.showGalaxy : l.hideGalaxy} title={universe.hidden ? l.showGalaxy : l.hideGalaxy} onClick={() => void toggleUniverse(universe)}>
+                    {activeGalaxyAction === universe.name ? <LoaderCircle className="spin" size={15} /> : universe.hidden ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                  <button type="button" className="galaxy-icon-action" disabled={Boolean(activeGalaxyAction)} aria-label={l.renameGalaxy} title={l.renameGalaxy} onClick={() => void renameUniverse(universe)}><Pencil size={15} /></button>
+                  <button type="button" className="galaxy-icon-action destructive" disabled={Boolean(activeGalaxyAction)} aria-label={l.deleteGalaxy} title={l.deleteGalaxy} onClick={() => void deleteUniverse(universe)}><Trash2 size={15} /></button>
+                  <button type="button" disabled={Boolean(activeExport) || Boolean(activeGalaxyAction) || universe.wiki === 0} onClick={() => exportOne(universe.name)}>
+                    {activeExport === universe.name ? <LoaderCircle className="spin" size={15} /> : <Download size={15} />}
+                    {activeExport === universe.name ? l.exporting : l.export}
+                  </button>
+                </div>
               </article>
             ))}
           </div>

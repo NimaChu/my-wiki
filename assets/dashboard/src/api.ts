@@ -28,6 +28,7 @@ export type UniverseSummary = {
   wiki: number;
   raw: number;
   declared?: boolean;
+  hidden?: boolean;
 };
 
 export type Job = {
@@ -66,7 +67,11 @@ export type AgentInfo = {
   activeJob: Job | null;
   activeMaintenanceJob: Job | null;
   rawTaskLimit?: number;
+  agentTaskLimit?: number;
+  extractionTaskLimit?: number;
   activeRawJobs?: Job[];
+  activeAgentJobs?: Job[];
+  activeExtractionJobs?: Job[];
 };
 
 export type AgentTaskSelection = {
@@ -232,6 +237,33 @@ export const localApi = {
       body: JSON.stringify({ name })
     });
     return response.json() as Promise<UniverseSummary & { created: boolean; graphRefreshed: boolean }>;
+  },
+
+  async setUniverseHidden(name: string, hidden: boolean) {
+    const response = await apiFetch("/api/v1/universes/visibility", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, hidden })
+    });
+    return response.json() as Promise<{ name: string; hidden: boolean; graphRefreshed: boolean }>;
+  },
+
+  async renameUniverse(name: string, newName: string) {
+    const response = await apiFetch("/api/v1/universes/rename", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, newName })
+    });
+    return response.json() as Promise<{ name: string; previousName: string; hidden: boolean; updatedConcepts: number; updatedReferences: number; graphRefreshed: boolean }>;
+  },
+
+  async deleteUniverse(name: string, confirmation: string) {
+    const response = await apiFetch("/api/v1/universes/delete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, confirmation })
+    });
+    return response.json() as Promise<{ name: string; updatedConcepts: number; updatedReferences: number; reassignedConcepts: number; graphRefreshed: boolean }>;
   },
 
   async agent() {

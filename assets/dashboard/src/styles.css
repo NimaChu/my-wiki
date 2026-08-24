@@ -684,6 +684,25 @@ h3 {
   font-size: 12px;
 }
 
+.universe-row > .universe-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.workspace-dialog .galaxy-icon-action {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  justify-content: center;
+}
+
+.workspace-dialog .galaxy-icon-action.destructive {
+  color: #d9968e;
+}
+
 .download-ready {
   width: 100%;
   margin-top: 16px;

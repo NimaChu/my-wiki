@@ -389,7 +389,8 @@ test("Dashboard can declare an empty knowledge galaxy without creating Wiki page
     name: "数学",
     wiki: 0,
     raw: 0,
-    declared: true
+    declared: true,
+    hidden: false
   });
   const registry = JSON.parse(await readFile(path.join(fixture.vault, ".my-wiki", "galaxies.json"), "utf8"));
   assert.deepEqual(registry.galaxies, ["数学"]);
@@ -461,6 +462,51 @@ test("File uploads enter the Inbox queue before extraction completes", async (co
   }
   assert.equal(completed.body.status, "complete");
   await assert.rejects(readFile(receiptFile, "utf8"), /ENOENT/);
+});
+
+test("queued uploads are visible before an extraction slot preserves their snapshot", async (context) => {
+  const fixture = await createFixture(context);
+  let releaseExtraction;
+  const extractionGate = new Promise((resolve) => { releaseExtraction = resolve; });
+  const server = http.createServer(createDashboardApi({
+    dashboardRoot: fixture.dashboard,
+    port: 0,
+    agentRunner: { info: async () => ({}) },
+    localFileIngestor: async (input) => {
+      await extractionGate;
+      await input.onSnapshot({ relative: `references/originals/${input.filename}` });
+      return { kind: "file", count: 1, items: [{ status: "inbox", path: `references/sources/${input.filename}.md` }] };
+    }
+  }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+
+  const queued = [];
+  for (const filename of ["first.md", "second.md", "third.md"]) {
+    const body = Buffer.from(`# ${filename}`);
+    queued.push(await request(port, "POST", `/api/v1/inbox/file?filename=${filename}`, {
+      headers: { ...auth, "content-type": "text/markdown", "content-length": body.length },
+      body
+    }));
+  }
+  const captures = await request(port, "GET", "/api/v1/capture-jobs", { headers: auth });
+  const third = captures.body.items.find((item) => item.jobId === queued[2].body.id);
+  assert.equal(third.jobStatus, "queued");
+  assert.equal(third.snapshotPath, "");
+  assert.match(third.preview, /Waiting for a local extraction slot/);
+
+  releaseExtraction();
+  for (const item of queued) {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const current = await request(port, "GET", `/api/v1/jobs/${item.body.id}`, { headers: auth });
+      if (current.body.status === "complete") break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
 });
 
 test("Dashboard recovers a persisted capture job after a service restart", async (context) => {
@@ -709,6 +755,20 @@ This source contains substantive readable evidence for a maintenance timeout tes
   const port = typeof address === "object" && address ? address.port : 0;
   const session = await request(port, "GET", "/api/v1/session");
   const auth = { "x-my-wiki-token": session.body.token };
+  const missingProviderBody = JSON.stringify({
+    paths: ["references/sources/maintenance-source.md"],
+    batchSize: 1
+  });
+  const missingProvider = await request(port, "POST", "/api/v1/agent/maintenance", {
+    headers: {
+      ...auth,
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(missingProviderBody)
+    },
+    body: missingProviderBody
+  });
+  assert.equal(missingProvider.status, 400);
+  assert.match(missingProvider.body.error, /provider is required/i);
   const body = JSON.stringify({
     paths: ["references/sources/maintenance-source.md"],
     batchSize: 1,
@@ -769,6 +829,7 @@ test("mixed Raw maintenance runs independently with a shared concurrency limit o
   let running = 0;
   let peak = 0;
   const started = [];
+  let captureStarted = false;
   const agentRunner = {
     info: async () => ({
       available: true,
@@ -792,7 +853,16 @@ test("mixed Raw maintenance runs independently with a shared concurrency limit o
         : { summary: "Left in inbox", processed: [], createdWiki: [], updatedWiki: [], remainingNotes: "pending" };
     }
   };
-  const server = http.createServer(createDashboardApi({ dashboardRoot: fixture.dashboard, port: 0, agentRunner }));
+  const server = http.createServer(createDashboardApi({
+    dashboardRoot: fixture.dashboard,
+    port: 0,
+    agentRunner,
+    localFileIngestor: async (input) => {
+      captureStarted = true;
+      await input.onSnapshot({ relative: "references/originals/independent.md" });
+      return { kind: "file", count: 1, items: [{ status: "inbox", path: "references/sources/independent.md" }] };
+    }
+  }));
   context.after(() => server.close());
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
@@ -821,7 +891,24 @@ test("mixed Raw maintenance runs independently with a shared concurrency limit o
   assert.deepEqual(started.find((item) => item.mode === "repair"), { mode: "repair", provider: "codex", model: "repair-model" });
   const agent = await request(port, "GET", "/api/v1/agent", { headers: auth });
   assert.equal(agent.body.rawTaskLimit, 2);
+  assert.equal(agent.body.agentTaskLimit, 2);
+  assert.equal(agent.body.extractionTaskLimit, 2);
   assert.equal(agent.body.activeRawJobs.length, 3);
+
+  const upload = Buffer.from("# Independent extraction");
+  const captured = await request(port, "POST", "/api/v1/inbox/file?filename=independent.md", {
+    headers: { ...auth, "content-type": "text/markdown", "content-length": upload.length },
+    body: upload
+  });
+  let captureJob;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    captureJob = await request(port, "GET", `/api/v1/jobs/${captured.body.id}`, { headers: auth });
+    if (captureJob.body.status === "complete") break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(captureStarted, true);
+  assert.equal(captureJob.body.status, "complete");
+  assert.equal(started.length, 2);
 
   const duplicateBody = JSON.stringify({ path: "references/sources/repair-b.md", provider: "opencode" });
   const duplicate = await request(port, "POST", "/api/v1/agent/repair", {

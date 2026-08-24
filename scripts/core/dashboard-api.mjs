@@ -19,7 +19,15 @@ import {
   shouldGateExtractedFormulas
 } from "./formula-gate.mjs";
 import { unicodeReplacementFollowupReasons, unicodeReplacementNote, unicodeReplacementReport } from "./content-integrity.mjs";
-import { declareUniverse, readDeclaredUniverses, validateUniverseName } from "./universe-registry.mjs";
+import {
+  declareUniverse,
+  readDeclaredUniverses,
+  readHiddenUniverses,
+  removeDeclaredUniverse,
+  renameDeclaredUniverse,
+  setUniverseHidden,
+  validateUniverseName
+} from "./universe-registry.mjs";
 import {
   frontmatterMetadataIssues,
   isWikiKnowledgeNode,
@@ -45,7 +53,8 @@ const FILE_CHUNK_LIMIT = Math.max(64 * 1024, Math.min(4 * 1024 * 1024, Number(pr
 const sessionToken = randomBytes(32).toString("hex");
 const jobs = new Map();
 const dashboardGraphCache = new Map();
-const RAW_TASK_CONCURRENCY = 2;
+const EXTRACTION_TASK_CONCURRENCY = Math.max(1, Number(process.env.MY_WIKI_EXTRACTION_CONCURRENCY) || 2);
+const AGENT_TASK_CONCURRENCY = Math.max(1, Number(process.env.MY_WIKI_AGENT_TASK_CONCURRENCY) || 2);
 const BUNDLED_PET_IDS = ["qoderwork--my-wiki", "codenono--dq02", "claude--xiangking"];
 const MAINTENANCE_QUEUE_STATUSES = new Set(["inbox", "needs-followup", "stale"]);
 
@@ -115,9 +124,49 @@ export function createDashboardApi({
 }) {
   const runtimeFile = path.join(dashboardRoot, ".my-wiki-runtime.json");
   const activeAgentJobs = { query: "" };
-  const rawTaskQueue = [];
-  const activeRawTasks = new Map();
-  let activeRawTaskCount = 0;
+  const createTaskLane = (limit) => {
+    const queue = [];
+    const active = new Map();
+    let activeCount = 0;
+
+    const drain = () => {
+      while (activeCount < limit && queue.length > 0) {
+        const entry = queue.shift();
+        if (!entry || entry.job.status === "cancelled") continue;
+        activeCount += 1;
+        active.set(entry.key, entry.job.id);
+        runJob(entry.job, entry.work, () => {
+          activeCount = Math.max(0, activeCount - 1);
+          if (active.get(entry.key) === entry.job.id) active.delete(entry.key);
+          drain();
+        });
+      }
+    };
+
+    return {
+      enqueue(job, taskKey, work) {
+        const key = normalizeRawTaskKey(taskKey);
+        const existingId = active.get(key) || queue.find((entry) => entry.key === key)?.job.id;
+        const existing = existingId ? jobs.get(existingId) : null;
+        if (isActiveJob(existing)) throw httpError(409, "This Raw already has an active task");
+        job.meta.rawKey = key;
+        queue.push({ job, key, work });
+        drain();
+        return job;
+      },
+      jobs(vault) {
+        return [...new Set([...active.values(), ...queue.map((entry) => entry.job.id)])]
+          .map((id) => jobs.get(id))
+          .filter((job) => job?.vault === vault && isActiveJob(job));
+      },
+      activeCount() {
+        return activeCount;
+      },
+      limit
+    };
+  };
+  const extractionTasks = createTaskLane(EXTRACTION_TASK_CONCURRENCY);
+  const agentTasks = createTaskLane(AGENT_TASK_CONCURRENCY);
   const pendingUploads = new Map();
   const recoveredCaptureVaults = new Map();
 
@@ -163,7 +212,7 @@ export function createDashboardApi({
       snapshotReference
     };
     await writeCaptureReceipt(vault, receipt);
-    enqueueRawTask(job, `capture:${job.id}`, async () => {
+    extractionTasks.enqueue(job, `capture:${job.id}`, async () => {
       try {
         const batch = await localFileIngestor({
           vault,
@@ -201,38 +250,6 @@ export function createDashboardApi({
     return job;
   };
 
-  const drainRawTasks = () => {
-    while (activeRawTaskCount < RAW_TASK_CONCURRENCY && rawTaskQueue.length > 0) {
-      const entry = rawTaskQueue.shift();
-      if (!entry || entry.job.status === "cancelled") continue;
-      activeRawTaskCount += 1;
-      activeRawTasks.set(entry.key, entry.job.id);
-      runJob(entry.job, entry.work, () => {
-        activeRawTaskCount = Math.max(0, activeRawTaskCount - 1);
-        if (activeRawTasks.get(entry.key) === entry.job.id) activeRawTasks.delete(entry.key);
-        drainRawTasks();
-      });
-    }
-  };
-
-  const enqueueRawTask = (job, rawKey, work) => {
-    const key = normalizeRawTaskKey(rawKey);
-    const existingId = activeRawTasks.get(key) || rawTaskQueue.find((entry) => entry.key === key)?.job.id;
-    const existing = existingId ? jobs.get(existingId) : null;
-    if (isActiveJob(existing)) throw httpError(409, "This Raw already has an active task");
-    job.meta.rawKey = key;
-    rawTaskQueue.push({ job, key, work });
-    drainRawTasks();
-    return job;
-  };
-
-  const rawTaskJobs = (vault) => [...new Set([
-    ...activeRawTasks.values(),
-    ...rawTaskQueue.map((entry) => entry.job.id)
-  ])]
-    .map((id) => jobs.get(id))
-    .filter((job) => job?.vault === vault && isActiveJob(job));
-
   const rawTaskForPath = (vault, requestedPath) => {
     const normalized = normalizeNoteReference(requestedPath);
     if (!normalized) return null;
@@ -255,7 +272,7 @@ export function createDashboardApi({
       action: "distill"
     }, vault);
     job.abortController = new AbortController();
-    return enqueueRawTask(job, source.path, async () => {
+    return agentTasks.enqueue(job, source.path, async () => {
       const currentScan = await scanVault(vault);
       const currentSource = findRawSource(currentScan, source.path);
       if (!currentSource || !["inbox", "stale"].includes(currentSource.status)) {
@@ -310,7 +327,7 @@ export function createDashboardApi({
       action: "repair"
     }, vault);
     job.abortController = new AbortController();
-    return enqueueRawTask(job, source.path, async () => {
+    return agentTasks.enqueue(job, source.path, async () => {
       let currentScan = await scanVault(vault);
       let currentSource = selectRepairSource(currentScan, source.path);
       let beforeReport = await rawRepairReport(currentScan, currentSource, formulaDependencyRoot, { preserveUnknownReasons: false });
@@ -458,7 +475,8 @@ export function createDashboardApi({
       if (requestUrl.pathname === "/api/v1/agent" && req.method === "GET") {
         const info = await agentRunner.info();
         const activeQuery = activeAgentJobs.query ? jobs.get(activeAgentJobs.query) : null;
-        const activeRawJobs = rawTaskJobs(vault);
+        const activeAgentTaskJobs = agentTasks.jobs(vault);
+        const activeExtractionJobs = extractionTasks.jobs(vault);
         sendJson(res, 200, {
           available: info.available,
           provider: info.provider,
@@ -467,11 +485,15 @@ export function createDashboardApi({
           providers: publicAgentProviders(info),
           message: info.message,
           busy: isActiveJob(activeQuery),
-          maintenanceBusy: activeRawJobs.length >= RAW_TASK_CONCURRENCY,
-          rawTaskLimit: RAW_TASK_CONCURRENCY,
-          activeRawJobs: activeRawJobs.map(publicJob),
+          maintenanceBusy: agentTasks.activeCount() >= AGENT_TASK_CONCURRENCY,
+          rawTaskLimit: AGENT_TASK_CONCURRENCY,
+          agentTaskLimit: AGENT_TASK_CONCURRENCY,
+          extractionTaskLimit: EXTRACTION_TASK_CONCURRENCY,
+          activeRawJobs: activeAgentTaskJobs.map(publicJob),
+          activeAgentJobs: activeAgentTaskJobs.map(publicJob),
+          activeExtractionJobs: activeExtractionJobs.map(publicJob),
           activeJob: activeQuery ? publicJob(activeQuery) : null,
-          activeMaintenanceJob: activeRawJobs[0] ? publicJob(activeRawJobs[0]) : null
+          activeMaintenanceJob: activeAgentTaskJobs[0] ? publicJob(activeAgentTaskJobs[0]) : null
         });
         return true;
       }
@@ -503,7 +525,7 @@ export function createDashboardApi({
         if (paths.length === 0) throw httpError(400, "At least one maintenance queue path is required");
         if (paths.length > 500) throw httpError(400, "A batch delete can contain at most 500 queue items");
 
-        const activePaths = new Set(rawTaskJobs(vault).flatMap((job) => rawJobPaths(job).map(normalizeNoteReference)));
+        const activePaths = new Set(agentTasks.jobs(vault).flatMap((job) => rawJobPaths(job).map(normalizeNoteReference)));
         const deleted = [];
         const failed = [];
         for (const requested of paths) {
@@ -561,9 +583,49 @@ export function createDashboardApi({
         sendJson(res, declared.created ? 201 : 200, { name: declared.name, wiki: 0, raw: 0, declared: true, created: declared.created, graphRefreshed });
         return true;
       }
+      if (requestUrl.pathname === "/api/v1/universes/visibility" && req.method === "POST") {
+        const body = await readJson(req);
+        const name = validatedUniverseName(body.name);
+        await ensureDeclaredUniverse(vault, dashboardRoot, name);
+        const updated = await setUniverseHidden(vault, name, body.hidden === true);
+        const graphRefreshed = await refreshDashboardGraph(dashboardRoot, vault).catch(() => false);
+        sendJson(res, 200, { ...updated, graphRefreshed });
+        return true;
+      }
+      if (requestUrl.pathname === "/api/v1/universes/rename" && req.method === "POST") {
+        const body = await readJson(req);
+        const name = validatedUniverseName(body.name);
+        const newName = validatedUniverseName(body.newName);
+        const summaries = await universeSummaries(dashboardRoot, vault);
+        const existing = summaries.find((item) => item.name.toLocaleLowerCase() === name.toLocaleLowerCase());
+        if (!existing) throw httpError(404, "Knowledge galaxy not found");
+        const conflict = summaries.find((item) => item.name.toLocaleLowerCase() === newName.toLocaleLowerCase() && item.name.toLocaleLowerCase() !== existing.name.toLocaleLowerCase());
+        if (conflict) throw httpError(409, "A knowledge galaxy with that name already exists");
+        await declareUniverse(vault, existing.name);
+        const changed = await rewriteUniverseAssignments(vault, existing.name, newName);
+        const renamed = await renameDeclaredUniverse(vault, existing.name, newName);
+        const graphRefreshed = await refreshDashboardGraph(dashboardRoot, vault).catch(() => false);
+        sendJson(res, 200, { ...renamed, ...changed, graphRefreshed });
+        return true;
+      }
+      if (requestUrl.pathname === "/api/v1/universes/delete" && req.method === "POST") {
+        const body = await readJson(req);
+        const name = validatedUniverseName(body.name);
+        if (String(body.confirmation || "") !== name) throw httpError(400, "Type the exact knowledge galaxy name to confirm deletion");
+        const summaries = await universeSummaries(dashboardRoot, vault);
+        const existing = summaries.find((item) => item.name.toLocaleLowerCase() === name.toLocaleLowerCase());
+        if (!existing) throw httpError(404, "Knowledge galaxy not found");
+        await declareUniverse(vault, existing.name);
+        const changed = await rewriteUniverseAssignments(vault, existing.name, null);
+        await removeDeclaredUniverse(vault, existing.name);
+        if (changed.reassignedConcepts > 0) await declareUniverse(vault, "Uncategorized");
+        const graphRefreshed = await refreshDashboardGraph(dashboardRoot, vault).catch(() => false);
+        sendJson(res, 200, { name: existing.name, ...changed, graphRefreshed });
+        return true;
+      }
       if (requestUrl.pathname === "/api/v1/agent/maintenance" && req.method === "POST") {
         const body = await readJson(req);
-        const requestedProvider = String(body.provider || "").trim().toLowerCase();
+        const requestedProvider = requireTaskProvider(body.provider, "Distillation");
         const info = await requireAgent(agentRunner, requestedProvider);
         const model = selectAgentModel(info, body.model);
         let scan = await scanVault(vault);
@@ -603,10 +665,10 @@ export function createDashboardApi({
         const sources = selectMixedMaintenanceSources(scan, body.paths, body.batchSize);
         if (sources.length === 0) throw httpError(409, "The maintenance queue has no actionable Raw items");
         const distillInfo = sources.some((source) => source.status !== "needs-followup")
-          ? await requireAgent(agentRunner, String(body.distillProvider || body.provider || "").trim().toLowerCase())
+          ? await requireAgent(agentRunner, requireTaskProvider(body.distillProvider || body.provider, "Distillation"))
           : null;
         const repairInfo = sources.some((source) => source.status === "needs-followup")
-          ? await requireAgent(agentRunner, String(body.repairProvider || body.provider || "").trim().toLowerCase())
+          ? await requireAgent(agentRunner, requireTaskProvider(body.repairProvider || body.provider, "Repair"))
           : null;
         const distillModel = distillInfo ? selectAgentModel(distillInfo, body.distillModel ?? body.model) : "";
         const repairModel = repairInfo ? selectAgentModel(repairInfo, body.repairModel ?? body.model) : "";
@@ -627,7 +689,7 @@ export function createDashboardApi({
       }
       if (requestUrl.pathname === "/api/v1/agent/repair" && req.method === "POST") {
         const body = await readJson(req);
-        const requestedProvider = String(body.provider || "").trim().toLowerCase();
+        const requestedProvider = requireTaskProvider(body.provider, "Repair");
         const info = await requireAgent(agentRunner, requestedProvider);
         const model = selectAgentModel(info, body.model);
         const source = await readRepairSource(vault, body.path);
@@ -1096,8 +1158,58 @@ async function activeVault(runtimeFile) {
 
 async function universeSummaries(dashboardRoot, vault) {
   const graph = await readDashboardGraph(dashboardRoot, vault);
-  if (graph) return universeSummariesFromGraph(graph);
-  return universeSummariesFromScan(vault);
+  const summaries = graph ? universeSummariesFromGraph(graph) : await universeSummariesFromScan(vault);
+  const hidden = new Set((await readHiddenUniverses(vault)).map((name) => name.toLocaleLowerCase()));
+  return summaries.map((summary) => ({ ...summary, hidden: hidden.has(summary.name.toLocaleLowerCase()) }));
+}
+
+function validatedUniverseName(value) {
+  try {
+    return validateUniverseName(value);
+  } catch (error) {
+    throw httpError(400, error.message || String(error));
+  }
+}
+
+async function ensureDeclaredUniverse(vault, dashboardRoot, name) {
+  const existing = (await universeSummaries(dashboardRoot, vault))
+    .find((item) => item.name.toLocaleLowerCase() === name.toLocaleLowerCase());
+  if (!existing) throw httpError(404, "Knowledge galaxy not found");
+  await declareUniverse(vault, existing.name);
+  return existing;
+}
+
+async function rewriteUniverseAssignments(vault, currentName, nextName) {
+  const scan = await scanVault(vault);
+  const currentKey = currentName.toLocaleLowerCase();
+  let updatedConcepts = 0;
+  let updatedReferences = 0;
+  let reassignedConcepts = 0;
+
+  for (const node of scan.nodes) {
+    if (isWikiKnowledgeNode(node)) {
+      const memberships = wikiUniverseNames(node);
+      if (!memberships.some((name) => name.toLocaleLowerCase() === currentKey)) continue;
+      let universes = memberships
+        .filter((name) => name.toLocaleLowerCase() !== currentKey)
+        .concat(nextName ? [nextName] : []);
+      universes = [...new Map(universes.map((name) => [name.toLocaleLowerCase(), name])).values()];
+      if (universes.length === 0) {
+        universes = ["Uncategorized"];
+        reassignedConcepts += 1;
+      }
+      await fs.writeFile(node.file, upsertFrontmatterValues(node.content, { universes }), "utf8");
+      updatedConcepts += 1;
+      continue;
+    }
+    if (!node.id.startsWith("references/sources/")) continue;
+    const suggested = String(node.frontmatter.suggested_universe || "").trim();
+    if (suggested.toLocaleLowerCase() !== currentKey) continue;
+    await fs.writeFile(node.file, upsertFrontmatterValues(node.content, { suggested_universe: nextName || null }), "utf8");
+    updatedReferences += 1;
+  }
+
+  return { updatedConcepts, updatedReferences, reassignedConcepts };
 }
 
 async function readDashboardGraph(dashboardRoot, vault) {
@@ -1308,7 +1420,6 @@ function captureQueueItems(vault) {
   return [...jobs.values()]
     .filter((job) => job.type === "capture-file"
       && job.vault === vault
-      && Boolean(job.meta.snapshotPath)
       && !["complete", "cancelled"].includes(job.status))
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
     .map((job) => ({
@@ -1327,7 +1438,9 @@ function captureQueueItems(vault) {
       preview: job.status === "failed"
         ? job.error
         : job.status === "queued"
-          ? "Snapshot preserved. Waiting for an extraction slot."
+          ? job.meta.snapshotPath
+            ? "Snapshot preserved. Waiting for a local extraction slot."
+            : "Upload received. Waiting for a local extraction slot."
           : job.meta.phase === "preserving-snapshot"
             ? "Preserving the original snapshot before extraction."
             : "Extracting readable evidence in the background.",
@@ -1379,6 +1492,12 @@ function publicJob(job) {
     error: job.error,
     downloadUrl: job.status === "complete" && job.outputFile ? `/api/v1/jobs/${job.id}/download` : ""
   };
+}
+
+function requireTaskProvider(value, task) {
+  const provider = String(value || "").trim().toLowerCase();
+  if (!provider) throw httpError(400, `${task} provider is required; use the provider selected in the Dashboard`);
+  return provider;
 }
 
 async function requireAgent(agentRunner, requestedProvider = "") {

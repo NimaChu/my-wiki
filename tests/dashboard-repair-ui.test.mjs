@@ -12,10 +12,12 @@ test("needs-followup queue items expose the repair Agent action", async () => {
   ]);
 
   assert.match(main, /node\.status === "needs-followup"/);
-  assert.match(main, /localApi\.repair\(node\.path, queueAgentSettings\.repair\)/);
+  assert.match(main, /localApi\.repair\(node\.path, normalizedSettings\.repair\)/);
   assert.match(main, /setPendingPaths\(\(current\) => new Set\(current\)\.add\(node\.path\)\)/);
   assert.match(main, /pendingPaths\.has\(node\.path\).*LoaderCircle/);
   assert.match(main, /localApi\.captureJobs\(\)/);
+  assert.doesNotMatch(main, /item\.jobId && item\.snapshotPath/);
+  assert.match(main, /\["queued", "running", "failed"\]/);
   assert.match(main, /missing-visual-evidence:/);
   assert.match(main, /localizedVisualGap\(node\.visualGapPages, language\)/);
   assert.match(graph, /visualGapPages: visualGapPages\(frontmatter, content\)/);

@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from "rea
 import { createRoot } from "react-dom/client";
 import {
   ArrowLeft,
+  AlertTriangle,
   Check,
   Edit3,
   Eye,
@@ -55,6 +56,7 @@ type WikiGraph = {
   generatedAt: string;
   vaultRoot: string;
   declaredUniverses?: string[];
+  hiddenUniverses?: string[];
   nodes: WikiNode[];
   edges: WikiEdge[];
   typedRelations: WikiEdge[];
@@ -188,6 +190,8 @@ const copy = {
     cliDefault: "CLI default",
     noPendingRaw: "No references awaiting maintenance",
     processBatch: "Maintain batch",
+    maintainBatchConfirm: "Start batch maintenance for {distill} references awaiting distillation and {repair} references awaiting repair?",
+    awaitingDistillation: "Awaiting distillation",
     deleteBatch: "Delete all",
     deletingBatch: "Deleting",
     deleteBatchConfirm: "Delete all {count} items awaiting maintenance and their unshared uploaded files? This cannot be undone.",
@@ -291,6 +295,8 @@ const copy = {
     cliDefault: "CLI 默认",
     noPendingRaw: "没有待维护的参考资料",
     processBatch: "批量维护",
+    maintainBatchConfirm: "将开始维护：待蒸馏 {distill} 条，待修复 {repair} 条。确认继续吗？",
+    awaitingDistillation: "待蒸馏",
     deleteBatch: "批量删除",
     deletingBatch: "正在删除",
     deleteBatchConfirm: "确定删除全部 {count} 条待维护资料及其未被其他条目共享的上传文件吗？此操作无法撤销。",
@@ -537,6 +543,13 @@ function App() {
     if (!graph) return [];
     if (graphMode === "evidence") return graph.nodes.filter((node) => evidenceNodeIds.has(node.id));
     if (focusedGroup && graphScope === "global") return wikiFilteredNodes.filter((node) => nodeUniverses(node).includes(focusedGroup));
+    if (graphScope === "global") {
+      const hidden = new Set((graph.hiddenUniverses ?? []).map(galaxyKey));
+      if (hidden.size > 0) return wikiFilteredNodes.flatMap((node) => {
+        const visibleUniverses = nodeUniverses(node).filter((name) => !hidden.has(galaxyKey(name)));
+        return visibleUniverses.length > 0 ? [{ ...node, group: visibleUniverses[0], universes: visibleUniverses }] : [];
+      });
+    }
     return wikiFilteredNodes;
   }, [evidenceNodeIds, focusedGroup, graph, graphMode, graphScope, wikiFilteredNodes]);
 
@@ -1916,7 +1929,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
       const [agent, captures] = await Promise.all([localApi.agent(), localApi.captureJobs()]);
       setAgentState(agent);
       setActiveJobs(new Map((agent.activeRawJobs || []).flatMap((job) => rawJobPath(job) ? [[rawJobPath(job), job] as const] : [])));
-      setCaptureItems(captures.items.filter((item) => item.jobId && item.snapshotPath && ["queued", "running"].includes(item.jobStatus || "")));
+      setCaptureItems(captures.items.filter((item) => item.jobId && ["queued", "running", "failed"].includes(item.jobStatus || "")));
     };
     void refresh().catch(() => setAgentState(null));
     const timer = window.setInterval(() => void refresh().catch(() => {}), 1500);
@@ -1932,8 +1945,13 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
     persistQueueAgentSettings(queueAgentSettings);
   }, [queueAgentSettings]);
 
-  const processNodes = async (selectedNodes: WikiNode[]) => {
+  const processNodes = async (selectedNodes: WikiNode[], confirmBatch = false) => {
     if (selectedNodes.length === 0 || !agentState?.available) return;
+    if (confirmBatch) {
+      const repair = selectedNodes.filter((node) => node.status === "needs-followup").length;
+      const distill = selectedNodes.length - repair;
+      if (!window.confirm(t("maintainBatchConfirm", { distill, repair }))) return;
+    }
     setError("");
     setErrorAction("maintenance");
     setResult(null);
@@ -1941,10 +1959,11 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
     const selectedPaths = selectedNodes.map((node) => node.path);
     setPendingPaths((current) => new Set([...current, ...selectedPaths]));
     try {
-      const distillSelection = queueAgentSettings.distill;
+      const normalizedSettings = normalizeQueueAgentSettings(agentState, queueAgentSettings);
+      const distillSelection = normalizedSettings.distill;
       const outcome = selectedNodes.length === 1 && selectedNodes[0].status !== "needs-followup"
         ? { jobs: [await localApi.maintain([selectedNodes[0].path], 1, distillSelection)] }
-        : await localApi.maintainBatch(selectedNodes.map((node) => node.path), selectedNodes.length, queueAgentSettings);
+        : await localApi.maintainBatch(selectedNodes.map((node) => node.path), selectedNodes.length, normalizedSettings);
       setActiveJobs((current) => new Map([
         ...current,
         ...outcome.jobs.flatMap((job) => rawJobPath(job) ? [[rawJobPath(job), job] as const] : [])
@@ -1981,7 +2000,8 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
     setRepairResult(null);
     setPendingPaths((current) => new Set(current).add(node.path));
     try {
-      const initial = await localApi.repair(node.path, queueAgentSettings.repair);
+      const normalizedSettings = normalizeQueueAgentSettings(agentState, queueAgentSettings);
+      const initial = await localApi.repair(node.path, normalizedSettings.repair);
       setActiveJobs((current) => new Map(current).set(node.path, initial));
       setPendingPaths((current) => { const next = new Set(current); next.delete(node.path); return next; });
       const complete = await waitForJob(initial);
@@ -2060,7 +2080,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
             className="maintenance-button"
             disabled={batchNodes.length === 0 || Boolean(deletingPath) || deletingBatch || !agentState?.available}
             title={agentState?.available === false ? t("agentUnavailable") : t("processBatch")}
-            onClick={() => void processNodes(batchNodes)}
+            onClick={() => void processNodes(batchNodes, true)}
           >
             <Sparkles size={14} />
             {t("processBatch")}
@@ -2123,17 +2143,17 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
             <div className="queue-item queue-item-extracting" key={`capture:${item.jobId}`}>
               <div className="queue-item-main">
                 <strong>{item.title}</strong>
-                <span>{item.jobStatus === "queued" ? t("queuedTask") : t("extractingTask")}</span>
+                <span>{item.jobStatus === "failed" ? item.preview : item.jobStatus === "queued" ? t("queuedTask") : t("extractingTask")}</span>
                 {item.progress ? <QueueProgress progress={item.progress} language={language} /> : null}
               </div>
-              <div className="queue-item-actions"><LoaderCircle className="spin" size={14} /></div>
+              <div className="queue-item-actions">{item.jobStatus === "failed" ? <AlertTriangle size={14} /> : <LoaderCircle className="spin" size={14} />}</div>
             </div>
           ))}
           {nodes.map((node) => (
             <div className="queue-item" key={node.id}>
               <button className="queue-item-main" type="button" onClick={() => onSelect(node.id)}>
                 <strong>{node.title}</strong>
-                <span>{pendingPaths.has(node.path) ? t("queuedTask") : rawTaskLabel(activeJobs.get(node.path), language) || localizedStatus(node.status, language)}</span>
+                <span>{pendingPaths.has(node.path) ? t("queuedTask") : rawTaskLabel(activeJobs.get(node.path), language) || (node.status === "needs-followup" ? localizedStatus(node.status, language) : t("awaitingDistillation"))}</span>
                 {node.status === "needs-followup" && node.visualGapPages?.length ? (
                   <small className="queue-item-followup">{localizedVisualGap(node.visualGapPages, language)}</small>
                 ) : node.status === "needs-followup" && node.followupReasons?.length ? (
@@ -3041,6 +3061,10 @@ function groupLabelText(group: string, language: Language = "en") {
   };
   const label = wikiLabels[group] ?? group.replace(/^Wiki \/ /, "").replace(/^FlexSim \/ /, "");
   return label.length > 34 ? `${label.slice(0, 32)}...` : label;
+}
+
+function galaxyKey(value: string) {
+  return value.replace(/^Wiki\s*\/\s*/i, "").trim().toLocaleLowerCase();
 }
 
 function primaryUniverse(node: WikiNode) {
