@@ -23,6 +23,9 @@ RUN apt-get update \
 
 WORKDIR /opt/my-wiki
 
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
 WORKDIR /opt/my-wiki/assets/dashboard
 COPY assets/dashboard/package.json assets/dashboard/package-lock.json ./
 RUN npm ci

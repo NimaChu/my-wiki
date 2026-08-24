@@ -37,6 +37,12 @@ test("project and Skill package versions stay aligned", async () => {
   assert.equal(skillMarker.version, packageMetadata.version);
 });
 
+test("Apple Container installs root runtime dependencies before copying the application", async () => {
+  const containerfile = await fs.readFile(path.join(root, "deploy", "apple-container", "Containerfile"), "utf8");
+  assert.match(containerfile, /COPY package\.json package-lock\.json \.\//);
+  assert.match(containerfile, /RUN npm ci --omit=dev/);
+});
+
 test("project instructions stay a concise router to the canonical Skill", async () => {
   const instructions = await fs.readFile(path.join(root, "AGENTS.md"), "utf8");
   assert.match(instructions, /canonical Agent playbook/);
