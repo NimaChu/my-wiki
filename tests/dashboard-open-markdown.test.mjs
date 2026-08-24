@@ -442,9 +442,9 @@ test("File uploads enter the Inbox queue before extraction completes", async (co
   assert.equal(receipt.title, "Queued PDF");
   assert.match(receipt.temporary, /^\.my-wiki\/uploads\//);
 
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
     const current = await request(port, "GET", "/api/v1/inbox", { headers: auth });
-    if (current.body.items.some((item) => item.jobId === queued.body.id)) break;
+    if (current.body.items.some((item) => item.jobId === queued.body.id && item.progress?.phase === "ocr")) break;
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   const inbox = await request(port, "GET", "/api/v1/inbox", { headers: auth });
