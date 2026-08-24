@@ -18,7 +18,11 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: assets/dashboard/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            assets/dashboard/package-lock.json
+      - name: Install project dependencies
+        run: npm ci
       - name: Install Dashboard dependencies
         working-directory: assets/dashboard
         run: npm ci

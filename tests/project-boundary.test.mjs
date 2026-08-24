@@ -43,6 +43,13 @@ test("Apple Container installs root runtime dependencies before copying the appl
   assert.match(containerfile, /RUN npm ci --omit=dev/);
 });
 
+test("cross-platform checks install project and Dashboard dependencies", async () => {
+  const workflow = await fs.readFile(path.join(root, ".github", "workflows", "cross-platform.yml"), "utf8");
+  assert.match(workflow, /cache-dependency-path:\s*\|\s*package-lock\.json\s*assets\/dashboard\/package-lock\.json/);
+  assert.match(workflow, /name: Install project dependencies\s*run: npm ci/);
+  assert.match(workflow, /name: Install Dashboard dependencies\s*working-directory: assets\/dashboard\s*run: npm ci/);
+});
+
 test("project instructions stay a concise router to the canonical Skill", async () => {
   const instructions = await fs.readFile(path.join(root, "AGENTS.md"), "utf8");
   assert.match(instructions, /canonical Agent playbook/);
