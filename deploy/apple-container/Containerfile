@@ -5,7 +5,8 @@ ARG MINERU_VERSION=3.4.4
 ARG DOCLING_VERSION=2.113.0
 
 RUN npm install --global "opencode-ai@${OPENCODE_VERSION}" \
-  && npm cache clean --force
+  && npm cache clean --force \
+  && mkdir -p /root/.config/opencode /root/.local/share/opencode
 
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends ca-certificates curl unzip python3 python3-venv libgl1 libglib2.0-0 \

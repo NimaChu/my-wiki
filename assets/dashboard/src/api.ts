@@ -94,7 +94,7 @@ export type PetAppearance = {
 
 export type AgentAnswer = {
   answerMarkdown: string;
-  sources: Array<{ path: string; title: string }>;
+  sources: Array<{ path: string; title: string; type?: "vault" | "web" }>;
   images: Array<{ path: string; caption: string; afterBlock: number }>;
 };
 
@@ -324,12 +324,13 @@ export const localApi = {
     language: "en" | "zh",
     provider: string,
     model: string,
-    conversationId: string
+    conversationId: string,
+    webSearch: boolean
   ) {
     const response = await apiFetch("/api/v1/agent/ask", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ question, history, language, provider, model, conversationId })
+      body: JSON.stringify({ question, history, language, provider, model, conversationId, webSearch })
     });
     return response.json() as Promise<Job>;
   },

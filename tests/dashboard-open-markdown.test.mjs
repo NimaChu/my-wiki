@@ -1388,7 +1388,8 @@ test("Viki binds a question to its dispatched provider and pauses only the match
     language: "en",
     provider: "opencode",
     model: "internal/chosen",
-    conversationId
+    conversationId,
+    webSearch: true
   });
   const queued = await request(port, "POST", "/api/v1/agent/ask", {
     headers: {
@@ -1403,12 +1404,16 @@ test("Viki binds a question to its dispatched provider and pauses only the match
   assert.equal(queued.body.meta.model, "internal/chosen");
   assert.equal(queued.body.meta.modelLabel, "Chosen model");
   assert.equal(queued.body.meta.conversationId, conversationId);
+  assert.equal(queued.body.meta.webSearch, true);
 
   for (let attempt = 0; attempt < 20 && !runOptions; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   assert.equal(runOptions.provider, "opencode");
   assert.equal(runOptions.model, "internal/chosen");
+  assert.equal(runOptions.idleTimeoutMs, 0);
+  assert.equal(runOptions.allowWeb, true);
+  assert.match(runOptions.prompt, /Web access is enabled/);
 
   const wrongPause = await request(port, "DELETE", "/api/v1/agent/query?job=another-job", { headers: auth });
   assert.equal(wrongPause.status, 409);
@@ -1447,7 +1452,11 @@ test("Viki preserves image block placement and rejects invalid answer images", a
       runOptions = options;
       return {
         answerMarkdown: "First supporting claim.\n\nSecond supporting claim.",
-        sources: [{ path: "concepts/note.md", title: "Note" }],
+        sources: [
+          { path: "concepts/note.md", title: "Note" },
+          { path: "https://example.com/current", title: "Current source", type: "web" },
+          { path: "http://127.0.0.1/private", title: "Rejected local source", type: "web" }
+        ],
         images: [
           { path: "references/assets/capture/image.png", caption: "Supporting diagram", afterBlock: 99 },
           { path: "concepts/not-an-image.png", caption: "Rejected", afterBlock: 0 }
@@ -1472,7 +1481,8 @@ test("Viki preserves image block placement and rejects invalid answer images", a
     language: "en",
     provider: "opencode",
     model: "internal/default",
-    conversationId: "conversation_image_01"
+    conversationId: "conversation_image_01",
+    webSearch: true
   });
   const queued = await request(port, "POST", "/api/v1/agent/ask", {
     headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(body) },
@@ -1493,8 +1503,12 @@ test("Viki preserves image block placement and rejects invalid answer images", a
     caption: "Supporting diagram",
     afterBlock: 1
   }]);
-  assert.deepEqual(completed.body.result.sources, [{ path: "concepts/note.md", title: "Note" }]);
+  assert.deepEqual(completed.body.result.sources, [
+    { path: "concepts/note.md", title: "Note", type: "vault" },
+    { path: "https://example.com/current", title: "Current source", type: "web" }
+  ]);
   assert.equal(runOptions.model, "internal/default");
+  assert.equal(runOptions.allowWeb, true);
   assert.match(runOptions.prompt, /afterBlock/);
 });
 

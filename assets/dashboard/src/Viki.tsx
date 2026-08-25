@@ -1,9 +1,10 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bot, BookOpen, Check, CirclePause, History, LoaderCircle, MessageSquarePlus, MoveDiagonal2, PawPrint, SendHorizontal, Trash2, X } from "lucide-react";
+import { Bot, BookOpen, Check, CirclePause, Copy, Download, Globe2, History, MessageSquarePlus, MoveDiagonal2, PawPrint, SendHorizontal, Trash2, X } from "lucide-react";
 import { AgentAnswer, AgentInfo, Job, localApi, PetAppearance, waitForJob } from "./api";
 import { shouldSubmitVikiComposer } from "./viki-composer.js";
 import { promoteVaultMarkdownImages } from "./viki-markdown.js";
+import { conversationFilename, conversationToMarkdown } from "./viki-conversation.js";
 
 type Language = "en" | "zh";
 type VikiEdge = "top" | "right" | "bottom" | "left";
@@ -26,7 +27,7 @@ type VikiConversation = {
   messages: ChatMessage[];
 };
 type VikiChatState = { activeId: string; conversations: VikiConversation[] };
-type ActiveRequest = { jobId: string; conversationId: string; provider: string; model: string };
+type ActiveRequest = { jobId: string; conversationId: string; provider: string; model: string; webSearch: boolean };
 type OpenedImage = { path: string; caption: string; url: string };
 
 const LAUNCHER_SIZE = 80;
@@ -40,6 +41,7 @@ const MODEL_KEY = "my-wiki-viki-models-v1";
 const PET_KEY = "my-wiki-viki-pet";
 const PANEL_SIZE_KEY = "my-wiki-viki-panel-size";
 const CHAT_STATE_KEY = "my-wiki-viki-chat-state-v1";
+const WEB_SEARCH_KEY = "my-wiki-viki-web-search";
 const MAX_CONVERSATIONS = 30;
 const MAX_MESSAGES_PER_CONVERSATION = 120;
 
@@ -51,7 +53,13 @@ const copy = {
     welcome: "Ask me anything in your knowledge vault. I will start with Concepts and verify important details against References.",
     placeholder: "Ask your knowledge vault...",
     send: "Send",
-    thinking: "Searching your vault",
+    thinking: [
+      "Opening the most relevant Concepts",
+      "Tracing links across the knowledge graph",
+      "Checking claims against References",
+      "Organizing evidence into a clear answer",
+      "Still working carefully on the details"
+    ],
     unavailable: "Connect a signed-in Codex, OpenCode, Qoder, or Claude CLI to use Viki.",
     sources: "Evidence",
     ready: "Ready",
@@ -71,6 +79,14 @@ const copy = {
     newConversation: "New conversation",
     deleteConversation: "Delete conversation",
     conversations: "Conversations",
+    copyAnswer: "Copy answer",
+    copied: "Copied",
+    exportConversation: "Export conversation as Markdown",
+    webSearch: "Search the web",
+    webSearchOn: "Web search on",
+    webSearchOff: "Web search off",
+    user: "User",
+    assistant: "Viki",
     retry: "Please try again."
   },
   zh: {
@@ -80,7 +96,13 @@ const copy = {
     welcome: "可以直接问我知识库里的任何问题。我会优先查阅概念，并用参考资料核实重要信息。",
     placeholder: "向你的知识库提问...",
     send: "发送",
-    thinking: "正在检索知识库",
+    thinking: [
+      "正在定位最相关的概念",
+      "正在沿知识关系查找线索",
+      "正在对照参考资料核实依据",
+      "正在组织证据与回答结构",
+      "仍在认真处理其中的细节"
+    ],
     unavailable: "请先安装并登录 Codex、OpenCode、Qoder 或 Claude CLI，再使用 Viki。",
     sources: "参考证据",
     ready: "已就绪",
@@ -100,6 +122,14 @@ const copy = {
     newConversation: "新建会话",
     deleteConversation: "删除会话",
     conversations: "会话",
+    copyAnswer: "复制整个回答",
+    copied: "已复制",
+    exportConversation: "导出整个会话为 Markdown",
+    webSearch: "联网搜索",
+    webSearchOn: "已开启联网搜索",
+    webSearchOff: "已关闭联网搜索",
+    user: "用户",
+    assistant: "Viki",
     retry: "请稍后重试。"
   }
 } as const;
@@ -118,6 +148,9 @@ export function Viki({ language }: { language: Language }) {
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
   const [activeRequest, setActiveRequestState] = useState<ActiveRequest | null>(null);
+  const [webSearch, setWebSearch] = useState(() => initialWebSearch());
+  const [thinkingStep, setThinkingStep] = useState(0);
+  const [copiedAnswer, setCopiedAnswer] = useState("");
   const [error, setError] = useState("");
   const [openedImage, setOpenedImage] = useState<OpenedImage | null>(null);
   const [viewport, setViewport] = useState(() => currentViewport());
@@ -182,7 +215,8 @@ export function Viki({ language }: { language: Language }) {
             jobId: active.id,
             conversationId,
             provider: String(active.meta.provider || nextAgent.provider || ""),
-            model: String(active.meta.model || "")
+            model: String(active.meta.model || ""),
+            webSearch: active.meta.webSearch === true
           };
           setActiveRequest(resumed);
           void consumeAnswer(active, resumed);
@@ -242,6 +276,15 @@ export function Viki({ language }: { language: Language }) {
   }, [messages, busy, open]);
 
   useEffect(() => {
+    setThinkingStep(0);
+    if (!busy) return;
+    const timer = window.setInterval(() => {
+      setThinkingStep((current) => (current + 1) % copy[language].thinking.length);
+    }, 4200);
+    return () => window.clearInterval(timer);
+  }, [busy, language]);
+
+  useEffect(() => {
     const onResize = () => {
       const nextViewport = currentViewport();
       setViewport(nextViewport);
@@ -292,14 +335,15 @@ export function Viki({ language }: { language: Language }) {
     const conversationId = conversation.id;
     const requestProvider = provider;
     const requestModel = model;
+    const requestWebSearch = webSearch;
     const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content: value };
     appendConversationMessage(conversationId, userMessage, value);
     setQuestion("");
     setError("");
     setBusy(true);
     try {
-      const initialJob = await localApi.ask(value, history, language, requestProvider, requestModel, conversationId);
-      const request = { jobId: initialJob.id, conversationId, provider: requestProvider, model: requestModel };
+      const initialJob = await localApi.ask(value, history, language, requestProvider, requestModel, conversationId, requestWebSearch);
+      const request = { jobId: initialJob.id, conversationId, provider: requestProvider, model: requestModel, webSearch: requestWebSearch };
       setActiveRequest(request);
       await consumeAnswer(initialJob, request);
     } catch (nextError) {
@@ -398,6 +442,34 @@ export function Viki({ language }: { language: Language }) {
         activeId: current.activeId === conversationId ? conversations[0].id : current.activeId
       };
     });
+  };
+
+  const copyAnswer = async (messageId: string, content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedAnswer(messageId);
+      window.setTimeout(() => setCopiedAnswer((current) => current === messageId ? "" : current), 1600);
+    } catch (nextError) {
+      setError(`${errorMessage(nextError)} ${l.retry}`);
+    }
+  };
+
+  const exportConversation = () => {
+    if (!conversation || conversation.messages.length === 0) return;
+    const markdown = conversationToMarkdown(conversation, {
+      user: l.user,
+      assistant: l.assistant,
+      evidence: l.sources,
+      untitled: l.newConversation
+    });
+    const url = URL.createObjectURL(new Blob([markdown], { type: "text/markdown;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = conversationFilename(conversation.title || "viki-conversation");
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   const startDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -519,10 +591,10 @@ export function Viki({ language }: { language: Language }) {
             <div className="viki-status">
               <div className="viki-session-picker" ref={sessionPickerRef}>
                 <button
-                  className="viki-session-toggle"
+                  className="viki-session-toggle viki-icon-tooltip"
                   type="button"
                   aria-label={l.history}
-                  title={l.history}
+                  data-tooltip={l.history}
                   aria-expanded={sessionMenuOpen}
                   onClick={() => setSessionMenuOpen((value) => !value)}
                 >
@@ -532,11 +604,17 @@ export function Viki({ language }: { language: Language }) {
                   <div className="viki-session-menu" role="menu" aria-label={l.history}>
                     <div className="viki-session-menu-header">
                       <strong>{l.conversations}</strong>
-                      <button type="button" aria-label={l.newConversation} title={l.newConversation} onClick={newConversation}>
+                      <button
+                        className="viki-icon-tooltip"
+                        type="button"
+                        aria-label={l.newConversation}
+                        data-tooltip={l.newConversation}
+                        onClick={newConversation}
+                      >
                         <MessageSquarePlus size={15} aria-hidden="true" />
                       </button>
                     </div>
-                    <div className="viki-session-list">
+                    <div className="viki-session-list" onWheel={(event) => event.stopPropagation()}>
                       {[...chatState.conversations]
                         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
                         .map((item) => (
@@ -561,16 +639,46 @@ export function Viki({ language }: { language: Language }) {
                   </div>
                 ) : null}
               </div>
-              <button type="button" aria-label={l.newConversation} title={l.newConversation} onClick={newConversation}>
+              <button
+                className="viki-icon-tooltip"
+                type="button"
+                aria-label={l.newConversation}
+                data-tooltip={l.newConversation}
+                onClick={newConversation}
+              >
                 <MessageSquarePlus size={16} aria-hidden="true" />
+              </button>
+              <button
+                className="viki-icon-tooltip"
+                type="button"
+                aria-label={l.exportConversation}
+                data-tooltip={l.exportConversation}
+                disabled={!conversation?.messages.length}
+                onClick={exportConversation}
+              >
+                <Download size={16} aria-hidden="true" />
+              </button>
+              <button
+                className={`viki-web-toggle viki-icon-tooltip ${webSearch ? "is-active" : ""}`}
+                type="button"
+                aria-label={`${l.webSearch}: ${webSearch ? l.webSearchOn : l.webSearchOff}`}
+                data-tooltip={`${l.webSearch}: ${webSearch ? l.webSearchOn : l.webSearchOff}`}
+                aria-pressed={webSearch}
+                onClick={() => {
+                  const next = !webSearch;
+                  setWebSearch(next);
+                  persistWebSearch(next);
+                }}
+              >
+                <Globe2 size={16} aria-hidden="true" />
               </button>
               {pets.length ? (
                 <div className="viki-pet-picker" ref={petPickerRef}>
                   <button
-                    className="viki-pet-toggle"
+                    className="viki-pet-toggle viki-icon-tooltip"
                     type="button"
                     aria-label={l.pet}
-                    title={`${l.pet}: ${pet?.displayName || ""}`}
+                    data-tooltip={`${l.pet}: ${pet?.displayName || ""}`}
                     aria-expanded={petMenuOpen}
                     onClick={() => setPetMenuOpen((value) => !value)}
                   >
@@ -623,7 +731,15 @@ export function Viki({ language }: { language: Language }) {
                 </select>
               ) : null}
               <span className={busy || agent?.busy ? "is-busy" : ""}>{busy || agent?.busy ? l.busy : l.ready}</span>
-              <button type="button" aria-label={l.close} title={l.close} onClick={() => setOpen(false)}><X size={17} /></button>
+              <button
+                className="viki-icon-tooltip"
+                type="button"
+                aria-label={l.close}
+                data-tooltip={l.close}
+                onClick={() => setOpen(false)}
+              >
+                <X size={17} aria-hidden="true" />
+              </button>
             </div>
           </header>
 
@@ -638,23 +754,52 @@ export function Viki({ language }: { language: Language }) {
             {messages.map((message) => (
               <article key={message.id} className={`viki-message is-${message.role}`}>
                 <div className="viki-message-body">
-                  <ChatMarkdown content={message.content} images={message.images} onOpenImage={setOpenedImage} imageDetailLabel={l.imageDetail} />
+                  <ChatMarkdown
+                    content={message.content}
+                    images={message.images}
+                    onOpenImage={setOpenedImage}
+                    imageDetailLabel={l.imageDetail}
+                  />
+                  {message.role === "assistant" ? (
+                    <button
+                      className="viki-copy-answer"
+                      type="button"
+                      aria-label={copiedAnswer === message.id ? l.copied : l.copyAnswer}
+                      title={copiedAnswer === message.id ? l.copied : l.copyAnswer}
+                      onClick={() => copyAnswer(message.id, message.content)}
+                    >
+                      {copiedAnswer === message.id ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+                    </button>
+                  ) : null}
                 </div>
                 {message.sources?.length ? (
                   <details className="viki-sources">
                     <summary><BookOpen size={14} />{l.sources} · {message.sources.length}</summary>
-                    {message.sources.map((source) => <div key={source.path}><strong>{source.title}</strong><span>{source.path}</span></div>)}
+                    {message.sources.map((source) => isWebSource(source) ? (
+                      <a href={source.path} target="_blank" rel="noreferrer" key={source.path}>
+                        <strong>{source.title}</strong><span>{source.path}</span>
+                      </a>
+                    ) : <div key={source.path}><strong>{source.title}</strong><span>{source.path}</span></div>)}
                   </details>
                 ) : null}
               </article>
             ))}
             {busy ? (
-              <div className="viki-thinking">
-                <LoaderCircle className="spin" size={16} />
-                <span>{l.thinking}{currentSelection ? ` · ${currentSelection}` : ""}</span>
-                {activeRequest && (provider !== activeRequest.provider || model !== activeRequest.model) ? (
-                  <small>{l.nextCli}: {nextSelection}</small>
+              <div className="viki-thinking" role="status" aria-live="polite" aria-busy="true">
+                <div className="viki-thinking-orbit" aria-hidden="true">
+                  <span className="viki-thinking-core" />
+                  <span className="viki-thinking-node is-one" />
+                  <span className="viki-thinking-node is-two" />
+                  <span className="viki-thinking-node is-three" />
+                </div>
+                <div className="viki-thinking-copy">
+                  <strong key={`${language}-${thinkingStep}`}>{l.thinking[thinkingStep]}</strong>
+                  {currentSelection ? <span>{currentSelection}{activeRequest?.webSearch ? ` · ${l.webSearchOn}` : ""}</span> : null}
+                </div>
+                {activeRequest && (provider !== activeRequest.provider || model !== activeRequest.model || webSearch !== activeRequest.webSearch) ? (
+                  <small>{l.nextCli}: {nextSelection}{webSearch ? ` · ${l.webSearchOn}` : ""}</small>
                 ) : null}
+                <i className="viki-thinking-scan" aria-hidden="true" />
               </div>
             ) : null}
             {error ? <p className="viki-error">{error}</p> : null}
@@ -902,7 +1047,8 @@ function normalizeStoredMessage(item: any): ChatMessage[] {
   const sources = Array.isArray(item.sources)
     ? item.sources.slice(0, 20).flatMap((source: any) => {
         const path = String(source?.path || "").trim();
-        return path ? [{ path, title: String(source?.title || path).trim().slice(0, 240) }] : [];
+        const type = source?.type === "web" || /^https?:\/\//i.test(path) ? "web" as const : "vault" as const;
+        return path ? [{ path, title: String(source?.title || path).trim().slice(0, 240), type }] : [];
       })
     : undefined;
   const images = Array.isArray(item.images)
@@ -922,6 +1068,27 @@ function normalizeStoredMessage(item: any): ChatMessage[] {
     images,
     contextExcluded: Boolean(item.contextExcluded)
   }];
+}
+
+function initialWebSearch() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(WEB_SEARCH_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function persistWebSearch(value: boolean) {
+  try {
+    window.localStorage.setItem(WEB_SEARCH_KEY, String(value));
+  } catch {
+    // Storage can be unavailable in private or embedded contexts.
+  }
+}
+
+function isWebSource(source: AgentAnswer["sources"][number]) {
+  return source.type === "web" || /^https?:\/\//i.test(source.path);
 }
 
 function persistChatState(state: VikiChatState) {
@@ -1206,7 +1373,12 @@ function lastMarkdownBlockIndex(content: string) {
   return Math.max(0, markdownBlocks(content).length - 1);
 }
 
-function ChatMarkdown({ content, images = [], onOpenImage, imageDetailLabel }: {
+function ChatMarkdown({
+  content,
+  images = [],
+  onOpenImage,
+  imageDetailLabel
+}: {
   content: string;
   images?: AgentAnswer["images"];
   onOpenImage: (image: OpenedImage) => void;

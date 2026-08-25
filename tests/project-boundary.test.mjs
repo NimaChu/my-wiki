@@ -43,6 +43,19 @@ test("Apple Container installs root runtime dependencies before copying the appl
   assert.match(containerfile, /RUN npm ci --omit=dev/);
 });
 
+test("Apple Container follows the host OpenCode configuration unless explicitly overridden", async () => {
+  const launcher = await fs.readFile(path.join(root, "deploy", "apple-container", "start.sh"), "utf8");
+  const template = await fs.readFile(path.join(root, "deploy", "apple-container", "opencode.env.example"), "utf8");
+  assert.match(launcher, /MY_WIKI_CONTAINER_SHARE_OPENCODE/);
+  assert.match(launcher, /target=\/host-opencode-config,readonly/);
+  assert.match(launcher, /target=\/host-opencode-data,readonly/);
+  const entrypoint = await fs.readFile(path.join(root, "deploy", "apple-container", "entrypoint.sh"), "utf8");
+  assert.match(entrypoint, /cp -R \/host-opencode-config\/\./);
+  assert.match(entrypoint, /cp \/host-opencode-data\/auth\.json/);
+  assert.doesNotMatch(template, /^MY_WIKI_OPENCODE_PROVIDER=/m);
+  assert.doesNotMatch(template, /^MY_WIKI_OPENCODE_MODEL=/m);
+});
+
 test("cross-platform checks install project and Dashboard dependencies", async () => {
   const workflow = await fs.readFile(path.join(root, ".github", "workflows", "cross-platform.yml"), "utf8");
   assert.match(workflow, /cache-dependency-path:\s*\|\s*package-lock\.json\s*assets\/dashboard\/package-lock\.json/);

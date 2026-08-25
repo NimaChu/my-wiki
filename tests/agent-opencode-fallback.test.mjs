@@ -14,11 +14,13 @@ import {
 test("Codex and OpenCode receive page images through native CLI attachment flags", () => {
   const common = { command: "agent", vault: "/vault", mode: "query", prompt: "Repair", schema: {}, outputFile: "/out", schemaFile: "/schema", providerConfigFile: "/config", model: "vision", files: ["/pages/1.png", "/pages/2.png"] };
   const codex = providerInvocation({ ...common, provider: "codex" });
+  const webCodex = providerInvocation({ ...common, provider: "codex", allowWeb: true });
   const opencode = providerInvocation({ ...common, provider: "opencode" });
   assert.deepEqual(codex.args.filter((value) => value === "--image").length, 2);
   assert.deepEqual(opencode.args.filter((value) => value === "--file").length, 2);
   assert.ok(codex.args.includes("/pages/1.png"));
   assert.ok(opencode.args.includes("/pages/2.png"));
+  assert.deepEqual(webCodex.args.slice(webCodex.args.indexOf("--enable"), webCodex.args.indexOf("--enable") + 2), ["--enable", "browser_use"]);
 });
 
 test("Codex discovery resolves symlinks so bundled companion executables remain adjacent", {
@@ -88,6 +90,37 @@ test("OpenCode resolved config supplies the CLI default model and provider", () 
   });
 });
 
+test("OpenCode discovery refreshes when its config file changes", async () => {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-opencode-refresh-test-"));
+  const command = path.join(temporary, "opencode-refresh-test.cjs");
+  const config = path.join(temporary, "opencode.json");
+  const script = `#!/usr/bin/env node
+const fs = require("node:fs");
+if (process.argv.includes("--version")) process.exit(0);
+const current = JSON.parse(fs.readFileSync(process.env.OPENCODE_CONFIG, "utf8"));
+if (process.argv.includes("models")) process.stdout.write(current.model + "\\n");
+else process.stdout.write(JSON.stringify(current));
+`;
+  await fs.writeFile(command, script, { mode: 0o755 });
+  await fs.writeFile(config, JSON.stringify({ model: "first/model", enabled_providers: ["first"] }));
+
+  try {
+    const runner = createLocalAgentRunner({
+      env: {
+        ...process.env,
+        MY_WIKI_AGENT_PROVIDER: "opencode",
+        MY_WIKI_AGENT_COMMAND: command,
+        OPENCODE_CONFIG: config
+      }
+    });
+    assert.equal((await runner.info()).providers[0].defaultModel, "first/model");
+    await fs.writeFile(config, JSON.stringify({ model: "second/model", enabled_providers: ["second"] }));
+    assert.equal((await runner.info()).providers[0].defaultModel, "second/model");
+  } finally {
+    await fs.rm(temporary, { recursive: true, force: true });
+  }
+});
+
 test("OpenCode constrains its runtime config to the configured provider", async () => {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-opencode-provider-test-"));
   const command = path.join(temporary, "opencode-provider-test.cjs");
@@ -116,11 +149,14 @@ process.stdout.write(JSON.stringify({ answer: "ok" }));
       vault: temporary,
       mode: "query",
       prompt: "Answer",
-      schema: { type: "object", required: ["answer"], properties: { answer: { type: "string" } } }
+      schema: { type: "object", required: ["answer"], properties: { answer: { type: "string" } } },
+      allowWeb: true
     });
 
     const config = JSON.parse(await fs.readFile(capturedConfig, "utf8"));
     assert.deepEqual(config.enabled_providers, ["opencode-go"]);
+    assert.equal(config.permission.websearch, "allow");
+    assert.equal(config.permission.webfetch, "allow");
   } finally {
     await fs.rm(temporary, { recursive: true, force: true });
   }
@@ -417,10 +453,11 @@ process.stdout.write(JSON.stringify({ answer: "qoder worked" }));
       }
     };
     assert.deepEqual(await runner.run({ ...options, mode: "query" }), { answer: "qoder worked" });
+    assert.deepEqual(await runner.run({ ...options, mode: "query", allowWeb: true }), { answer: "qoder worked" });
     assert.deepEqual(await runner.run({ ...options, mode: "maintenance" }), { answer: "qoder worked" });
     assert.deepEqual(await runner.run({ ...options, mode: "repair" }), { answer: "qoder worked" });
 
-    const [queryArgs, maintenanceArgs, repairArgs] = (await fs.readFile(attempts, "utf8"))
+    const [queryArgs, webQueryArgs, maintenanceArgs, repairArgs] = (await fs.readFile(attempts, "utf8"))
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
@@ -433,6 +470,8 @@ process.stdout.write(JSON.stringify({ answer: "qoder worked" }));
       "--model", "efficient"
     ]);
     assert.deepEqual(queryArgs.slice(10, queryArgs.indexOf("--")), ["--tools", "Read", "Grep", "Glob"]);
+    assert.deepEqual(webQueryArgs.slice(10, webQueryArgs.indexOf("--allowed-tools")), ["--tools", "Read", "Grep", "Glob", "WebSearch", "WebFetch"]);
+    assert.equal(webQueryArgs[webQueryArgs.indexOf("--allowed-tools") + 1], "WebSearch,WebFetch");
     assert.deepEqual(
       maintenanceArgs.slice(10, maintenanceArgs.indexOf("--")),
       ["--tools", "Read", "Grep", "Glob", "Edit", "Write"]

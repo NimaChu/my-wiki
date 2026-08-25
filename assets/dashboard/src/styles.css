@@ -2702,6 +2702,50 @@ h3 {
   outline: none;
 }
 
+.viki-icon-tooltip {
+  position: relative;
+}
+
+.viki-icon-tooltip::after {
+  position: absolute;
+  z-index: 45;
+  top: calc(100% + 7px);
+  left: 50%;
+  max-width: 220px;
+  padding: 5px 7px;
+  border: 1px solid #3a4244;
+  border-radius: 4px;
+  background: #111617;
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.32);
+  color: #f3efe7;
+  content: attr(data-tooltip);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -3px);
+  transition: opacity 100ms ease, transform 100ms ease;
+  white-space: nowrap;
+}
+
+.viki-icon-tooltip:hover::after,
+.viki-icon-tooltip:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.viki-status > .viki-icon-tooltip:last-child::after {
+  right: 0;
+  left: auto;
+  transform: translateY(-3px);
+}
+
+.viki-status > .viki-icon-tooltip:last-child:hover::after,
+.viki-status > .viki-icon-tooltip:last-child:focus-visible::after {
+  transform: translateY(0);
+}
+
 .viki-pet-picker,
 .viki-session-picker {
   position: relative;
@@ -2713,6 +2757,7 @@ h3 {
   top: calc(100% + 8px);
   left: 0;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   width: 270px;
   max-height: min(360px, calc(100vh - 140px));
   overflow: hidden;
@@ -2739,8 +2784,16 @@ h3 {
 }
 
 .viki-session-list {
+  min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 4px;
+  scrollbar-gutter: stable;
+}
+
+.viki-web-toggle.is-active {
+  background: rgba(127, 197, 173, 0.14);
+  color: #91d3bb;
 }
 
 .viki-session-item {
@@ -2933,6 +2986,41 @@ h3 {
   margin-top: 8px;
 }
 
+.viki-markdown-block {
+  position: relative;
+}
+
+.viki-message.is-assistant .viki-message-body {
+  position: relative;
+  padding-right: 39px;
+}
+
+.viki-copy-answer {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #8f999b;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.viki-message.is-assistant:hover .viki-copy-answer,
+.viki-copy-answer:focus-visible {
+  background: rgba(255, 255, 255, 0.07);
+  opacity: 1;
+}
+
+.viki-copy-answer:hover {
+  color: #d8ddde;
+}
+
 .viki-message-body ul {
   margin: 0;
   padding-left: 18px;
@@ -3046,12 +3134,23 @@ h3 {
   cursor: pointer;
 }
 
-.viki-sources div {
+.viki-sources div,
+.viki-sources a {
   display: grid;
   gap: 2px;
   border-left: 1px solid rgba(255, 255, 255, 0.1);
   margin: 7px 0 0 6px;
   padding-left: 9px;
+}
+
+.viki-sources a {
+  color: #bfc8c9;
+  text-decoration: none;
+}
+
+.viki-sources a:hover strong,
+.viki-sources a:focus-visible strong {
+  color: #91d3bb;
 }
 
 .viki-sources span {
@@ -3061,19 +3160,172 @@ h3 {
   white-space: nowrap;
 }
 
-.viki-thinking,
+.viki-thinking {
+  position: relative;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 56px;
+  gap: 10px;
+  overflow: hidden;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 7px 2px;
+  color: #9da6a8;
+  font-size: 12px;
+}
+
+.viki-thinking-orbit {
+  position: relative;
+  width: 36px;
+  height: 36px;
+}
+
+.viki-thinking-orbit::before,
+.viki-thinking-orbit::after {
+  position: absolute;
+  inset: 5px;
+  border: 1px solid rgba(141, 162, 255, 0.23);
+  border-radius: 50%;
+  content: "";
+}
+
+.viki-thinking-orbit::after {
+  inset: 10px 3px;
+  border-color: rgba(216, 190, 123, 0.2);
+  transform: rotate(42deg);
+}
+
+.viki-thinking-core,
+.viki-thinking-node {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 50%;
+}
+
+.viki-thinking-core {
+  width: 7px;
+  height: 7px;
+  margin: -3.5px;
+  background: #d9d5b4;
+  box-shadow: 0 0 0 4px rgba(217, 213, 180, 0.08), 0 0 12px rgba(217, 213, 180, 0.35);
+  animation: viki-thinking-pulse 1.8s ease-in-out infinite;
+}
+
+.viki-thinking-node {
+  width: 4px;
+  height: 4px;
+  margin: -2px;
+  background: #8da2ff;
+  box-shadow: 0 0 6px rgba(141, 162, 255, 0.65);
+}
+
+.viki-thinking-node.is-one {
+  animation: viki-thinking-orbit-one 2.6s linear infinite;
+}
+
+.viki-thinking-node.is-two {
+  background: #d6be7b;
+  animation: viki-thinking-orbit-two 3.4s linear infinite reverse;
+}
+
+.viki-thinking-node.is-three {
+  width: 3px;
+  height: 3px;
+  margin: -1.5px;
+  background: #7fc5ad;
+  animation: viki-thinking-orbit-three 2.1s linear infinite;
+}
+
+.viki-thinking-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.viki-thinking-copy strong {
+  overflow: hidden;
+  color: #d7dcdd;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: viki-thinking-copy-in 320ms ease-out both;
+}
+
+.viki-thinking-copy span {
+  overflow: hidden;
+  color: #778184;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viki-thinking small {
+  max-width: 150px;
+  overflow: hidden;
+  color: #d6be7b;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viki-thinking-scan {
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 22%;
+  height: 1px;
+  background: #8da2ff;
+  box-shadow: 0 0 7px rgba(141, 162, 255, 0.65);
+  animation: viki-thinking-scan 2.8s ease-in-out infinite;
+}
+
+@keyframes viki-thinking-orbit-one {
+  from { transform: rotate(0deg) translateX(14px) rotate(0deg); }
+  to { transform: rotate(360deg) translateX(14px) rotate(-360deg); }
+}
+
+@keyframes viki-thinking-orbit-two {
+  from { transform: rotate(40deg) translateX(12px) rotate(-40deg); }
+  to { transform: rotate(400deg) translateX(12px) rotate(-400deg); }
+}
+
+@keyframes viki-thinking-orbit-three {
+  from { transform: rotate(175deg) translateX(9px) rotate(-175deg); }
+  to { transform: rotate(535deg) translateX(9px) rotate(-535deg); }
+}
+
+@keyframes viki-thinking-pulse {
+  50% { transform: scale(1.35); opacity: 0.74; }
+}
+
+@keyframes viki-thinking-copy-in {
+  from { transform: translateY(4px); opacity: 0; }
+}
+
+@keyframes viki-thinking-scan {
+  0%, 100% { transform: translateX(-110%); opacity: 0; }
+  20%, 80% { opacity: 0.85; }
+  50% { transform: translateX(460%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viki-thinking-core,
+  .viki-thinking-node,
+  .viki-thinking-copy strong,
+  .viki-thinking-scan {
+    animation: none;
+  }
+}
+
 .viki-error {
   display: flex;
   align-items: center;
   gap: 7px;
   color: #9da6a8;
   font-size: 12px;
-}
-
-.viki-thinking small {
-  margin-left: auto;
-  color: #d6be7b;
-  font-size: 10px;
 }
 
 .viki-error {

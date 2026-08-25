@@ -10,6 +10,9 @@ host_port="${MY_WIKI_HOST_PORT:-8787}"
 public_hosts="${MY_WIKI_DASHBOARD_PUBLIC_HOSTS:-my-wiki.cloud,www.my-wiki.cloud}"
 public_origins="${MY_WIKI_DASHBOARD_ORIGINS:-https://my-wiki.cloud,https://www.my-wiki.cloud,http://127.0.0.1:${host_port},http://localhost:${host_port}}"
 env_file="${MY_WIKI_CONTAINER_ENV_FILE:-$HOME/.my-wiki-demo/opencode.env}"
+share_opencode="${MY_WIKI_CONTAINER_SHARE_OPENCODE:-1}"
+opencode_config_dir="${MY_WIKI_CONTAINER_OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
+opencode_auth_dir="${MY_WIKI_CONTAINER_OPENCODE_AUTH_DIR:-$HOME/.local/share/opencode}"
 seed_dir="${MY_WIKI_DEMO_SEED:-$HOME/.my-wiki-demo/seed}"
 build_context="${MY_WIKI_CONTAINER_BUILD_CONTEXT:-$HOME/Library/Caches/my-wiki-container/build-context}"
 host_proxy="${MY_WIKI_CONTAINER_PROXY:-${HTTPS_PROXY:-${https_proxy:-}}}"
@@ -82,6 +85,15 @@ fi
 
 if [ -f "$env_file" ]; then
   set -- "$@" --env-file "$env_file"
+fi
+
+if [ "$share_opencode" != "0" ]; then
+  if [ -d "$opencode_config_dir" ]; then
+    set -- "$@" --mount "type=bind,source=${opencode_config_dir},target=/host-opencode-config,readonly"
+  fi
+  if [ -d "$opencode_auth_dir" ]; then
+    set -- "$@" --mount "type=bind,source=${opencode_auth_dir},target=/host-opencode-data,readonly"
+  fi
 fi
 
 if [ -d "$seed_dir" ]; then

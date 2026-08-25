@@ -1,24 +1,36 @@
 import { randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, promises as fs, realpathSync } from "node:fs";
+import { existsSync, promises as fs, realpathSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 const DEFAULT_TIMEOUT = 15 * 60 * 1000;
+const PROVIDER_CACHE_TTL = 5 * 60 * 1000;
 const MAX_OUTPUT = 2 * 1024 * 1024;
 const PROVIDER_ORDER = ["opencode", "qoder", "codex", "claude"];
 
 export function createLocalAgentRunner({ env = process.env } = {}) {
   let detected;
+  let detectedAt = 0;
+  let detectedFingerprint = "";
+
+  const providerInfo = () => {
+    const fingerprint = providerConfigurationFingerprint(env);
+    if (!detected || fingerprint !== detectedFingerprint || Date.now() - detectedAt >= PROVIDER_CACHE_TTL) {
+      detected = detectProviders(env);
+      detectedAt = Date.now();
+      detectedFingerprint = fingerprint;
+    }
+    return detected;
+  };
 
   return {
     async info() {
-      detected ??= detectProviders(env);
-      return detected;
+      return providerInfo();
     },
 
-    async run({ provider, model = "", vault, mode, prompt, schema, files = [], timeoutMs = DEFAULT_TIMEOUT, idleTimeoutMs = 0, signal }) {
-      detected ??= detectProviders(env);
+    async run({ provider, model = "", vault, mode, prompt, schema, files = [], allowWeb = false, timeoutMs = DEFAULT_TIMEOUT, idleTimeoutMs = 0, signal }) {
+      detected = providerInfo();
       if (!detected.available) throw new Error(detected.message);
       const selected = resolveProvider(detected, provider);
 
@@ -34,7 +46,7 @@ export function createLocalAgentRunner({ env = process.env } = {}) {
       await fs.writeFile(schemaFile, `${JSON.stringify(schema, null, 2)}\n`, "utf8");
       await fs.writeFile(
         providerConfigFile,
-        `${JSON.stringify(openCodeConfig(mode, env, selected.modelProvider), null, 2)}\n`,
+        `${JSON.stringify(openCodeConfig(mode, env, selected.modelProvider, allowWeb), null, 2)}\n`,
         "utf8"
       );
 
@@ -51,7 +63,8 @@ export function createLocalAgentRunner({ env = process.env } = {}) {
             schemaFile,
             providerConfigFile,
             model,
-            files
+            files,
+            allowWeb
           });
           let result;
           try {
@@ -99,6 +112,36 @@ export function createLocalAgentRunner({ env = process.env } = {}) {
       }
     }
   };
+}
+
+function providerConfigurationFingerprint(env) {
+  const environment = Object.entries(env)
+    .filter(([key]) => key.startsWith("MY_WIKI_") || [
+      "HOME",
+      "USERPROFILE",
+      "XDG_CONFIG_HOME",
+      "XDG_DATA_HOME",
+      "OPENCODE_CONFIG"
+    ].includes(key))
+    .sort(([left], [right]) => left.localeCompare(right));
+  const home = String(env.HOME || env.USERPROFILE || os.homedir()).trim();
+  const configHome = String(env.XDG_CONFIG_HOME || (home ? path.join(home, ".config") : "")).trim();
+  const dataHome = String(env.XDG_DATA_HOME || (home ? path.join(home, ".local", "share") : "")).trim();
+  const files = [
+    String(env.OPENCODE_CONFIG || "").trim(),
+    configHome ? path.join(configHome, "opencode", "opencode.json") : "",
+    configHome ? path.join(configHome, "opencode", "opencode.jsonc") : "",
+    dataHome ? path.join(dataHome, "opencode", "auth.json") : ""
+  ].filter(Boolean);
+  const fileState = files.map((file) => {
+    try {
+      const stat = statSync(file, { bigint: true });
+      return [file, String(stat.mtimeNs), String(stat.size)];
+    } catch {
+      return [file, "missing"];
+    }
+  });
+  return JSON.stringify([environment, fileState]);
 }
 
 function detectProviders(env) {
@@ -258,7 +301,7 @@ function executableInvocation(command, args) {
   return { command, args };
 }
 
-export function providerInvocation({ provider, command, vault, mode, prompt, schema, outputFile, schemaFile, providerConfigFile, model, files = [] }) {
+export function providerInvocation({ provider, command, vault, mode, prompt, schema, outputFile, schemaFile, providerConfigFile, model, files = [], allowWeb = false }) {
   const writeMode = isWriteAgentMode(mode);
   if (provider === "codex") {
     return {
@@ -269,6 +312,7 @@ export function providerInvocation({ provider, command, vault, mode, prompt, sch
         "--ephemeral",
         "--color", "never",
         "--sandbox", writeMode ? "workspace-write" : "read-only",
+        ...(allowWeb ? ["--enable", "browser_use"] : ["--disable", "browser_use", "--disable", "browser_use_external"]),
         "-C", vault,
         ...(model ? ["--model", model] : []),
         ...files.flatMap((file) => ["--image", file]),
@@ -295,14 +339,14 @@ export function providerInvocation({ provider, command, vault, mode, prompt, sch
         promptWithSchema(prompt, schema)
       ],
       input: "",
-      env: { OPENCODE_CONFIG: providerConfigFile }
+      env: { OPENCODE_CONFIG: providerConfigFile, ...(allowWeb ? { OPENCODE_ENABLE_EXA: "1" } : {}) }
     };
   }
 
   if (provider === "qoder") {
     const tools = writeMode
       ? ["Read", "Grep", "Glob", "Edit", "Write"]
-      : ["Read", "Grep", "Glob"];
+      : ["Read", "Grep", "Glob", ...(allowWeb ? ["WebSearch", "WebFetch"] : [])];
     return {
       command,
       args: [
@@ -313,6 +357,7 @@ export function providerInvocation({ provider, command, vault, mode, prompt, sch
         "--permission-mode", writeMode ? "accept_edits" : "dont_ask",
         ...(model ? ["--model", model] : []),
         "--tools", ...tools,
+        ...(allowWeb ? ["--allowed-tools", "WebSearch,WebFetch"] : []),
         "--",
         promptWithSchema(prompt, schema)
       ],
@@ -327,6 +372,8 @@ export function providerInvocation({ provider, command, vault, mode, prompt, sch
       "-p",
       "--output-format", "text",
       "--permission-mode", writeMode ? "acceptEdits" : "plan",
+      "--allowedTools", ...["Read", "Glob", "Grep", ...(allowWeb ? ["WebSearch", "WebFetch"] : [])],
+      "--disallowedTools", "Edit", "Write", "Bash",
       ...(model ? ["--model", model] : []),
       promptWithSchema(prompt, schema)
     ],
@@ -476,7 +523,7 @@ export function parseOpenCodeConfig(output) {
   }
 }
 
-function openCodeConfig(mode, env, configuredProvider = "") {
+function openCodeConfig(mode, env, configuredProvider = "", allowWeb = false) {
   const activeProvider = String(configuredProvider || "").trim() || openCodeProvider(env);
   return {
     ...(activeProvider ? { enabled_providers: [activeProvider] } : {}),
@@ -490,8 +537,8 @@ function openCodeConfig(mode, env, configuredProvider = "") {
       bash: "deny",
       task: "deny",
       external_directory: "deny",
-      webfetch: "deny",
-      websearch: "deny"
+      webfetch: allowWeb ? "allow" : "deny",
+      websearch: allowWeb ? "allow" : "deny"
     }
   };
 }

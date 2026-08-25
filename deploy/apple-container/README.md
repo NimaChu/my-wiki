@@ -61,10 +61,16 @@ The launcher forwards an explicit `MY_WIKI_CONTAINER_PROXY` or shell HTTPS proxy
 into the container. When neither is set, it reads the active macOS HTTPS proxy
 from `scutil` and maps a loopback proxy to the Apple Container host gateway.
 
-OpenCode uses `MY_WIKI_OPENCODE_PROVIDER` to limit both the model selector and
-runtime provider configuration. It uses `MY_WIKI_OPENCODE_MODEL` as its primary
-model, while the Viki selector lets users choose another available model for a
-request. The container template enables automatic fallback through the
+By default, `start.sh` read-only mounts the host OpenCode configuration and auth
+store at staging paths; the entrypoint copies the required files into writable
+container-local directories before startup. Viki therefore follows the provider,
+default model, and visible model catalog selected by the host CLI. Set
+`MY_WIKI_CONTAINER_SHARE_OPENCODE=0` to disable sharing, or use
+`MY_WIKI_CONTAINER_OPENCODE_CONFIG_DIR` and
+`MY_WIKI_CONTAINER_OPENCODE_AUTH_DIR` to mount alternate directories. Values in
+the private environment file still take
+precedence: `MY_WIKI_OPENCODE_PROVIDER` limits the selector and runtime provider,
+and `MY_WIKI_OPENCODE_MODEL` sets the primary model. Automatic fallback uses the
 comma-separated `MY_WIKI_OPENCODE_FALLBACK_MODELS` list; the legacy single-value
 `MY_WIKI_OPENCODE_FALLBACK_MODEL` is also supported. A manually selected model
 is used only for that request and does not enter the automatic fallback chain.

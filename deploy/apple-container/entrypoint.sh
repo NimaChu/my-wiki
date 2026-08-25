@@ -6,6 +6,16 @@ config="${MY_WIKI_CONFIG_PATH:-/runtime/config.json}"
 
 mkdir -p "$(dirname "$config")"
 
+if [ -d /host-opencode-config ]; then
+  mkdir -p /root/.config/opencode
+  cp -R /host-opencode-config/. /root/.config/opencode/
+fi
+if [ -f /host-opencode-data/auth.json ]; then
+  mkdir -p /root/.local/share/opencode
+  cp /host-opencode-data/auth.json /root/.local/share/opencode/auth.json
+  chmod 600 /root/.local/share/opencode/auth.json
+fi
+
 if [ ! -f "$vault/.my-wiki.json" ]; then
   node /opt/my-wiki/scripts/my-wiki.mjs init "$vault" --name demo --use
 fi
