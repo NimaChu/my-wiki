@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BookOpen, Download, Eye, EyeOff, FileArchive, FileUp, FolderUp, Inbox, Link2, LoaderCircle, NotebookPen, Orbit, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
-import { InboxItem, Job, localApi, TaskProgress, UniverseSummary, waitForJob } from "./api";
+import { ArchiveRestore, BookOpen, Download, Eye, EyeOff, FileArchive, FileUp, FolderUp, Inbox, Link2, LoaderCircle, NotebookPen, Orbit, Pencil, Plus, RotateCcw, Trash2, Upload, X } from "lucide-react";
+import { GalaxyTrashEntry, InboxItem, Job, localApi, TaskProgress, UniverseSummary, waitForJob } from "./api";
 
 const QuickNotes = lazy(() => import("./QuickNotes").then((module) => ({ default: module.QuickNotes })));
 
@@ -59,7 +59,18 @@ const labels = {
     renameGalaxy: "Rename galaxy",
     renameGalaxyPrompt: "Enter a new name for \"{name}\".",
     deleteGalaxy: "Delete galaxy",
-    deleteGalaxyPrompt: "Concepts and references will be retained. Concepts with no other galaxy will move to Uncategorized. Type \"{name}\" to delete this galaxy.",
+    deleteGalaxyPrompt: "This galaxy will first be exported to the vault recycle bin, then its exclusive Concepts and unshared evidence will leave the active vault. Type \"{name}\" to continue.",
+    galaxyMovedToTrash: "Moved to recycle bin",
+    activeGalaxies: "Active galaxies",
+    recycleBin: "Recycle bin",
+    recycleEmpty: "The recycle bin is empty",
+    restoreGalaxy: "Restore galaxy",
+    restoreGalaxyConfirm: "Re-import \"{name}\" from the recycle bin?",
+    galaxyRestored: "Galaxy restored",
+    permanentDelete: "Delete permanently",
+    permanentDeletePrompt: "This permanently removes the archived package and cannot be undone. Type \"{name}\" to continue.",
+    permanentlyDeleted: "Permanently deleted",
+    deletedAt: "Deleted",
     deleteGalaxyMismatch: "The galaxy name did not match. Nothing was deleted.",
     download: "Download package",
     importPackage: "Import a galaxy package",
@@ -142,7 +153,18 @@ const labels = {
     renameGalaxy: "重命名星系",
     renameGalaxyPrompt: "请输入“{name}”的新名称。",
     deleteGalaxy: "删除星系",
-    deleteGalaxyPrompt: "Concept 与 Reference 会保留；没有其他归属的 Concept 将移至 Uncategorized。请输入“{name}”确认删除该星系。",
+    deleteGalaxyPrompt: "系统会先将整个星系导出到知识库回收站，再从活动知识库移除独占 Concept 与未共享证据。请输入“{name}”继续。",
+    galaxyMovedToTrash: "已移入回收站",
+    activeGalaxies: "现有星系",
+    recycleBin: "回收站",
+    recycleEmpty: "回收站为空",
+    restoreGalaxy: "恢复星系",
+    restoreGalaxyConfirm: "从回收站重新导入“{name}”？",
+    galaxyRestored: "星系已恢复",
+    permanentDelete: "永久删除",
+    permanentDeletePrompt: "此操作会永久删除归档知识包且无法撤销。请输入“{name}”继续。",
+    permanentlyDeleted: "已永久删除",
+    deletedAt: "删除时间",
     deleteGalaxyMismatch: "输入的星系名称不匹配，未执行删除。",
     download: "下载知识包",
     importPackage: "导入知识星系包",
@@ -450,6 +472,8 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
 function UniverseDialog({ language, onClose, onCreated }: { language: Language; onClose: () => void; onCreated?: (universe: UniverseSummary) => void }) {
   const l = labels[language];
   const [universes, setUniverses] = useState<UniverseSummary[]>([]);
+  const [trashEntries, setTrashEntries] = useState<GalaxyTrashEntry[]>([]);
+  const [showTrash, setShowTrash] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [newUniverse, setNewUniverse] = useState("");
@@ -457,6 +481,7 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
   const [createdMessage, setCreatedMessage] = useState("");
   const [activeExport, setActiveExport] = useState("");
   const [activeGalaxyAction, setActiveGalaxyAction] = useState("");
+  const [activeTrashAction, setActiveTrashAction] = useState("");
   const [download, setDownload] = useState<{ name: string; url: string } | null>(null);
   const [packageFile, setPackageFile] = useState<File | null>(null);
   const [rename, setRename] = useState("");
@@ -466,7 +491,10 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
   const packageInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    localApi.universes().then(({ universes: values }) => setUniverses(values)).catch((nextError) => setError(errorMessage(nextError))).finally(() => setLoading(false));
+    Promise.all([localApi.universes(), localApi.galaxyTrash()])
+      .then(([active, trash]) => { setUniverses(active.universes); setTrashEntries(trash.entries); })
+      .catch((nextError) => setError(errorMessage(nextError)))
+      .finally(() => setLoading(false));
   }, []);
 
   const exportOne = async (universe: string) => {
@@ -503,6 +531,7 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
   };
 
   const refreshUniverses = async () => setUniverses((await localApi.universes()).universes);
+  const refreshTrash = async () => setTrashEntries((await localApi.galaxyTrash()).entries);
 
   const toggleUniverse = async (universe: UniverseSummary) => {
     setError("");
@@ -544,13 +573,50 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
     setError("");
     setActiveGalaxyAction(universe.name);
     try {
-      await localApi.deleteUniverse(universe.name, confirmation);
-      await refreshUniverses();
+      const deleted = await localApi.deleteUniverse(universe.name, confirmation);
+      await Promise.all([refreshUniverses(), refreshTrash()]);
+      setCreatedMessage(`${l.galaxyMovedToTrash}: ${deleted.trashPackage || deleted.trashReceipt}`);
       window.dispatchEvent(new Event("my-wiki:graph-updated"));
     } catch (nextError) {
       setError(errorMessage(nextError));
     } finally {
       setActiveGalaxyAction("");
+    }
+  };
+
+  const restoreTrashEntry = async (entry: GalaxyTrashEntry) => {
+    if (!window.confirm(l.restoreGalaxyConfirm.replace("{name}", entry.galaxy))) return;
+    setError("");
+    setActiveTrashAction(entry.id);
+    try {
+      await localApi.restoreGalaxyTrash(entry.id);
+      await Promise.all([refreshUniverses(), refreshTrash()]);
+      setCreatedMessage(`${l.galaxyRestored}: ${entry.galaxy}`);
+      window.dispatchEvent(new Event("my-wiki:graph-updated"));
+    } catch (nextError) {
+      setError(errorMessage(nextError));
+    } finally {
+      setActiveTrashAction("");
+    }
+  };
+
+  const purgeTrashEntry = async (entry: GalaxyTrashEntry) => {
+    const confirmation = window.prompt(l.permanentDeletePrompt.replace("{name}", entry.galaxy));
+    if (confirmation === null) return;
+    if (confirmation !== entry.galaxy) {
+      setError(l.deleteGalaxyMismatch);
+      return;
+    }
+    setError("");
+    setActiveTrashAction(entry.id);
+    try {
+      await localApi.purgeGalaxyTrash(entry.id, confirmation);
+      await refreshTrash();
+      setCreatedMessage(`${l.permanentlyDeleted}: ${entry.galaxy}`);
+    } catch (nextError) {
+      setError(errorMessage(nextError));
+    } finally {
+      setActiveTrashAction("");
     }
   };
 
@@ -602,8 +668,15 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
             {createdMessage ? <p className="inline-success">{createdMessage}</p> : null}
           </div>
           {loading ? <p className="dialog-empty">{l.loading}</p> : null}
+          <div className="universe-list-toolbar">
+            <strong>{showTrash ? l.recycleBin : l.activeGalaxies}</strong>
+            <button type="button" onClick={() => setShowTrash((current) => !current)}>
+              {showTrash ? <Orbit size={15} /> : <ArchiveRestore size={15} />}
+              {showTrash ? l.activeGalaxies : `${l.recycleBin} (${trashEntries.length})`}
+            </button>
+          </div>
           <div className="universe-list">
-            {universes.map((universe) => (
+            {!showTrash ? universes.map((universe) => (
               <article className="universe-row" key={universe.name}>
                 <div><strong>{universe.name}</strong><span>{universe.wiki === 0 ? l.emptyGalaxy : `${template(l.wikiPages, universe.wiki)} · ${template(l.rawSources, universe.raw)}`}</span></div>
                 <div className="universe-row-actions">
@@ -618,7 +691,24 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
                   </button>
                 </div>
               </article>
+            )) : trashEntries.map((entry) => (
+              <article className="universe-row recycle-row" key={entry.id}>
+                <div>
+                  <strong>{entry.galaxy}</strong>
+                  <span>{template(l.wikiPages, entry.archivedConcepts)} · {template(l.rawSources, entry.archivedReferences)}</span>
+                  <span>{l.deletedAt}: {new Date(entry.trashedAt).toLocaleString(language === "zh" ? "zh-CN" : "en-US")} · {formatBytes(entry.packageBytes)}</span>
+                </div>
+                <div className="universe-row-actions">
+                  <button type="button" disabled={Boolean(activeTrashAction) || !entry.recoverable} onClick={() => void restoreTrashEntry(entry)}>
+                    {activeTrashAction === entry.id ? <LoaderCircle className="spin" size={15} /> : <RotateCcw size={15} />}{l.restoreGalaxy}
+                  </button>
+                  <button type="button" className="destructive-text-action" disabled={Boolean(activeTrashAction)} onClick={() => void purgeTrashEntry(entry)}>
+                    <Trash2 size={15} />{l.permanentDelete}
+                  </button>
+                </div>
+              </article>
             ))}
+            {showTrash && trashEntries.length === 0 ? <p className="recycle-empty">{l.recycleEmpty}</p> : null}
           </div>
           {download ? <a className="download-ready" href={download.url}><Download size={16} />{l.download}: {download.name}</a> : null}
         </section>

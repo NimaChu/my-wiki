@@ -13,6 +13,7 @@ import { captureSource } from "./capture-service.mjs";
 import { ingestLocalFile } from "./local-ingest.mjs";
 import { reextractSources } from "./reextract-source.mjs";
 import { exportUniverse } from "./export-universe.mjs";
+import { listGalaxyTrash, moveGalaxyToTrash, purgeGalaxyTrash, restoreGalaxyFromTrash } from "./galaxy-trash.mjs";
 import { importUniverse } from "./import-universe.mjs";
 import { createLocalNoteBundle, deleteLocalNote, isLocalNotePath, listLocalNotes, saveLocalNoteBundle } from "./note-service.mjs";
 import { normalizeChangedWikiFiles } from "./okf-lib.mjs";
@@ -726,11 +727,42 @@ export function createDashboardApi({
         const existing = summaries.find((item) => item.name.toLocaleLowerCase() === name.toLocaleLowerCase());
         if (!existing) throw httpError(404, "Knowledge galaxy not found");
         await declareUniverse(vault, existing.name);
-        const changed = await rewriteUniverseAssignments(vault, existing.name, null);
+        const changed = await moveGalaxyToTrash(vault, existing.name);
         await removeDeclaredUniverse(vault, existing.name);
-        if (changed.reassignedConcepts > 0) await declareUniverse(vault, "Uncategorized");
         const graphRefreshed = await refreshDashboardGraph(dashboardRoot, vault).catch(() => false);
         sendJson(res, 200, { name: existing.name, ...changed, graphRefreshed });
+        return true;
+      }
+      if (requestUrl.pathname === "/api/v1/universes/trash" && req.method === "GET") {
+        sendJson(res, 200, { entries: await listGalaxyTrash(vault) });
+        return true;
+      }
+      if (requestUrl.pathname === "/api/v1/universes/trash/restore" && req.method === "POST") {
+        const body = await readJson(req);
+        let restored;
+        try {
+          restored = await restoreGalaxyFromTrash(vault, body.id);
+        } catch (error) {
+          if (error?.code === "GALAXY_TRASH_NOT_FOUND") throw httpError(404, error.message);
+          if (error?.code === "GALAXY_RESTORE_CONFLICT") throw httpError(409, error.message);
+          throw error;
+        }
+        await declareUniverse(vault, restored.galaxy);
+        const graphRefreshed = await refreshDashboardGraph(dashboardRoot, vault).catch(() => false);
+        sendJson(res, 200, { ...restored, graphRefreshed });
+        return true;
+      }
+      if (requestUrl.pathname === "/api/v1/universes/trash/purge" && req.method === "POST") {
+        const body = await readJson(req);
+        let purged;
+        try {
+          purged = await purgeGalaxyTrash(vault, body.id, body.confirmation);
+        } catch (error) {
+          if (error?.code === "GALAXY_TRASH_NOT_FOUND") throw httpError(404, error.message);
+          if (error?.code === "GALAXY_TRASH_CONFIRMATION") throw httpError(400, error.message);
+          throw error;
+        }
+        sendJson(res, 200, purged);
         return true;
       }
       if (requestUrl.pathname === "/api/v1/agent/maintenance" && req.method === "POST") {
@@ -1319,8 +1351,7 @@ async function rewriteUniverseAssignments(vault, currentName, nextName) {
         .concat(nextName ? [nextName] : []);
       universes = [...new Map(universes.map((name) => [name.toLocaleLowerCase(), name])).values()];
       if (universes.length === 0) {
-        universes = ["Uncategorized"];
-        reassignedConcepts += 1;
+        throw httpError(409, `Cannot remove the last knowledge galaxy from Concept "${node.title}"`);
       }
       await fs.writeFile(node.file, upsertFrontmatterValues(node.content, { universes }), "utf8");
       updatedConcepts += 1;

@@ -691,6 +691,44 @@ h3 {
   gap: 6px;
 }
 
+.universe-list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 18px 0 4px;
+}
+
+.universe-list-toolbar > strong {
+  color: #ece8dd;
+  font-size: 13px;
+}
+
+.universe-list-toolbar > button {
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
+.recycle-row > div:first-child {
+  min-width: 0;
+}
+
+.recycle-row > div:first-child span:last-child {
+  color: #687376;
+}
+
+.workspace-dialog .destructive-text-action {
+  color: #d9968e;
+}
+
+.recycle-empty {
+  display: grid;
+  min-height: 140px;
+  place-items: center;
+  color: #7f898b;
+  font-size: 13px;
+}
+
 .workspace-dialog .galaxy-icon-action {
   width: 34px;
   min-width: 34px;

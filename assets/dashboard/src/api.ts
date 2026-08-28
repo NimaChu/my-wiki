@@ -31,6 +31,17 @@ export type UniverseSummary = {
   hidden?: boolean;
 };
 
+export type GalaxyTrashEntry = {
+  id: string;
+  galaxy: string;
+  trashedAt: string;
+  archivedConcepts: number;
+  archivedReferences: number;
+  packageBytes: number;
+  recoverable: boolean;
+  retainedBackups: number;
+};
+
 export type Job = {
   id: string;
   type: "capture-file" | "export" | "import-preview" | "import-apply" | "agent-maintenance" | "agent-repair" | "agent-answer";
@@ -270,7 +281,30 @@ export const localApi = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name, confirmation })
     });
-    return response.json() as Promise<{ name: string; updatedConcepts: number; updatedReferences: number; reassignedConcepts: number; graphRefreshed: boolean }>;
+    return response.json() as Promise<{ name: string; trashPackage: string; trashReceipt: string; removedConcepts: number; updatedConcepts: number; removedReferences: number; updatedReferences: number; graphRefreshed: boolean }>;
+  },
+
+  async galaxyTrash() {
+    const response = await apiFetch("/api/v1/universes/trash");
+    return response.json() as Promise<{ entries: GalaxyTrashEntry[] }>;
+  },
+
+  async restoreGalaxyTrash(id: string) {
+    const response = await apiFetch("/api/v1/universes/trash/restore", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id })
+    });
+    return response.json() as Promise<{ id: string; galaxy: string; graphRefreshed: boolean }>;
+  },
+
+  async purgeGalaxyTrash(id: string, confirmation: string) {
+    const response = await apiFetch("/api/v1/universes/trash/purge", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id, confirmation })
+    });
+    return response.json() as Promise<{ id: string; galaxy: string; purged: boolean }>;
   },
 
   async agent() {
