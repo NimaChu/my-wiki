@@ -17,7 +17,7 @@
 
 网页、PDF、扫描件、图片、Office 文档、聊天记录和官方资料里有大量有价值的信息，但它们通常散落在不同位置，很难持续整理，更难在以后准确复用。
 
-My Wiki 让本地 AI Agent 负责知识的完整生命周期：保存原始资料，提取可读正文，蒸馏原子 Wiki，建立关系与证据链接，回答问题，维护知识健康，并通过网页把知识呈现为可以探索和操作的知识宇宙。
+My Wiki 让本地 AI Agent 负责知识的完整生命周期：保存 Reference 与 original，提取可读正文，蒸馏原子 Concept，建立关系与证据链接，回答问题，维护知识健康，并通过网页把知识呈现为可以探索和操作的知识宇宙。
 
 默认不需要云数据库、向量数据库、Obsidian 或付费 API。知识以 Markdown、原始文件、快照和图片保存在你控制的本地文件夹中。
 
@@ -51,8 +51,8 @@ My Wiki 由两个相互配合的使用界面组成，共享同一个本地知识
 |---|---|---|
 | 适合场景 | 在 Codex、Claude Code、OpenCode 等客户端中直接聊天 | 浏览、比较、维护和可视化操作知识 |
 | 主要交互 | 用自然语言让 Agent 入库、维护、检索和回答 | 用鼠标探索图谱、上传资料、处理队列、询问 Viki |
-| 知识范围 | Wiki、raw 原始证据、图片、快照和本地文件 | 知识宇宙、知识星系、Wiki 星球与原文证据层 |
-| Agent 能力 | 使用当前 Agent 客户端执行完整工作流 | 调用已登录的本地 Codex、OpenCode 或 Claude CLI |
+| 知识范围 | Concept、Reference、图片、original 和本地文件 | 知识宇宙、知识星系、Concept 星球与参考证据层 |
+| Agent 能力 | 使用当前 Agent 客户端执行完整工作流 | 调用已登录的本地 Codex、OpenCode、Qoder 或 Claude CLI |
 | 数据位置 | 你指定的本地知识库目录 | 同一个本地知识库目录 |
 
 你可以只使用其中一种，也可以在聊天和网页之间随时切换。两种方式读写的是同一套知识，不需要同步两份数据。
@@ -71,7 +71,7 @@ My Wiki 由两个相互配合的使用界面组成，共享同一个本地知识
 根据本地知识回答这个问题，并展示相关证据图片。
 ```
 
-Agent 会自动定位知识库，保存 raw 原始证据和附件，创建或更新原子 Wiki，维护双向关系，并优先用 Wiki 回答、再回到 raw 核实重要结论。你不需要记忆一套 CLI。
+Agent 会自动定位知识库，保存 Reference、original 和附件，创建或更新原子 Concept，维护双向关系，并优先用 Concept 回答、再回到 Reference 核实重要结论。你不需要记忆一套 CLI。
 
 ### 2. 在其他工作区中通过 Skill 使用
 
@@ -90,18 +90,19 @@ Agent 会自动定位知识库，保存 raw 原始证据和附件，创建或更
 Agent 会启动本地网页应用。你可以：
 
 - 在知识宇宙中观察多个知识星系及其交会；
-- 进入知识星系，查看三维 Wiki 星球关系网络；
-- 打开 Wiki 页面，继续进入它背后的 raw 原文证据层；
-- 搜索 Wiki、关系和来源，而不破坏当前图谱层级；
-- 双击 Wiki 或证据点进入轻量 Markdown 工作台，在阅读、源码和实时分屏间切换；文档大纲、公式/表格工具、图片粘贴与拖入都直接作用于受控的本地 Markdown 与 `references/assets/`，不引入第二套笔记数据库；
+- 进入知识星系，查看 Concept 星球关系网络；隐藏星系不会出现在宇宙图谱和概览统计中；
+- 打开 Concept 页面，继续进入它背后的 Reference 证据层；
+- 搜索 Concept、关系和来源，而不破坏当前图谱层级；
+- 双击 Concept 或 Reference 进入内置 Markdown 工作台，在渲染阅读、源码编辑和实时渲染编辑间切换；文档大纲、公式/表格工具、图片选择、粘贴与拖入都直接作用于受控的本地 Markdown 与 `references/assets/`，不引入第二套笔记数据库；
 - 输入网页链接，或上传文件、文件夹和 Markdown + 图片 ZIP 图文包；
 - 查看统一维护队列：上传进入后台后立即显示等待、提取进度或失败状态，并可按 Reference 独立蒸馏或修复；批量维护会依据每条状态自动选择动作。本地提取使用独立的 2 个并发槽位，Agent 修复/蒸馏使用另一组 2 个并发槽位，同一 Reference 不会重复执行；
 - 查看大文件与知识包进度：分片上传、逐页 OCR 和分批 MinerU 显示实际字节或页数，单进程提取、导入预览与最终写入显示当前处理阶段；
-- 使用常驻知识伙伴 Viki 基于 Wiki、raw 证据和相关图片进行问答；
-- 在 Viki 中独立选择 Agent CLI 与宠物形态，并调整聊天窗口大小；
-- 新增、重命名、隐藏/显示或删除知识星系，并可导出单个星系、预览及导入别人分享的 `.mywiki` 知识包；删除星系只移除分类，保留 Concept 与 Reference。
+- 使用 Viki 基于 Concept、Reference 和相关图片进行问答；可限定一个或多个知识星系，按需开启联网补充，并查看引用证据；
+- 在 Viki 中管理多个本地会话、暂停当前请求、进入全屏、复制回答，并把整个会话导出为 Markdown/ZIP 图文包或快速笔记；CLI/模型切换从下一轮生效，不会中断当前回答；
+- 使用快速笔记创建、导入、编辑和删除本地 Markdown/ZIP 图文笔记，保存后可选择进入正常入库与维护流程；
+- 新增、重命名、隐藏/显示或删除知识星系，并可导出单个星系、预览及导入别人分享的 `.mywiki` 知识包；删除前会把完整星系移入 `.my-wiki/trash/galaxies/`，可从网页回收站恢复或永久删除。共享 Concept 与证据不会被误删，也不会生成 `Uncategorized` 星系。
 
-网页前端只监听 `127.0.0.1`。日常通过 Agent 入库或维护时不会自动启动它；只有你明确要求打开知识宇宙、前端或 Dashboard 时才会启动。
+网页前端默认只监听 `127.0.0.1`。日常通过 Agent 入库或维护时不会自动启动它；只有你明确要求打开知识宇宙、前端或 Dashboard 时才会启动。需要隔离的公网演示时，可使用 [`deploy/apple-container/`](deploy/apple-container/README.md) 的 Apple Container 方案并在本机端口前接 Cloudflare Tunnel。
 
 ## 从资料到可复用知识
 
@@ -109,14 +110,14 @@ Agent 会启动本地网页应用。你可以：
 网页 / PDF / 扫描件 / 图片 / Office 文档 / 外部平台
                          |
                          v
-                    raw 证据层
-              原文、快照、原件、图片、元数据
+                 Reference 证据层
+              原文、original、图片、元数据
                          |
                      AI Agent
               蒸馏、关联、核实、维护、修复
                          |
                          v
-                   原子 Wiki 页面
+                   原子 Concept 页面
              概念、方法、API、实体、流程
                          |
           +--------------+--------------+
@@ -124,30 +125,30 @@ Agent 会启动本地网页应用。你可以：
      有依据的知识问答               知识宇宙网页
 ```
 
-My Wiki 不是给每份文档生成一段摘要。一份资料可以更新多个长期 Wiki，一个 Wiki 也可以综合多份原始证据。只有 Wiki 已建立、raw 与 Wiki 的双向证据关系闭合、后续事项处理完成，一份 raw 才会被标记为 `processed`。
+My Wiki 不是给每份文档生成一段摘要。一份 Reference 可以更新多个长期 Concept，一个 Concept 也可以综合多份 Reference。只有 Concept 已建立、双向证据关系闭合、后续事项处理完成，一份 Reference 的 `workflow_status` 才会变为 `processed`。
 
-这种结构让知识可以被反复使用：今天保存的资料可以更新已有 Wiki，明天的新问题可以复用这些 Wiki，重要结论仍然能一路回到原文、图片或 PDF 核实。
+这种结构让知识可以被反复使用：今天保存的资料可以更新已有 Concept，明天的新问题可以复用这些 Concept，重要结论仍然能一路回到原文、图片或 PDF 核实。
 
 ## 探索知识宇宙
 
-<img width="1785" height="881" alt="My Wiki 交互式知识宇宙、知识星系和 Wiki 星球" src="https://raw.githubusercontent.com/NimaChu/my-wiki/main/.github/assets/knowledge-universe.png" />
+<img width="1785" height="881" alt="My Wiki 交互式知识宇宙、知识星系和 Concept 星球" src="https://raw.githubusercontent.com/NimaChu/my-wiki/main/.github/assets/knowledge-universe.png" />
 
-- **知识宇宙**：整个知识库的全局视图，展示多个知识星系以及它们通过共同 Wiki 形成的联系。
+- **知识宇宙**：整个知识库的全局视图，展示多个知识星系以及它们通过共同 Concept 形成的联系。
 - **知识星系**：一组成体系、可以独立理解和复用的知识集合，例如 FlexSim、Agent 开发或项目经验。
-- **Wiki 星球**：一篇原子 Wiki，表达一个概念、方法、实体、流程或可长期复用的结论。
-- **原文证据层**：支撑某篇 Wiki 的网页、Markdown、PDF、图片和其他 raw 来源。
+- **Concept 星球**：一篇原子 Concept，表达一个概念、方法、实体、流程或可长期复用的结论。
+- **参考证据层**：支撑某篇 Concept 的网页、Markdown、PDF、图片和其他 Reference。
 
-图谱不是额外维护的一套数据库。它直接从 Wiki 与 raw 的关系生成，知识发生变化时，运行中的前端会自动刷新。
+图谱不是额外维护的一套数据库。它直接从 Concept 与 Reference 的关系生成，知识发生变化时，运行中的前端会自动刷新。
 
 ## 分享和复用知识星系
 
 知识星系可以导出为单个 `.mywiki` 知识包。它不是只有几篇摘要，而是一套带证据的知识集合，包含：
 
-- 这个星系的 Wiki Markdown；
-- Wiki 关联的 raw Markdown；
+- 这个星系的 Concept Markdown；
+- Concept 关联的 Reference Markdown；
 - 可用的来源 URL；
 - 相关图片与图像索引；
-- raw 明确引用的网页快照、PDF 和其他原始文件。
+- Reference 明确引用的网页快照、PDF 和其他 original。
 
 接收方可以先预览重复项、重命名和冲突，再确认导入自己的知识宇宙。即使原始资料没有 URL，例如本地 PDF，知识包仍然可以保留完整证据。
 
@@ -163,13 +164,13 @@ My Wiki 不是给每份文档生成一段摘要。一份资料可以更新多个
 
 ### Open Knowledge Format v0.2
 
-Wiki 概念默认采用 [Google Open Knowledge Format v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format) 可消费的 Markdown 表达：标准 YAML frontmatter、`draft|stable|deprecated` 生命周期、结构化来源对象、标准 Markdown 关系链接和按来源 ID 连接的证据脚注。My Wiki 的知识星系、别名和证据闭环字段作为 OKF 允许的扩展键保留；系统不会把“已经蒸馏”冒充为人工验证。
+Concept 默认采用 [Google Open Knowledge Format v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format) 可消费的 Markdown 表达：标准 YAML frontmatter、`draft|stable|deprecated` 生命周期、结构化来源对象、标准 Markdown 关系链接和按来源 ID 连接的证据脚注。My Wiki 的知识星系、别名和证据闭环字段作为 OKF 允许的扩展键保留；系统不会把“已经蒸馏”冒充为人工验证。
 
 ```bash
-# 审计当前 Wiki 的 OKF v0.2 兼容性
+# 审计当前 Concept 的 OKF v0.2 兼容性
 npm run wiki -- okf-audit
 
-# 预览旧 Wiki 的迁移数量；--apply 会先备份 concepts/ 再转换
+# 预览旧知识页的迁移数量；--apply 会先备份 concepts/ 再转换
 npm run wiki -- okf-migrate
 npm run wiki -- okf-migrate --apply
 
@@ -184,8 +185,8 @@ npm run wiki -- export-okf --galaxy "AI" --output /path/to/ai-okf
 
 - **本地优先**：Markdown、原件、网页快照和图片都在你控制的目录中。
 - **Agent 自动维护**：短指令即可完成入库、蒸馏、链接、检查和修复。
-- **结论可追溯**：Wiki 结论回链 raw，重要信息可以核实到原文与图片。
-- **面向复用而非堆积**：资料被整理成原子 Wiki 和关系，而不是只进入一个搜索黑盒。
+- **结论可追溯**：Concept 结论回链 Reference，重要信息可以核实到原文与图片。
+- **面向复用而非堆积**：资料被整理成原子 Concept 和关系，而不是只进入一个搜索黑盒。
 - **网页应用可操作**：不仅看图谱，还能添加资料、处理维护队列、问 Viki、导入和导出知识星系。
 - **支持多种本地文档**：文本 PDF、扫描 PDF、图片、DOCX、PPTX、XLSX、文件夹批次和 ZIP 图文包。
 - **质量感知的 PDF 解析**：逐页检查乱码、稀疏文本和公式版面风险；中文 OCR 会清理逐字空格，低质量页面不会静默进入维护。
@@ -227,13 +228,13 @@ My Wiki 重点解决知识进入检索之前的整理层：把原始资料变成
 |---|---|---|---|
 | 开始使用 | 克隆 Agent 项目并建立独立本地知识库；Skill 按需安装 | 搭建切片、Embedding、召回、存储和服务 | 安装编辑器和插件，再设计提示词与笔记规范 |
 | 主要存储 | Markdown、原始文件、快照和本地图片 | 向量索引加外部原文存储 | Markdown Vault |
-| 谁来整理 | Agent 维护 raw、原子 Wiki、关系和健康状态 | 流水线索引文本切片，可读知识通常另做 | 通常由用户手工整理，LLM 提供辅助 |
-| 可追溯性 | Wiki 与 raw 双向链接并可自动检查 | 取决于检索元数据和应用设计 | 可以做到，但依赖用户习惯 |
+| 谁来整理 | Agent 维护 Reference、原子 Concept、关系和健康状态 | 流水线索引文本切片，可读知识通常另做 | 通常由用户手工整理，LLM 提供辅助 |
+| 可追溯性 | Concept 与 Reference 双向链接并可自动检查 | 取决于检索元数据和应用设计 | 可以做到，但依赖用户习惯 |
 | 网页能力 | 内置知识宇宙、录入、维护、Viki 和知识包交换 | 通常需要单独开发应用 | 主要是编辑器内的笔记浏览与插件能力 |
-| 分享单元 | 带 Wiki、raw、图片和原件的知识星系 | 索引或应用特定的数据包 | 文件夹或整个 Vault |
+| 分享单元 | 带 Concept、Reference、图片和 original 的知识星系 | 索引或应用特定的数据包 | 文件夹或整个 Vault |
 | 更适合 | 个人、团队和项目知识的长期管理与复用 | 大规模语义检索和生产服务 | 人工写作、链接和浏览笔记 |
 
-My Wiki 不排斥 RAG 或 Obsidian。你可以用 Obsidian 打开同一个知识库，也可以在规模真正需要时，把已经整理干净的 Markdown 证据层交给 RAG。
+My Wiki 不排斥 RAG 或 Obsidian。你可以用 Obsidian 打开同一个知识库，也可以在规模真正需要时，把已经整理干净的 Concept 与 Reference 交给 RAG。
 
 ## 快速开始
 
@@ -284,7 +285,7 @@ npx my-wiki-skill@latest
 my-vault/
   index.md                 OKF 知识入口
   log.md                   OKF 更新日志
-  concepts/                可长期复用的原子 Wiki 页面
+  concepts/                可长期复用的原子 Concept 页面
   references/
     sources/               原始证据的 Markdown Reference
     assets/                每篇来源独立保存的图片与图像索引
@@ -303,8 +304,8 @@ my-vault/
 
 - **Obsidian**：可以作为同一套 Markdown 知识库的人工编辑器，但 My Wiki 不依赖它。
 - **Firecrawl MCP**：增强动态或难抓取网页的入库能力；完整托管爬取可能需要 Firecrawl 认证。
-- **IMA 和其他外部平台**：先把得到授权的资料迁移到本地 raw，再走同一套维护流程。
-- **RAG**：未来需要 Embedding 和生产级检索时再接入，不必放弃已有的 raw 与 Wiki。
+- **IMA 和其他外部平台**：用户确认并授权后，把资料迁移为本地 Reference，再走同一套维护流程。
+- **RAG**：未来需要 Embedding 和生产级检索时再接入，不必放弃已有的 Concept 与 Reference。
 
 ## 开源许可证
 

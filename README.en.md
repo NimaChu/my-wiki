@@ -17,7 +17,7 @@
 
 Useful knowledge is scattered across webpages, PDFs, scans, images, Office documents, conversations, and reference manuals. Saving those files is easy. Keeping them organized, connected, verifiable, and reusable over time is much harder.
 
-My Wiki gives a local AI agent responsibility for the whole knowledge lifecycle: preserve sources, extract readable content, distill atomic Wiki pages, maintain relationships and evidence links, answer questions, repair the knowledge base, and present it through an interactive web application.
+My Wiki gives a local AI agent responsibility for the whole knowledge lifecycle: preserve References and originals, extract readable content, distill atomic Concepts, maintain relationships and evidence links, answer questions, repair the knowledge base, and present it through an interactive web application.
 
 No hosted database, vector database, Obsidian installation, or paid API is required by default. Knowledge stays in Markdown, snapshots, original files, and images inside folders you control.
 
@@ -51,8 +51,8 @@ My Wiki provides two interfaces over the same local knowledge vault:
 |---|---|---|
 | Best for | Conversational work inside Codex, Claude Code, OpenCode, and similar clients | Visual exploration, comparison, maintenance, and direct knowledge operations |
 | Main interaction | Ask the agent to capture, maintain, search, and answer | Browse graphs, upload sources, process the queue, and ask Viki |
-| Knowledge surface | Wiki pages, raw evidence, images, snapshots, and local files | Knowledge universe, galaxies, Wiki planets, and source-evidence views |
-| Agent execution | Uses the current Agent client and its tools | Calls an authenticated local Codex, OpenCode, or Claude CLI |
+| Knowledge surface | Concepts, References, images, originals, and local files | Knowledge universe, galaxies, Concept planets, and Reference evidence views |
+| Agent execution | Uses the current Agent client and its tools | Calls an authenticated local Codex, OpenCode, Qoder, or Claude CLI |
 | Data location | A local vault at any path you choose | The same local vault |
 
 Use either interface on its own or move between chat and the browser whenever useful. There is no second database to synchronize.
@@ -71,7 +71,7 @@ Maintain the knowledge base.
 Answer this question from my local knowledge and show the relevant evidence images.
 ```
 
-The agent resolves the active vault, preserves raw evidence and attachments, creates or updates atomic Wiki pages, maintains reciprocal links, and answers from Wiki knowledge while following evidence back to raw sources when verification matters. You do not need to memorize a separate CLI.
+The agent resolves the active vault, preserves References, originals, and attachments, creates or updates atomic Concepts, maintains reciprocal links, and answers from Concepts while following evidence back to References when verification matters. You do not need to memorize a separate CLI.
 
 ### 2. Use The Skill From Another Workspace
 
@@ -90,16 +90,18 @@ Open the knowledge graph.
 The agent starts the local web application. From there you can:
 
 - see the full knowledge universe, its galaxies, and where they intersect;
-- enter one galaxy and inspect a three-dimensional network of Wiki planets;
-- read a Wiki page and drill into every raw source supporting it;
-- search Wiki pages, relationships, and sources without losing the current graph level;
+- enter one galaxy and inspect its Concept network; hidden galaxies are excluded from both the universe and overview totals;
+- read a Concept and drill into every Reference supporting it;
+- search Concepts, relationships, and sources without losing the current graph level;
+- open a Concept or Reference in the built-in Markdown workspace with rendered reading, source editing, live rendered editing, tables, formulas, and local image insertion;
 - enter a webpage URL or upload files, folders, and Markdown-plus-images ZIP bundles;
-- inspect Inbox and `needs-followup`, then ask an agent to distill Wiki pages and close evidence links in batches;
-- ask the persistent Viki companion questions grounded in Wiki pages, raw evidence, and useful images;
-- choose Viki's Agent CLI and pet independently, and resize the chat window;
-- export one knowledge galaxy or preview and import a shared `.mywiki` package.
+- see uploads immediately in one processing queue with extraction progress and failures, then independently repair or distill each Reference; extraction and Agent maintenance use separate two-task lanes;
+- ask Viki questions grounded in selected knowledge galaxies, References, and useful images, with optional web search and visible citations;
+- keep multiple local Viki conversations, pause a request, use a full-screen chat, copy an answer, or export a conversation as Markdown, an image ZIP, or a quick note;
+- create, import, edit, delete, and optionally capture local Markdown or image-ZIP quick notes;
+- add, rename, hide, export, import, or delete a knowledge galaxy. Deletion first moves a complete package into `.my-wiki/trash/galaxies/`, where it can be restored or permanently removed without deleting shared knowledge or creating an `Uncategorized` galaxy.
 
-The frontend binds only to `127.0.0.1`. Routine capture and maintenance through an Agent do not start it. It opens only when you explicitly ask for the knowledge universe, frontend, graph, or Dashboard.
+The frontend binds to `127.0.0.1` by default. Routine capture and maintenance through an Agent do not start it. It opens only when you explicitly ask for the knowledge universe, frontend, graph, or Dashboard. For an isolated public demo, use the [Apple Container deployment](deploy/apple-container/README.md) behind a Cloudflare Tunnel.
 
 ## From Sources To Reusable Knowledge
 
@@ -107,14 +109,14 @@ The frontend binds only to `127.0.0.1`. Routine capture and maintenance through 
 Webpages / PDFs / scans / images / Office files / external platforms
                               |
                               v
-                       raw evidence layer
-                originals, snapshots, images, metadata
+                      Reference evidence layer
+                    originals, images, metadata
                               |
                           AI agent
                   distill, link, verify, repair
                               |
                               v
-                       atomic Wiki pages
+                       atomic Concepts
                  concepts, methods, APIs, entities
                               |
                +--------------+--------------+
@@ -122,30 +124,30 @@ Webpages / PDFs / scans / images / Office files / external platforms
          grounded answers            knowledge universe
 ```
 
-My Wiki does not create one disposable summary per document. One source can update several durable Wiki pages, and one Wiki page can synthesize evidence from many sources. A raw item becomes `processed` only after useful Wiki targets exist, raw-to-Wiki evidence links close in both directions, and follow-up work is resolved.
+My Wiki does not create one disposable summary per document. One Reference can update several durable Concepts, and one Concept can synthesize evidence from many References. A Reference's `workflow_status` becomes `processed` only after useful Concept targets exist, reciprocal evidence links close, and follow-up work is resolved.
 
-That structure makes knowledge reusable. A source captured today can improve an existing Wiki page, a question tomorrow can reuse that page, and important claims still lead back to the original text, image, or PDF.
+That structure makes knowledge reusable. A Reference captured today can improve an existing Concept, a question tomorrow can reuse it, and important claims still lead back to the original text, image, or PDF.
 
 ## Explore The Knowledge Universe
 
-<img width="1785" height="881" alt="My Wiki knowledge universe, knowledge galaxies, and Wiki planets" src="https://raw.githubusercontent.com/NimaChu/my-wiki/main/.github/assets/knowledge-universe.png" />
+<img width="1785" height="881" alt="My Wiki knowledge universe, knowledge galaxies, and Concept planets" src="https://raw.githubusercontent.com/NimaChu/my-wiki/main/.github/assets/knowledge-universe.png" />
 
-- **Knowledge universe**: the global vault view, showing multiple galaxies and the shared Wiki pages that connect them.
+- **Knowledge universe**: the global vault view, showing multiple galaxies and the shared Concepts that connect them.
 - **Knowledge galaxy**: a coherent body of knowledge that can be understood and reused as a unit, such as FlexSim, Agent Development, or project experience.
-- **Wiki planet**: one atomic Wiki page describing a concept, method, entity, process, or durable conclusion.
-- **Source-evidence layer**: the webpages, Markdown, PDFs, images, and other raw sources supporting a Wiki page.
+- **Concept planet**: one atomic Concept describing a concept, method, entity, process, or durable conclusion.
+- **Reference evidence layer**: the webpages, Markdown, PDFs, images, and other References supporting a Concept.
 
-The graph is not a second database. It is generated directly from Wiki and raw relationships, and a running frontend refreshes as the vault changes.
+The graph is not a second database. It is generated directly from Concept and Reference relationships, and a running frontend refreshes as the vault changes.
 
 ## Share And Reuse Knowledge Galaxies
 
 A knowledge galaxy can be exported as one `.mywiki` package. It is not merely a set of summaries. It is an evidence-backed knowledge collection containing:
 
-- the galaxy's Wiki Markdown;
-- raw Markdown linked by those Wiki pages;
+- the galaxy's Concept Markdown;
+- Reference Markdown linked by those Concepts;
 - available source URLs;
 - related images and image indexes;
-- webpage snapshots, PDFs, and other originals explicitly referenced by the raw notes.
+- webpage snapshots, PDFs, and other originals explicitly referenced by those References.
 
 Recipients preview duplicates, renames, and conflicts before confirming an import into their own knowledge universe. Evidence remains complete even when an original source, such as a local PDF, has no URL.
 
@@ -159,14 +161,34 @@ Import it and rename the galaxy to "Simulation Engineering".
 
 This lets My Wiki support a broader knowledge ecosystem: coherent knowledge can be shared, inspected, verified, extended, and maintained by another user's agent.
 
+### Open Knowledge Format v0.2
+
+Concepts use Markdown consumable by [Google Open Knowledge Format v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format): standard YAML frontmatter, the `draft | stable | deprecated` lifecycle, structured sources, Markdown relationship links, and source-ID evidence footnotes. Galaxies and My Wiki's evidence-closure fields remain valid extension keys; successful distillation is never presented as human verification.
+
+```bash
+# Audit the current vault for OKF v0.2 compatibility
+npm run wiki -- okf-audit
+
+# Preview or apply migration of legacy knowledge pages
+npm run wiki -- okf-migrate
+npm run wiki -- okf-migrate --apply
+
+# Export all knowledge or one galaxy as an OKF directory bundle
+npm run wiki -- export-okf
+npm run wiki -- export-okf --galaxy "AI" --output /path/to/ai-okf
+```
+
+A `.mywiki` file is an audited, portable galaxy package with the native `index.md`, `log.md`, `concepts/`, and `references/` layout. Generic OKF consumers can read the unpacked knowledge; My Wiki additionally restores workflow state, checksums, evidence closure, and conflict handling.
+
 ## Why My Wiki
 
 - **Local first**: Markdown, originals, webpage snapshots, and images stay in folders you control.
 - **Agent maintained**: short natural-language requests drive capture, distillation, linking, checks, and repairs.
-- **Evidence backed**: Wiki conclusions link to raw evidence, including useful images and original files.
-- **Designed for reuse**: sources become atomic Wiki knowledge and relationships instead of disappearing into a retrieval black box.
+- **Evidence backed**: Concept conclusions link to References, including useful images and original files.
+- **Designed for reuse**: sources become atomic Concepts and relationships instead of disappearing into a retrieval black box.
 - **An operational web app**: add sources, process maintenance queues, ask Viki, and exchange knowledge galaxies, not just view a graph.
 - **Broad local-document support**: text PDFs, scanned PDFs, images, DOCX, PPTX, XLSX, folder batches, and ZIP bundles.
+- **Quality-aware document extraction**: My Wiki owns one document IR and page-level acceptance gate; MinerU handles Chinese technical PDFs, Docling contributes structure and provenance, and a configured multimodal Agent CLI can repair only the pages identified by deterministic checks.
 - **Failure stays visible**: empty, partial, unsupported, or low-confidence extraction is locked as `needs-followup` instead of pretending capture succeeded.
 - **Portable by design**: move or back up the vault, open it in any Markdown editor, or connect Obsidian and RAG later.
 - **Zero-cost starting point**: begin with Node.js and an available local Agent client rather than a cloud infrastructure stack.
@@ -179,13 +201,13 @@ My Wiki focuses on the organization layer before retrieval: turning source mater
 |---|---|---|---|
 | Getting started | Clone the Agent project and create a separate local vault; install the Skill only when useful | Build chunking, embeddings, retrieval, storage, and services | Install an editor and plugins, then define prompts and note conventions |
 | Main storage | Markdown, originals, snapshots, and local images | Vector index plus an external source store | Markdown vault |
-| Who organizes it | The agent maintains raw evidence, atomic Wiki pages, links, and health | The pipeline indexes chunks; readable synthesis is usually separate | Usually the user, with LLM assistance |
-| Traceability | Wiki and raw links are reciprocal and automatically checkable | Depends on retrieval metadata and application design | Possible, but depends on user discipline |
+| Who organizes it | The agent maintains References, atomic Concepts, links, and health | The pipeline indexes chunks; readable synthesis is usually separate | Usually the user, with LLM assistance |
+| Traceability | Concept and Reference links are reciprocal and automatically checkable | Depends on retrieval metadata and application design | Possible, but depends on user discipline |
 | Web experience | Built-in universe, capture, maintenance, Viki, and package exchange | Usually requires a separately developed application | Primarily editor-based browsing and plugins |
-| Shareable unit | A galaxy containing Wiki, raw, images, and originals | An index or application-specific dataset | A folder or whole vault |
+| Shareable unit | A galaxy containing Concepts, References, images, and originals | An index or application-specific dataset | A folder or whole vault |
 | Best fit | Long-term personal, team, and project knowledge management | Large-scale semantic retrieval and production services | Hands-on writing, linking, and note browsing |
 
-My Wiki does not oppose RAG or Obsidian. Open the same vault in Obsidian whenever useful, and feed the clean Markdown evidence layer into RAG when scale actually requires it.
+My Wiki does not oppose RAG or Obsidian. Open the same vault in Obsidian whenever useful, and feed its clean Concepts and References into RAG when scale actually requires it.
 
 ## Quick Start
 
@@ -234,16 +256,20 @@ The vault can live anywhere on the computer and remains separate from both the r
 
 ```text
 my-vault/
-  raw/
-    sources/    Markdown transcriptions of source evidence
-    assets/     one image and image-index directory per source
-    snapshots/  webpage snapshots, PDFs, Office files, and other originals
-  wiki/         durable atomic Wiki pages
-  templates/    Markdown templates copied into this vault
-  .my-wiki/     local cache, runtime state, and package records
+  index.md                 OKF knowledge entry point
+  log.md                   OKF update log
+  concepts/                durable atomic Concept pages
+  references/
+    sources/               source evidence as Markdown References
+    assets/                source images and image indexes
+    originals/             webpage snapshots, PDFs, Office files, and originals
+  templates/               Markdown templates used by this vault
+  .my-wiki/                local cache, runtime state, and package records
 ```
 
-The web app and Agent capture use the same extraction quality gate. Text PDFs are extracted page by page, scans and images use local OCR, and DOCX, PPTX, and XLSX become structured Markdown. Every original remains in `raw/snapshots/`.
+`Concept.status` and `Reference.status` use the OKF lifecycle `draft | stable | deprecated`. My Wiki tracks maintenance separately with `workflow_status: inbox | needs-followup | processed | stale` on References.
+
+The web app and Agent capture use the same extraction quality gate. Text PDFs are extracted page by page, scans and images use local OCR, and DOCX, PPTX, and XLSX become structured Markdown. Every original remains in `references/originals/`.
 
 The code repository and npm Skill package contain no personal vault, MCP credentials, or runtime logs. You decide whether a vault is backed up, synchronized, encrypted, or kept on one machine.
 
@@ -251,8 +277,8 @@ The code repository and npm Skill package contain no personal vault, MCP credent
 
 - **Obsidian**: use it as a human editor for the same Markdown vault; My Wiki does not depend on it.
 - **Firecrawl MCP**: improve capture for rendered or difficult webpages; full hosted crawling may require Firecrawl authentication.
-- **IMA and other external platforms**: migrate authorized material into local raw notes before using the same maintenance workflow.
-- **RAG**: add embeddings and production retrieval later without discarding the readable raw and Wiki layers.
+- **IMA and other external platforms**: after user confirmation and authorization, migrate material into local References before using the same maintenance workflow.
+- **RAG**: add embeddings and production retrieval later without discarding the readable Concept and Reference layers.
 
 ## License
 
