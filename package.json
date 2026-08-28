@@ -1,6 +1,6 @@
 {
   "name": "my-wiki",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "A standalone agent project for local-first, evidence-backed Markdown knowledge bases.",
   "private": true,
   "license": "MIT",
