@@ -47,11 +47,12 @@ export async function restoreGalaxyFromTrash(vault, entryId) {
   const directory = await resolveTrashEntry(vault, entryId);
   const receipt = await readTrashReceipt(directory);
   const packageFile = path.join(directory, "galaxy.mywiki");
-  const preview = await importUniverse({ vault, packageFile, apply: false });
+  const preferExistingPaths = Array.isArray(receipt.retainedBackups) ? receipt.retainedBackups : [];
+  const preview = await importUniverse({ vault, packageFile, apply: false, preferExistingPaths });
   const conflicts = [preview.wiki, preview.raw, preview.assets, preview.snapshots]
     .reduce((total, summary) => total + Number(summary?.conflicts || 0), 0);
   if (conflicts > 0) throw Object.assign(new Error(`Restore has ${conflicts} conflicting files; import the recycle package manually to resolve them`), { code: "GALAXY_RESTORE_CONFLICT" });
-  const imported = await importUniverse({ vault, packageFile, apply: true });
+  const imported = await importUniverse({ vault, packageFile, apply: true, preferExistingPaths });
   await fs.rm(directory, { recursive: true, force: true });
   await appendLog(`RESTORE_GALAXY galaxy="${receipt.galaxy}" entry="${entryId}"`, vault);
   return { id: entryId, galaxy: receipt.galaxy, imported };

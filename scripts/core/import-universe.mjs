@@ -38,7 +38,7 @@ function positional() {
   return values;
 }
 
-export async function importUniverse({ vault = vaultPath(), packageFile: inputPackage, as = "", apply = false }) {
+export async function importUniverse({ vault = vaultPath(), packageFile: inputPackage, as = "", apply = false, preferExistingPaths = [] }) {
 const packageFile = path.resolve(inputPackage || "");
 if (!inputPackage) throw new Error("A .mywiki package path is required");
 if (!(await exists(packageFile))) throw new Error(`Package not found: ${packageFile}`);
@@ -67,6 +67,9 @@ try {
   const sourceUniverse = normalizeUniverseName(manifest.galaxy || manifest.universe);
   const targetUniverse = normalizeUniverseName(as || sourceUniverse);
   if (!targetUniverse) throw new Error("Package universe name is empty");
+  const preferredExistingPaths = new Set(
+    asArray(preferExistingPaths).map((value) => String(value || "").trim().replace(/\\/g, "/").toLowerCase()).filter(Boolean)
+  );
 
   const scan = await scanVault(vault);
   const existingRawByHash = new Map();
@@ -110,11 +113,13 @@ try {
     const contentHash = String(frontmatter.content_hash || "");
     const sourceUrl = String(frontmatter.source_url || "");
     const hashMatch = contentHash ? existingRawByHash.get(contentHash) : null;
+    const pathMatch = existingRawByPath.get(item.path.toLowerCase());
     const fallbackCandidates = [
       sourceUrl ? existingRawBySourceUrl.get(sourceUrl) : null,
-      existingRawByPath.get(item.path.toLowerCase())
+      pathMatch
     ].filter(Boolean);
-    const duplicate = hashMatch || fallbackCandidates.find((node) => normalizeText(node.content) === normalizeText(content));
+    const preferredPathMatch = preferredExistingPaths.has(item.path.toLowerCase()) ? pathMatch : null;
+    const duplicate = hashMatch || preferredPathMatch || fallbackCandidates.find((node) => normalizeText(node.content) === normalizeText(content));
     if (duplicate) {
       for (const key of ["snapshot_path", "snapshot_markdown_path", "snapshot_html_path", "snapshot_json_path"]) {
         const packageSnapshot = managedSnapshotPath(frontmatter[key]);
@@ -203,7 +208,7 @@ try {
           content: upsertFrontmatterValues(existing.content, { universes: [...existingUniverses, targetUniverse] })
         });
       }
-      const same = normalizeText(existing.content) === normalizeText(content);
+      const same = preferredExistingPaths.has(item.path.toLowerCase()) || normalizeText(existing.content) === normalizeText(content);
       wikiPlans.push({ source: item.path, target: existing.path, action: same ? "deduplicate" : "conflict", content });
       continue;
     }

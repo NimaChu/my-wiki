@@ -138,8 +138,10 @@ test("galaxy API moves a complete galaxy to trash without creating Uncategorized
   const restored = await request(port, "POST", "/api/v1/universes/trash/restore", token, { id: trash.body.entries[0].id });
   assert.equal(restored.status, 200);
   assert.equal(restored.body.galaxy, "Galaxy B");
+  assert.equal(restored.body.imported.conflicts, 0);
   await access(path.join(vault, "concepts", "alpha.md"));
   await access(path.join(vault, "references", "sources", "evidence-a.md"));
+  await assert.rejects(access(path.join(vault, "references", "sources", "evidence-shared-2.md")), { code: "ENOENT" });
   assert.match(await readFile(path.join(vault, "concepts", "shared.md"), "utf8"), /- "Galaxy B"/);
   assert.equal((await request(port, "GET", "/api/v1/universes/trash", token)).body.entries.length, 0);
 
