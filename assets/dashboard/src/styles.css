@@ -3043,16 +3043,21 @@ h3 {
   gap: 5px;
 }
 
-.viki-status > span {
-  color: #9da6a8;
-  font-size: 11px;
+.viki-header-actions,
+.viki-header-selections {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
 }
 
-.viki-status > span {
+.viki-header-selections > span {
+  color: #9da6a8;
+  font-size: 11px;
   white-space: nowrap;
 }
 
-.viki-status > span::before {
+.viki-header-selections > span::before {
   display: inline-block;
   width: 6px;
   height: 6px;
@@ -3062,11 +3067,11 @@ h3 {
   content: "";
 }
 
-.viki-status > span.is-busy::before {
+.viki-header-selections > span.is-busy::before {
   background: #e0bd6f;
 }
 
-.viki-status > button,
+.viki-header-actions > button,
 .viki-pet-toggle,
 .viki-session-toggle,
 .viki-export-picker > button,
@@ -3082,8 +3087,8 @@ h3 {
   cursor: pointer;
 }
 
-.viki-status > button:hover,
-.viki-status > button:focus-visible,
+.viki-header-actions > button:hover,
+.viki-header-actions > button:focus-visible,
 .viki-pet-toggle:hover,
 .viki-pet-toggle:focus-visible,
 .viki-session-toggle:hover,
@@ -3131,15 +3136,78 @@ h3 {
   transform: translate(-50%, 0);
 }
 
-.viki-status > .viki-icon-tooltip:last-child::after {
+.viki-header-actions.is-trailing > .viki-icon-tooltip:last-child::after {
   right: 0;
   left: auto;
   transform: translateY(3px);
 }
 
-.viki-status > .viki-icon-tooltip:last-child:hover::after,
-.viki-status > .viki-icon-tooltip:last-child:focus-visible::after {
+.viki-header-actions.is-trailing > .viki-icon-tooltip:last-child:hover::after,
+.viki-header-actions.is-trailing > .viki-icon-tooltip:last-child:focus-visible::after {
   transform: translateY(0);
+}
+
+.viki-panel.is-compact-header > header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-height: 98px;
+  align-items: start;
+  gap: 4px 8px;
+}
+
+.viki-panel.is-compact-header .viki-identity {
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 34px;
+}
+
+.viki-panel.is-compact-header .viki-status {
+  display: grid;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: 34px 38px;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 4px 5px;
+}
+
+.viki-panel.is-compact-header .viki-header-actions.is-leading {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.viki-panel.is-compact-header .viki-header-actions.is-trailing {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+}
+
+.viki-panel.is-compact-header .viki-header-selections {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  width: 100%;
+  justify-content: flex-end;
+}
+
+.viki-panel.is-compact-header .viki-header-selections .viki-galaxy-picker,
+.viki-panel.is-compact-header .viki-header-selections .viki-agent-picker {
+  min-width: 0;
+}
+
+.viki-panel.is-compact-header .viki-header-selections .viki-galaxy-picker {
+  flex: 1 1 150px;
+}
+
+.viki-panel.is-compact-header .viki-header-selections .viki-agent-picker {
+  flex: 1 1 150px;
+}
+
+.viki-panel.is-compact-header .viki-galaxy-toggle,
+.viki-panel.is-compact-header .viki-agent-toggle {
+  width: 100%;
+  max-width: none;
 }
 
 .viki-pet-picker,

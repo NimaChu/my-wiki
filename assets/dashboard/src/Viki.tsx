@@ -37,6 +37,7 @@ const EDGE_GAP = 16;
 const PANEL_GAP = 10;
 const DEFAULT_PANEL_SIZE = { width: 640, height: 480 };
 const MIN_PANEL_SIZE = { width: 480, height: 360 };
+const COMPACT_HEADER_WIDTH = 680;
 const POSITION_KEY = "my-wiki-viki-position";
 const PROVIDER_KEY = "my-wiki-viki-provider";
 const MODEL_KEY = "my-wiki-viki-models-v1";
@@ -735,7 +736,7 @@ export function Viki({ language }: { language: Language }) {
     >
       {open ? (
         <section
-          className={`viki-panel has-resize-${resizeCorner} ${fullscreen ? "is-fullscreen" : ""}`}
+          className={`viki-panel has-resize-${resizeCorner} ${fullscreen ? "is-fullscreen" : panelSize.width <= COMPACT_HEADER_WIDTH ? "is-compact-header" : ""}`}
           aria-label="Viki"
           style={fullscreen ? undefined : { left: panelOffset.x, top: panelOffset.y, width: panelSize.width, height: panelSize.height }}
         >
@@ -835,16 +836,17 @@ export function Viki({ language }: { language: Language }) {
               ) : null}
             </div>
             <div className="viki-status">
-              {!fullscreen ? <button
-                className="viki-icon-tooltip"
-                type="button"
-                aria-label={l.newConversation}
-                data-tooltip={l.newConversation}
-                onClick={newConversation}
-              >
-                <MessageSquarePlus size={16} aria-hidden="true" />
-              </button> : null}
-              <div className="viki-session-picker" ref={sessionPickerRef}>
+              <div className="viki-header-actions is-leading">
+                {!fullscreen ? <button
+                  className="viki-icon-tooltip"
+                  type="button"
+                  aria-label={l.newConversation}
+                  data-tooltip={l.newConversation}
+                  onClick={newConversation}
+                >
+                  <MessageSquarePlus size={16} aria-hidden="true" />
+                </button> : null}
+                <div className="viki-session-picker" ref={sessionPickerRef}>
                 <button
                   className="viki-session-toggle viki-icon-tooltip"
                   type="button"
@@ -887,8 +889,8 @@ export function Viki({ language }: { language: Language }) {
                     </div>
                   </div>
                 ) : null}
-              </div>
-              {!fullscreen ? <div className="viki-export-picker">
+                </div>
+                {!fullscreen ? <div className="viki-export-picker">
                 <button
                   className="viki-icon-tooltip"
                   type="button"
@@ -911,32 +913,34 @@ export function Viki({ language }: { language: Language }) {
                     </button>
                   </div>
                 ) : null}
-              </div> : null}
-              {!fullscreen ? <button
-                className={`viki-web-toggle viki-icon-tooltip ${webSearch ? "is-active" : ""}`}
-                type="button"
-                aria-label={`${l.webSearch}: ${webSearch ? l.webSearchOn : l.webSearchOff}`}
-                data-tooltip={`${l.webSearch}: ${webSearch ? l.webSearchOn : l.webSearchOff}`}
-                aria-pressed={webSearch}
-                onClick={() => {
-                  const next = !webSearch;
-                  setWebSearch(next);
-                  persistWebSearch(next);
-                }}
-              >
-                <Globe2 size={16} aria-hidden="true" />
-              </button> : null}
-              {!fullscreen ? <GalaxyScopePicker
-                galaxies={galaxies}
-                selected={selectedGalaxies}
-                open={galaxyMenuOpen}
-                onOpenChange={setGalaxyMenuOpen}
-                onChange={setSelectedGalaxies}
-                containerRef={galaxyPickerRef}
-                labels={{ scope: l.galaxyScope, all: l.allGalaxies, selected: l.selectedGalaxies, count: l.galaxyCount }}
-              /> : null}
-              {!fullscreen && agent?.providers.length ? (
-                <div className="viki-agent-picker" ref={agentPickerRef}>
+                </div> : null}
+                {!fullscreen ? <button
+                  className={`viki-web-toggle viki-icon-tooltip ${webSearch ? "is-active" : ""}`}
+                  type="button"
+                  aria-label={`${l.webSearch}: ${webSearch ? l.webSearchOn : l.webSearchOff}`}
+                  data-tooltip={`${l.webSearch}: ${webSearch ? l.webSearchOn : l.webSearchOff}`}
+                  aria-pressed={webSearch}
+                  onClick={() => {
+                    const next = !webSearch;
+                    setWebSearch(next);
+                    persistWebSearch(next);
+                  }}
+                >
+                  <Globe2 size={16} aria-hidden="true" />
+                </button> : null}
+              </div>
+              <div className="viki-header-selections">
+                {!fullscreen ? <GalaxyScopePicker
+                  galaxies={galaxies}
+                  selected={selectedGalaxies}
+                  open={galaxyMenuOpen}
+                  onOpenChange={setGalaxyMenuOpen}
+                  onChange={setSelectedGalaxies}
+                  containerRef={galaxyPickerRef}
+                  labels={{ scope: l.galaxyScope, all: l.allGalaxies, selected: l.selectedGalaxies, count: l.galaxyCount }}
+                /> : null}
+                {!fullscreen && agent?.providers.length ? (
+                  <div className="viki-agent-picker" ref={agentPickerRef}>
                   <button
                     className="viki-agent-toggle"
                     type="button"
@@ -967,28 +971,31 @@ export function Viki({ language }: { language: Language }) {
                       ) : null}
                     </div>
                   ) : null}
-                </div>
-              ) : null}
-              <span className={busy || agent?.busy ? "is-busy" : ""}>{busy || agent?.busy ? l.busy : l.ready}</span>
-              <button
-                className="viki-icon-tooltip"
-                type="button"
-                aria-label={fullscreen ? l.exitFullscreen : l.enterFullscreen}
-                data-tooltip={fullscreen ? l.exitFullscreen : l.enterFullscreen}
-                aria-pressed={fullscreen}
-                onClick={() => setFullscreen((value) => !value)}
-              >
-                {fullscreen ? <Minimize2 size={17} aria-hidden="true" /> : <Maximize2 size={17} aria-hidden="true" />}
-              </button>
-              <button
-                className="viki-icon-tooltip"
-                type="button"
-                aria-label={l.close}
-                data-tooltip={l.close}
-                onClick={closeViki}
-              >
-                <X size={17} aria-hidden="true" />
-              </button>
+                  </div>
+                ) : null}
+                <span className={busy || agent?.busy ? "is-busy" : ""}>{busy || agent?.busy ? l.busy : l.ready}</span>
+              </div>
+              <div className="viki-header-actions is-trailing">
+                <button
+                  className="viki-icon-tooltip"
+                  type="button"
+                  aria-label={fullscreen ? l.exitFullscreen : l.enterFullscreen}
+                  data-tooltip={fullscreen ? l.exitFullscreen : l.enterFullscreen}
+                  aria-pressed={fullscreen}
+                  onClick={() => setFullscreen((value) => !value)}
+                >
+                  {fullscreen ? <Minimize2 size={17} aria-hidden="true" /> : <Maximize2 size={17} aria-hidden="true" />}
+                </button>
+                <button
+                  className="viki-icon-tooltip"
+                  type="button"
+                  aria-label={l.close}
+                  data-tooltip={l.close}
+                  onClick={closeViki}
+                >
+                  <X size={17} aria-hidden="true" />
+                </button>
+              </div>
             </div>
           </header>
 
