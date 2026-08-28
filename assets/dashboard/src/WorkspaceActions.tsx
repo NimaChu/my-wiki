@@ -1,15 +1,18 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BookOpen, Download, Eye, EyeOff, FileArchive, FileUp, FolderUp, Inbox, Link2, LoaderCircle, Orbit, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
+import { BookOpen, Download, Eye, EyeOff, FileArchive, FileUp, FolderUp, Inbox, Link2, LoaderCircle, NotebookPen, Orbit, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
 import { InboxItem, Job, localApi, TaskProgress, UniverseSummary, waitForJob } from "./api";
 
+const QuickNotes = lazy(() => import("./QuickNotes").then((module) => ({ default: module.QuickNotes })));
+
 type Language = "en" | "zh";
-type ActionView = "add" | "universes" | null;
+type ActionView = "notes" | "add" | "universes" | null;
 type AddTab = "link" | "file" | "folder" | "zip" | "inbox";
 
 const labels = {
   en: {
     addKnowledge: "Add knowledge",
+    quickNotes: "Quick notes",
     manageUniverses: "Galaxies",
     addTitle: "Add knowledge to Inbox",
     addDescription: "Capture evidence now. Your agent can distill and connect it later.",
@@ -92,6 +95,7 @@ const labels = {
   },
   zh: {
     addKnowledge: "添加知识",
+    quickNotes: "快速笔记",
     manageUniverses: "知识星系",
     addTitle: "添加知识到 Inbox",
     addDescription: "先保存完整证据，之后再由 Agent 蒸馏并建立关系。",
@@ -176,7 +180,16 @@ const labels = {
 
 export function WorkspaceActions({ language }: { language: Language }) {
   const [view, setView] = useState<ActionView>(null);
+  const [initialNotePath, setInitialNotePath] = useState("");
   const l = labels[language];
+  useEffect(() => {
+    const openQuickNote = (event: Event) => {
+      setInitialNotePath(String((event as CustomEvent<{ path?: string }>).detail?.path || ""));
+      setView("notes");
+    };
+    window.addEventListener("my-wiki:open-quick-note", openQuickNote);
+    return () => window.removeEventListener("my-wiki:open-quick-note", openQuickNote);
+  }, []);
   return (
     <>
       <div className="workspace-actions">
@@ -200,7 +213,18 @@ export function WorkspaceActions({ language }: { language: Language }) {
           <Orbit size={16} aria-hidden="true" />
           <span>{l.manageUniverses}</span>
         </button>
+        <button
+          type="button"
+          className="workspace-action"
+          aria-label={l.quickNotes}
+          title={l.quickNotes}
+          onClick={() => { setInitialNotePath(""); setView("notes"); }}
+        >
+          <NotebookPen size={16} aria-hidden="true" />
+          <span>{l.quickNotes}</span>
+        </button>
       </div>
+      {view === "notes" ? <Suspense fallback={null}><QuickNotes language={language} initialPath={initialNotePath} onClose={() => setView(null)} /></Suspense> : null}
       {view === "add" ? <AddKnowledgeDialog language={language} onClose={() => setView(null)} /> : null}
       {view === "universes" ? <UniverseDialog language={language} onClose={() => setView(null)} /> : null}
     </>

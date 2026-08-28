@@ -24,6 +24,7 @@ import {
 import { Viki } from "./Viki";
 import { WorkspaceActions } from "./WorkspaceActions";
 import { markdownDocumentStats, markdownOutline, type MarkdownOutlineItem } from "./markdown-workspace";
+import { visibleGalaxyStats } from "./overview-stats.js";
 import "./styles.css";
 
 const richMarkdownModule = import("./RichMarkdown");
@@ -180,7 +181,7 @@ const copy = {
     centralWikiPages: "Central Concept Planets",
     linkStatus: "{count} links / {status}",
     vaultOverview: "Vault Overview",
-    graphHealth: "Global graph health and maintenance state",
+    graphHealth: "Graph health for visible knowledge galaxies",
     maintenanceQueue: "Maintenance Queue",
     queueSettings: "Queue agent settings",
     distillAgent: "Distillation",
@@ -285,7 +286,7 @@ const copy = {
     centralWikiPages: "核心概念星球",
     linkStatus: "{count} 条链接 / {status}",
     vaultOverview: "知识库概览",
-    graphHealth: "全局图谱健康与维护状态",
+    graphHealth: "当前显示星系的图谱健康与维护状态",
     maintenanceQueue: "维护队列",
     queueSettings: "队列 Agent 设置",
     distillAgent: "蒸馏",
@@ -1742,13 +1743,14 @@ function GlobalOverview({
   onSelect: (id: string) => void;
 }) {
   const { t } = useI18n();
+  const scopedStats = useMemo(() => visibleGalaxyStats(graph), [graph]);
   return (
     <section className="global-overview">
       <header>
         <h2>{t("vaultOverview")}</h2>
         <p>{t("graphHealth")}</p>
       </header>
-      <Stats graph={graph} visibleEdges={visibleEdges} />
+      <Stats stats={scopedStats} visibleEdges={visibleEdges} />
       <QueueSummary graph={graph} nodeById={nodeById} onSelect={onSelect} />
     </section>
   );
@@ -1880,15 +1882,16 @@ function stripLeadingMarkdownTitle(content: string, title: string) {
   return content.trim();
 }
 
-function Stats({ graph, visibleEdges, items }: { graph: WikiGraph; visibleEdges: number; items?: Array<[string, number]> }) {
+function Stats({ graph, stats, visibleEdges, items }: { graph?: WikiGraph; stats?: Record<string, number>; visibleEdges: number; items?: Array<[string, number]> }) {
   const { t } = useI18n();
+  const values = stats ?? graph?.stats ?? {};
   const defaultItems: Array<[string, number]> = [
-    [t("wiki"), graph.stats.wikiPages ?? 0],
-    [t("raw"), graph.stats.rawSources ?? 0],
+    [t("wiki"), values.wikiPages ?? 0],
+    [t("raw"), values.rawSources ?? 0],
     [t("links"), visibleEdges],
-    [t("broken"), graph.stats.unresolved ?? 0],
-    [t("inbox"), graph.stats.inbox ?? 0],
-    [t("processed"), graph.stats.processed ?? 0]
+    [t("broken"), values.unresolved ?? 0],
+    [t("inbox"), values.inbox ?? 0],
+    [t("processed"), values.processed ?? 0]
   ];
   const displayItems = items ?? defaultItems;
 

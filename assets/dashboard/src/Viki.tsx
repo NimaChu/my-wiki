@@ -1,10 +1,12 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, type CSSProperties, type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bot, BookOpen, Check, CirclePause, Copy, Download, Globe2, History, MessageSquarePlus, MoveDiagonal2, PawPrint, SendHorizontal, Trash2, X } from "lucide-react";
-import { AgentAnswer, AgentInfo, Job, localApi, PetAppearance, waitForJob } from "./api";
+import { Bot, BookOpen, Check, CirclePause, Copy, Download, Globe2, HardDriveDownload, History, Layers3, Maximize2, MessageSquarePlus, Minimize2, MoveDiagonal2, NotebookPen, PawPrint, SendHorizontal, Trash2, X } from "lucide-react";
+import { AgentAnswer, AgentInfo, Job, localApi, PetAppearance, UniverseSummary, waitForJob } from "./api";
 import { shouldSubmitVikiComposer } from "./viki-composer.js";
 import { promoteVaultMarkdownImages } from "./viki-markdown.js";
-import { conversationFilename, conversationToMarkdown } from "./viki-conversation.js";
+import { conversationExportBundle, conversationFilename, conversationNoteBundle, conversationToMarkdown } from "./viki-conversation.js";
+
+const VikiMarkdown = lazy(() => import("./VikiMarkdown"));
 
 type Language = "en" | "zh";
 type VikiEdge = "top" | "right" | "bottom" | "left";
@@ -27,7 +29,7 @@ type VikiConversation = {
   messages: ChatMessage[];
 };
 type VikiChatState = { activeId: string; conversations: VikiConversation[] };
-type ActiveRequest = { jobId: string; conversationId: string; provider: string; model: string; webSearch: boolean };
+type ActiveRequest = { jobId: string; conversationId: string; provider: string; model: string; webSearch: boolean; galaxies: string[] };
 type OpenedImage = { path: string; caption: string; url: string };
 
 const LAUNCHER_SIZE = 80;
@@ -67,8 +69,11 @@ const copy = {
     pause: "Pause current answer",
     paused: "Answer paused. You can continue with another question.",
     resize: "Resize Viki",
+    enterFullscreen: "Open full screen",
+    exitFullscreen: "Exit full screen",
     agentCli: "Agent CLI",
     model: "Model",
+    agentSettings: "Agent and model",
     cliDefault: "CLI default",
     currentCli: "Current answer",
     nextCli: "Next answer",
@@ -81,10 +86,16 @@ const copy = {
     conversations: "Conversations",
     copyAnswer: "Copy answer",
     copied: "Copied",
-    exportConversation: "Export conversation as Markdown",
+    exportConversation: "Export conversation",
+    exportLocal: "Download locally",
+    exportNote: "Export to quick notes",
     webSearch: "Search the web",
     webSearchOn: "Web search on",
     webSearchOff: "Web search off",
+    galaxyScope: "Knowledge galaxies",
+    allGalaxies: "All galaxies",
+    selectedGalaxies: "Selected galaxies",
+    galaxyCount: "galaxies",
     user: "User",
     assistant: "Viki",
     retry: "Please try again."
@@ -110,8 +121,11 @@ const copy = {
     pause: "暂停当前回答",
     paused: "本轮回答已暂停，可以继续提问。",
     resize: "调整 Viki 窗口大小",
+    enterFullscreen: "进入全屏",
+    exitFullscreen: "退出全屏",
     agentCli: "Agent CLI",
     model: "模型",
+    agentSettings: "Agent 与模型",
     cliDefault: "CLI 默认",
     currentCli: "本轮",
     nextCli: "下一轮",
@@ -124,31 +138,117 @@ const copy = {
     conversations: "会话",
     copyAnswer: "复制整个回答",
     copied: "已复制",
-    exportConversation: "导出整个会话为 Markdown",
+    exportConversation: "导出整个会话",
+    exportLocal: "导出到本地",
+    exportNote: "导出到笔记",
     webSearch: "联网搜索",
     webSearchOn: "已开启联网搜索",
     webSearchOff: "已关闭联网搜索",
+    galaxyScope: "知识星系范围",
+    allGalaxies: "全部知识星系",
+    selectedGalaxies: "已选知识星系",
+    galaxyCount: "个星系",
     user: "用户",
     assistant: "Viki",
     retry: "请稍后重试。"
   }
 } as const;
 
+function GalaxyScopePicker({
+  galaxies,
+  selected,
+  open,
+  onOpenChange,
+  onChange,
+  containerRef,
+  labels,
+  full = false
+}: {
+  galaxies: UniverseSummary[];
+  selected: string[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onChange: (selected: string[]) => void;
+  containerRef: RefObject<HTMLDivElement | null>;
+  labels: { scope: string; all: string; selected: string; count: string };
+  full?: boolean;
+}) {
+  const allSelected = galaxies.length > 0 && selected.length === galaxies.length;
+  const selectionLabel = allSelected
+    ? labels.all
+    : selected.length === 1 ? selected[0] : `${selected.length} ${labels.count}`;
+  return (
+    <div className={`viki-galaxy-picker ${full ? "is-full" : ""}`} ref={containerRef}>
+      <button
+        className="viki-galaxy-toggle"
+        type="button"
+        aria-label={`${labels.scope}: ${selectionLabel}`}
+        title={labels.scope}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => onOpenChange(!open)}
+      >
+        <Layers3 size={15} aria-hidden="true" />
+        <span>{selectionLabel}</span>
+      </button>
+      {open ? (
+        <div className="viki-galaxy-menu" role="dialog" aria-label={labels.scope}>
+          <strong>{labels.selected}</strong>
+          <label className="viki-galaxy-option is-all">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={() => onChange(galaxies.map((item) => item.name))}
+            />
+            <span>{labels.all}</span>
+            <small>{galaxies.length}</small>
+          </label>
+          <div className="viki-galaxy-options">
+            {galaxies.map((galaxy) => {
+              const checked = selected.includes(galaxy.name);
+              return (
+                <label className="viki-galaxy-option" key={galaxy.name}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={checked && selected.length === 1}
+                    onChange={() => onChange(checked
+                      ? selected.filter((item) => item !== galaxy.name)
+                      : [...selected, galaxy.name])}
+                  />
+                  <span>{galaxy.name}</span>
+                  <small>{galaxy.wiki}</small>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function Viki({ language }: { language: Language }) {
   const l = copy[language];
   const [open, setOpen] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const [agent, setAgent] = useState<AgentInfo | null>(null);
   const [pets, setPets] = useState<PetAppearance[]>([]);
   const [petId, setPetId] = useState("");
   const [petMenuOpen, setPetMenuOpen] = useState(false);
+  const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [provider, setProvider] = useState("");
   const [model, setModel] = useState("");
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
+  const [exportMenuConversationId, setExportMenuConversationId] = useState<string | null>(null);
   const [chatState, setChatState] = useState<VikiChatState>(() => initialChatState());
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
   const [activeRequest, setActiveRequestState] = useState<ActiveRequest | null>(null);
   const [webSearch, setWebSearch] = useState(() => initialWebSearch());
+  const [galaxies, setGalaxies] = useState<UniverseSummary[]>([]);
+  const [selectedGalaxies, setSelectedGalaxies] = useState<string[]>([]);
+  const [galaxyMenuOpen, setGalaxyMenuOpen] = useState(false);
   const [thinkingStep, setThinkingStep] = useState(0);
   const [copiedAnswer, setCopiedAnswer] = useState("");
   const [error, setError] = useState("");
@@ -163,6 +263,8 @@ export function Viki({ language }: { language: Language }) {
   const endRef = useRef<HTMLDivElement>(null);
   const petPickerRef = useRef<HTMLDivElement>(null);
   const sessionPickerRef = useRef<HTMLDivElement>(null);
+  const agentPickerRef = useRef<HTMLDivElement>(null);
+  const galaxyPickerRef = useRef<HTMLDivElement>(null);
   const positionRef = useRef(position);
   const panelSizeRef = useRef(panelSize);
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
@@ -216,7 +318,8 @@ export function Viki({ language }: { language: Language }) {
             conversationId,
             provider: String(active.meta.provider || nextAgent.provider || ""),
             model: String(active.meta.model || ""),
-            webSearch: active.meta.webSearch === true
+            webSearch: active.meta.webSearch === true,
+            galaxies: Array.isArray(active.meta.galaxies) ? active.meta.galaxies.map(String) : []
           };
           setActiveRequest(resumed);
           void consumeAnswer(active, resumed);
@@ -258,14 +361,27 @@ export function Viki({ language }: { language: Language }) {
   }, []);
 
   useEffect(() => {
-    if (!petMenuOpen && !sessionMenuOpen) return;
+    localApi.universes().then(({ universes }) => {
+      setGalaxies(universes);
+      setSelectedGalaxies(universes.map((item) => item.name));
+    }).catch(() => {
+      setGalaxies([]);
+      setSelectedGalaxies([]);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!petMenuOpen && !sessionMenuOpen && !exportMenuConversationId && !agentMenuOpen && !galaxyMenuOpen) return;
     const closeMenu = (event: PointerEvent) => {
       if (!petPickerRef.current?.contains(event.target as Node)) setPetMenuOpen(false);
       if (!sessionPickerRef.current?.contains(event.target as Node)) setSessionMenuOpen(false);
+      if (!(event.target as Element).closest?.(".viki-export-picker")) setExportMenuConversationId(null);
+      if (!agentPickerRef.current?.contains(event.target as Node)) setAgentMenuOpen(false);
+      if (!galaxyPickerRef.current?.contains(event.target as Node)) setGalaxyMenuOpen(false);
     };
     document.addEventListener("pointerdown", closeMenu);
     return () => document.removeEventListener("pointerdown", closeMenu);
-  }, [petMenuOpen, sessionMenuOpen]);
+  }, [petMenuOpen, sessionMenuOpen, exportMenuConversationId, agentMenuOpen, galaxyMenuOpen]);
 
   useEffect(() => {
     persistChatState(chatState);
@@ -274,6 +390,20 @@ export function Viki({ language }: { language: Language }) {
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ block: "end" });
   }, [messages, busy, open]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const previousOverflow = document.body.style.overflow;
+    const exitOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !openedImage) setFullscreen(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", exitOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", exitOnEscape);
+    };
+  }, [fullscreen, openedImage]);
 
   useEffect(() => {
     setThinkingStep(0);
@@ -331,19 +461,20 @@ export function Viki({ language }: { language: Language }) {
 
   const ask = async () => {
     const value = question.trim();
-    if (!value || !provider || busy || activeRequestRef.current || agent?.busy || agent?.available !== true || !conversation) return;
+    if (!value || !provider || selectedGalaxies.length === 0 || busy || activeRequestRef.current || agent?.busy || agent?.available !== true || !conversation) return;
     const conversationId = conversation.id;
     const requestProvider = provider;
     const requestModel = model;
     const requestWebSearch = webSearch;
+    const requestGalaxies = [...selectedGalaxies];
     const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content: value };
     appendConversationMessage(conversationId, userMessage, value);
     setQuestion("");
     setError("");
     setBusy(true);
     try {
-      const initialJob = await localApi.ask(value, history, language, requestProvider, requestModel, conversationId, requestWebSearch);
-      const request = { jobId: initialJob.id, conversationId, provider: requestProvider, model: requestModel, webSearch: requestWebSearch };
+      const initialJob = await localApi.ask(value, history, language, requestProvider, requestModel, conversationId, requestWebSearch, requestGalaxies);
+      const request = { jobId: initialJob.id, conversationId, provider: requestProvider, model: requestModel, webSearch: requestWebSearch, galaxies: requestGalaxies };
       setActiveRequest(request);
       await consumeAnswer(initialJob, request);
     } catch (nextError) {
@@ -454,22 +585,41 @@ export function Viki({ language }: { language: Language }) {
     }
   };
 
-  const exportConversation = () => {
-    if (!conversation || conversation.messages.length === 0) return;
-    const markdown = conversationToMarkdown(conversation, {
+  const exportConversationLocally = async (target: VikiConversation | undefined = conversation) => {
+    if (!target || target.messages.length === 0) return;
+    const labels = {
       user: l.user,
       assistant: l.assistant,
       evidence: l.sources,
       untitled: l.newConversation
-    });
-    const url = URL.createObjectURL(new Blob([markdown], { type: "text/markdown;charset=utf-8" }));
+    };
+    const bundle = conversationExportBundle(target, labels);
+    const blob = bundle.images.length > 0
+      ? await localApi.exportConversationBundle(bundle)
+      : new Blob([conversationToMarkdown(target, labels)], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = conversationFilename(conversation.title || "viki-conversation");
+    anchor.download = bundle.images.length > 0 ? bundle.archiveFilename : conversationFilename(target.title || "viki-conversation");
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    setExportMenuConversationId(null);
+  };
+
+  const exportConversationToNote = async (target: VikiConversation | undefined = conversation) => {
+    if (!target || target.messages.length === 0) return;
+    const note = await localApi.createNoteFromViki(conversationNoteBundle(target, {
+      user: l.user,
+      assistant: l.assistant,
+      evidence: l.sources,
+      untitled: l.newConversation
+    }));
+    setExportMenuConversationId(null);
+    setFullscreen(false);
+    setOpen(false);
+    window.dispatchEvent(new CustomEvent("my-wiki:open-quick-note", { detail: { path: note.path } }));
   };
 
   const startDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -551,6 +701,11 @@ export function Viki({ language }: { language: Language }) {
     setOpen((value) => !value);
   };
 
+  const closeViki = () => {
+    setFullscreen(false);
+    setOpen(false);
+  };
+
   const panelDirections = vikiPanelDirections(position, viewport);
   const panelOffset = vikiPanelOffset(position, viewport, panelSize);
   const resizeCorner = `${panelDirections.yDirection === 1 ? "bottom" : "top"}-${panelDirections.xDirection === 1 ? "right" : "left"}`;
@@ -561,6 +716,7 @@ export function Viki({ language }: { language: Language }) {
     ? agentSelectionLabel(agent, activeRequest.provider, activeRequest.model, l.cliDefault)
     : "";
   const nextSelection = agentSelectionLabel(agent, provider, model, l.cliDefault);
+  const galaxyScopeLabel = selectedGalaxies.length === galaxies.length ? l.allGalaxies : selectedGalaxies.join(", ");
   const pet = pets.find((item) => item.id === petId) || pets[0];
   const petState: PetAnimationState = dragging
     ? dragDirection === "left" ? "running-left" : "running-right"
@@ -573,106 +729,76 @@ export function Viki({ language }: { language: Language }) {
 
   return (
     <aside
-      className={`viki ${open ? "is-open" : ""} ${dragging ? "is-dragging" : ""} ${resizing ? "is-resizing" : ""}`}
+      className={`viki ${open ? "is-open" : ""} ${fullscreen ? "is-fullscreen" : ""} ${dragging ? "is-dragging" : ""} ${resizing ? "is-resizing" : ""}`}
       aria-live="polite"
-      style={{ left: position.x, top: position.y }}
+      style={fullscreen ? undefined : { left: position.x, top: position.y }}
     >
       {open ? (
         <section
-          className={`viki-panel has-resize-${resizeCorner}`}
+          className={`viki-panel has-resize-${resizeCorner} ${fullscreen ? "is-fullscreen" : ""}`}
           aria-label="Viki"
-          style={{ left: panelOffset.x, top: panelOffset.y, width: panelSize.width, height: panelSize.height }}
+          style={fullscreen ? undefined : { left: panelOffset.x, top: panelOffset.y, width: panelSize.width, height: panelSize.height }}
         >
-          <header>
-            <div className="viki-identity">
-              <span className="viki-avatar"><VikiPet pet={pet} state={petState} size={36} fallbackSize={20} /></span>
-              <div><strong>Viki</strong><span>{conversation?.title || l.companion}</span></div>
-            </div>
-            <div className="viki-status">
-              <div className="viki-session-picker" ref={sessionPickerRef}>
-                <button
-                  className="viki-session-toggle viki-icon-tooltip"
-                  type="button"
-                  aria-label={l.history}
-                  data-tooltip={l.history}
-                  aria-expanded={sessionMenuOpen}
-                  onClick={() => setSessionMenuOpen((value) => !value)}
-                >
-                  <History size={16} aria-hidden="true" />
-                </button>
-                {sessionMenuOpen ? (
-                  <div className="viki-session-menu" role="menu" aria-label={l.history}>
-                    <div className="viki-session-menu-header">
-                      <strong>{l.conversations}</strong>
-                      <button
-                        className="viki-icon-tooltip"
-                        type="button"
-                        aria-label={l.newConversation}
-                        data-tooltip={l.newConversation}
-                        onClick={newConversation}
-                      >
-                        <MessageSquarePlus size={15} aria-hidden="true" />
-                      </button>
-                    </div>
-                    <div className="viki-session-list" onWheel={(event) => event.stopPropagation()}>
-                      {[...chatState.conversations]
-                        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-                        .map((item) => (
-                          <div className="viki-session-item" data-active={item.id === conversation?.id} key={item.id}>
-                            <button type="button" role="menuitemradio" aria-checked={item.id === conversation?.id} onClick={() => openConversation(item.id)}>
-                              <strong>{item.title || l.newConversation}</strong>
-                              <span>{formatConversationTime(item.updatedAt, language)}</span>
-                            </button>
-                            <button
-                              className="viki-session-delete"
-                              type="button"
-                              aria-label={l.deleteConversation}
-                              title={l.deleteConversation}
-                              disabled={activeRequest?.conversationId === item.id}
-                              onClick={() => deleteConversation(item.id)}
-                            >
-                              <Trash2 size={13} aria-hidden="true" />
-                            </button>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-              <button
-                className="viki-icon-tooltip"
-                type="button"
-                aria-label={l.newConversation}
-                data-tooltip={l.newConversation}
-                onClick={newConversation}
-              >
+          <nav className="viki-fullscreen-sidebar" aria-label={l.history}>
+            <div className="viki-fullscreen-sidebar-header">
+              <strong>Viki</strong>
+              <button type="button" aria-label={l.newConversation} title={l.newConversation} onClick={newConversation}>
                 <MessageSquarePlus size={16} aria-hidden="true" />
               </button>
-              <button
-                className="viki-icon-tooltip"
-                type="button"
-                aria-label={l.exportConversation}
-                data-tooltip={l.exportConversation}
-                disabled={!conversation?.messages.length}
-                onClick={exportConversation}
-              >
-                <Download size={16} aria-hidden="true" />
-              </button>
-              <button
-                className={`viki-web-toggle viki-icon-tooltip ${webSearch ? "is-active" : ""}`}
-                type="button"
-                aria-label={`${l.webSearch}: ${webSearch ? l.webSearchOn : l.webSearchOff}`}
-                data-tooltip={`${l.webSearch}: ${webSearch ? l.webSearchOn : l.webSearchOff}`}
-                aria-pressed={webSearch}
-                onClick={() => {
-                  const next = !webSearch;
-                  setWebSearch(next);
-                  persistWebSearch(next);
-                }}
-              >
-                <Globe2 size={16} aria-hidden="true" />
-              </button>
-              {pets.length ? (
+            </div>
+            <div className="viki-session-list" onWheel={(event) => event.stopPropagation()}>
+              {[...chatState.conversations]
+                .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+                .map((item) => (
+                  <div className="viki-session-item" data-active={item.id === conversation?.id} key={item.id}>
+                    <button type="button" aria-current={item.id === conversation?.id ? "page" : undefined} onClick={() => openConversation(item.id)}>
+                      <strong>{item.title || l.newConversation}</strong>
+                      <span>{formatConversationTime(item.updatedAt, language)}</span>
+                    </button>
+                    <div className="viki-session-actions">
+                      <div className="viki-export-picker">
+                        <button
+                          className="viki-session-export"
+                          type="button"
+                          aria-label={l.exportConversation}
+                          title={l.exportConversation}
+                          aria-haspopup="menu"
+                          aria-expanded={exportMenuConversationId === item.id}
+                          disabled={item.messages.length === 0}
+                          onClick={() => setExportMenuConversationId((current) => current === item.id ? null : item.id)}
+                        >
+                          <Download size={13} aria-hidden="true" />
+                        </button>
+                        {exportMenuConversationId === item.id ? (
+                          <div className="viki-export-menu is-sidebar" role="menu" aria-label={l.exportConversation}>
+                            <button type="button" role="menuitem" onClick={() => void exportConversationLocally(item).catch((nextError) => setError(`${errorMessage(nextError)} ${l.retry}`))}>
+                              <HardDriveDownload size={15} />{l.exportLocal}
+                            </button>
+                            <button type="button" role="menuitem" onClick={() => void exportConversationToNote(item).catch((nextError) => setError(`${errorMessage(nextError)} ${l.retry}`))}>
+                              <NotebookPen size={15} />{l.exportNote}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                      <button
+                        className="viki-session-delete"
+                        type="button"
+                        aria-label={l.deleteConversation}
+                        title={l.deleteConversation}
+                        disabled={activeRequest?.conversationId === item.id}
+                        onClick={() => deleteConversation(item.id)}
+                      >
+                        <Trash2 size={13} aria-hidden="true" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </nav>
+          <header>
+            <div className="viki-identity">
+              <strong>Viki</strong>
+              {!fullscreen && pets.length ? (
                 <div className="viki-pet-picker" ref={petPickerRef}>
                   <button
                     className="viki-pet-toggle viki-icon-tooltip"
@@ -707,36 +833,159 @@ export function Viki({ language }: { language: Language }) {
                   ) : null}
                 </div>
               ) : null}
-              {agent?.providers.length ? (
-                <select
-                  className="viki-provider-select"
-                  aria-label={l.agentCli}
-                  title={l.agentCli}
-                  value={provider}
-                  onChange={(event) => changeProvider(event.target.value)}
+            </div>
+            <div className="viki-status">
+              {!fullscreen ? <button
+                className="viki-icon-tooltip"
+                type="button"
+                aria-label={l.newConversation}
+                data-tooltip={l.newConversation}
+                onClick={newConversation}
+              >
+                <MessageSquarePlus size={16} aria-hidden="true" />
+              </button> : null}
+              <div className="viki-session-picker" ref={sessionPickerRef}>
+                <button
+                  className="viki-session-toggle viki-icon-tooltip"
+                  type="button"
+                  aria-label={l.history}
+                  data-tooltip={l.history}
+                  aria-expanded={sessionMenuOpen}
+                  onClick={() => setSessionMenuOpen((value) => !value)}
                 >
-                  {agent.providers.map((item) => <option key={item.provider} value={item.provider}>{item.label}</option>)}
-                </select>
-              ) : null}
-              {selectedProvider ? (
-                <select
-                  className="viki-model-select"
-                  aria-label={l.model}
-                  title={l.model}
-                  value={model}
-                  onChange={(event) => changeModel(event.target.value)}
+                  <History size={16} aria-hidden="true" />
+                </button>
+                {sessionMenuOpen ? (
+                  <div className="viki-session-menu" role="menu" aria-label={l.history}>
+                    <div className="viki-session-menu-header">
+                      <strong>{l.conversations}</strong>
+                      <button type="button" aria-label={l.newConversation} title={l.newConversation} onClick={newConversation}>
+                        <MessageSquarePlus size={15} aria-hidden="true" />
+                      </button>
+                    </div>
+                    <div className="viki-session-list" onWheel={(event) => event.stopPropagation()}>
+                      {[...chatState.conversations]
+                        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+                        .map((item) => (
+                          <div className="viki-session-item" data-active={item.id === conversation?.id} key={item.id}>
+                            <button type="button" role="menuitemradio" aria-checked={item.id === conversation?.id} onClick={() => openConversation(item.id)}>
+                              <strong>{item.title || l.newConversation}</strong>
+                              <span>{formatConversationTime(item.updatedAt, language)}</span>
+                            </button>
+                            <button
+                              className="viki-session-delete"
+                              type="button"
+                              aria-label={l.deleteConversation}
+                              title={l.deleteConversation}
+                              disabled={activeRequest?.conversationId === item.id}
+                              onClick={() => deleteConversation(item.id)}
+                            >
+                              <Trash2 size={13} aria-hidden="true" />
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              {!fullscreen ? <div className="viki-export-picker">
+                <button
+                  className="viki-icon-tooltip"
+                  type="button"
+                  aria-label={l.exportConversation}
+                  data-tooltip={l.exportConversation}
+                  aria-haspopup="menu"
+                  aria-expanded={exportMenuConversationId === conversation?.id}
+                  disabled={!conversation?.messages.length}
+                  onClick={() => setExportMenuConversationId((current) => current === conversation?.id ? null : conversation?.id || null)}
                 >
-                  <option value="">{selectedProvider.defaultModel ? `${l.cliDefault} · ${selectedProvider.defaultModel}` : l.cliDefault}</option>
-                  {(selectedProvider.models || []).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                </select>
+                  <Download size={16} aria-hidden="true" />
+                </button>
+                {exportMenuConversationId === conversation?.id ? (
+                  <div className="viki-export-menu" role="menu" aria-label={l.exportConversation}>
+                    <button type="button" role="menuitem" onClick={() => void exportConversationLocally().catch((nextError) => setError(`${errorMessage(nextError)} ${l.retry}`))}>
+                      <HardDriveDownload size={15} />{l.exportLocal}
+                    </button>
+                    <button type="button" role="menuitem" onClick={() => void exportConversationToNote().catch((nextError) => setError(`${errorMessage(nextError)} ${l.retry}`))}>
+                      <NotebookPen size={15} />{l.exportNote}
+                    </button>
+                  </div>
+                ) : null}
+              </div> : null}
+              {!fullscreen ? <button
+                className={`viki-web-toggle viki-icon-tooltip ${webSearch ? "is-active" : ""}`}
+                type="button"
+                aria-label={`${l.webSearch}: ${webSearch ? l.webSearchOn : l.webSearchOff}`}
+                data-tooltip={`${l.webSearch}: ${webSearch ? l.webSearchOn : l.webSearchOff}`}
+                aria-pressed={webSearch}
+                onClick={() => {
+                  const next = !webSearch;
+                  setWebSearch(next);
+                  persistWebSearch(next);
+                }}
+              >
+                <Globe2 size={16} aria-hidden="true" />
+              </button> : null}
+              {!fullscreen ? <GalaxyScopePicker
+                galaxies={galaxies}
+                selected={selectedGalaxies}
+                open={galaxyMenuOpen}
+                onOpenChange={setGalaxyMenuOpen}
+                onChange={setSelectedGalaxies}
+                containerRef={galaxyPickerRef}
+                labels={{ scope: l.galaxyScope, all: l.allGalaxies, selected: l.selectedGalaxies, count: l.galaxyCount }}
+              /> : null}
+              {!fullscreen && agent?.providers.length ? (
+                <div className="viki-agent-picker" ref={agentPickerRef}>
+                  <button
+                    className="viki-agent-toggle"
+                    type="button"
+                    aria-label={l.agentSettings}
+                    title={l.agentSettings}
+                    aria-haspopup="dialog"
+                    aria-expanded={agentMenuOpen}
+                    onClick={() => setAgentMenuOpen((value) => !value)}
+                  >
+                    <span>{compactAgentSelection(providerLabel, modelLabel)}</span>
+                  </button>
+                  {agentMenuOpen ? (
+                    <div className="viki-agent-menu" role="dialog" aria-label={l.agentSettings}>
+                      <label>
+                        <span>{l.agentCli}</span>
+                        <select value={provider} onChange={(event) => changeProvider(event.target.value)}>
+                          {agent.providers.map((item) => <option key={item.provider} value={item.provider}>{item.label}</option>)}
+                        </select>
+                      </label>
+                      {selectedProvider ? (
+                        <label>
+                          <span>{l.model}</span>
+                          <select value={model} onChange={(event) => changeModel(event.target.value)}>
+                            <option value="">{selectedProvider.defaultModel ? `${l.cliDefault} · ${selectedProvider.defaultModel}` : l.cliDefault}</option>
+                            {(selectedProvider.models || []).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                          </select>
+                        </label>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               ) : null}
               <span className={busy || agent?.busy ? "is-busy" : ""}>{busy || agent?.busy ? l.busy : l.ready}</span>
               <button
                 className="viki-icon-tooltip"
                 type="button"
+                aria-label={fullscreen ? l.exitFullscreen : l.enterFullscreen}
+                data-tooltip={fullscreen ? l.exitFullscreen : l.enterFullscreen}
+                aria-pressed={fullscreen}
+                onClick={() => setFullscreen((value) => !value)}
+              >
+                {fullscreen ? <Minimize2 size={17} aria-hidden="true" /> : <Maximize2 size={17} aria-hidden="true" />}
+              </button>
+              <button
+                className="viki-icon-tooltip"
+                type="button"
                 aria-label={l.close}
                 data-tooltip={l.close}
-                onClick={() => setOpen(false)}
+                onClick={closeViki}
               >
                 <X size={17} aria-hidden="true" />
               </button>
@@ -794,10 +1043,10 @@ export function Viki({ language }: { language: Language }) {
                 </div>
                 <div className="viki-thinking-copy">
                   <strong key={`${language}-${thinkingStep}`}>{l.thinking[thinkingStep]}</strong>
-                  {currentSelection ? <span>{currentSelection}{activeRequest?.webSearch ? ` · ${l.webSearchOn}` : ""}</span> : null}
+                  {currentSelection ? <span>{currentSelection}{activeRequest?.webSearch ? ` · ${l.webSearchOn}` : ""}{activeRequest?.galaxies.length ? ` · ${activeRequest.galaxies.join(", ")}` : ""}</span> : null}
                 </div>
-                {activeRequest && (provider !== activeRequest.provider || model !== activeRequest.model || webSearch !== activeRequest.webSearch) ? (
-                  <small>{l.nextCli}: {nextSelection}{webSearch ? ` · ${l.webSearchOn}` : ""}</small>
+                {activeRequest && (provider !== activeRequest.provider || model !== activeRequest.model || webSearch !== activeRequest.webSearch || !sameSelection(selectedGalaxies, activeRequest.galaxies)) ? (
+                  <small>{l.nextCli}: {nextSelection}{webSearch ? ` · ${l.webSearchOn}` : ""} · {galaxyScopeLabel}</small>
                 ) : null}
                 <i className="viki-thinking-scan" aria-hidden="true" />
               </div>
@@ -827,18 +1076,82 @@ export function Viki({ language }: { language: Language }) {
               rows={2}
               disabled={busy || agent?.busy || !provider || agent?.available !== true}
             />
+            {fullscreen ? <div className="viki-composer-toolbar">
+              <div className="viki-composer-toolbar-left">
+                <GalaxyScopePicker
+                  galaxies={galaxies}
+                  selected={selectedGalaxies}
+                  open={galaxyMenuOpen}
+                  onOpenChange={setGalaxyMenuOpen}
+                  onChange={setSelectedGalaxies}
+                  containerRef={galaxyPickerRef}
+                  labels={{ scope: l.galaxyScope, all: l.allGalaxies, selected: l.selectedGalaxies, count: l.galaxyCount }}
+                  full
+                />
+                <button
+                  className={`viki-composer-web-toggle ${webSearch ? "is-active" : ""}`}
+                  type="button"
+                  aria-label={`${l.webSearch}: ${webSearch ? l.webSearchOn : l.webSearchOff}`}
+                  title={`${l.webSearch}: ${webSearch ? l.webSearchOn : l.webSearchOff}`}
+                  aria-pressed={webSearch}
+                  onClick={() => {
+                    const next = !webSearch;
+                    setWebSearch(next);
+                    persistWebSearch(next);
+                  }}
+                >
+                  <Globe2 size={15} aria-hidden="true" />
+                </button>
+              </div>
+              <div className="viki-composer-toolbar-right">
+                {agent?.providers.length ? (
+                  <div className="viki-agent-picker is-full" ref={agentPickerRef}>
+                    <button
+                      className="viki-agent-toggle"
+                      type="button"
+                      aria-label={l.agentSettings}
+                      title={agentSelectionLabel(agent, provider, model, l.cliDefault)}
+                      aria-haspopup="dialog"
+                      aria-expanded={agentMenuOpen}
+                      onClick={() => setAgentMenuOpen((value) => !value)}
+                    >
+                      <span>{agentSelectionLabel(agent, provider, model, l.cliDefault)}</span>
+                    </button>
+                    {agentMenuOpen ? (
+                      <div className="viki-agent-menu" role="dialog" aria-label={l.agentSettings}>
+                        <label>
+                          <span>{l.agentCli}</span>
+                          <select value={provider} onChange={(event) => changeProvider(event.target.value)}>
+                            {agent.providers.map((item) => <option key={item.provider} value={item.provider}>{item.label}</option>)}
+                          </select>
+                        </label>
+                        {selectedProvider ? (
+                          <label>
+                            <span>{l.model}</span>
+                            <select value={model} onChange={(event) => changeModel(event.target.value)}>
+                              <option value="">{selectedProvider.defaultModel ? `${l.cliDefault} · ${selectedProvider.defaultModel}` : l.cliDefault}</option>
+                              {(selectedProvider.models || []).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                            </select>
+                          </label>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </div> : null}
             <button
               className={busy && activeRequest ? "is-pause" : ""}
               type="button"
               aria-label={busy && activeRequest ? l.pause : l.send}
               title={busy && activeRequest ? l.pause : l.send}
-              disabled={busy ? !activeRequest : !question.trim() || !provider || agent?.busy || agent?.available !== true}
+              disabled={busy ? !activeRequest : !question.trim() || !provider || selectedGalaxies.length === 0 || agent?.busy || agent?.available !== true}
               onClick={() => busy && activeRequest ? void pauseAnswer() : void ask()}
             >
               {busy && activeRequest ? <CirclePause size={19} /> : <SendHorizontal size={18} />}
             </button>
           </div>
-          <button
+          {!fullscreen ? <button
             className={`viki-resize-handle is-${resizeCorner}`}
             type="button"
             aria-label={l.resize}
@@ -849,11 +1162,11 @@ export function Viki({ language }: { language: Language }) {
             onPointerCancel={endResize}
           >
             <MoveDiagonal2 size={14} aria-hidden="true" />
-          </button>
+          </button> : null}
         </section>
       ) : null}
 
-      <button
+      {!fullscreen ? <button
         className="viki-launcher"
         type="button"
         aria-label={l.open}
@@ -875,7 +1188,7 @@ export function Viki({ language }: { language: Language }) {
           offsetX={launcherPetOffset.x}
           offsetY={launcherPetOffset.y}
         />
-      </button>
+      </button> : null}
       {openedImage ? (
         <ImageLightbox image={openedImage} closeLabel={l.closeImage} onClose={() => setOpenedImage(null)} />
       ) : null}
@@ -950,9 +1263,13 @@ function VikiVaultImage({ image, onOpen, detailLabel }: {
 
   useEffect(() => {
     let cancelled = false;
-    localApi.vaultFileUrl(image.path)
-      .then((nextUrl) => { if (!cancelled) setUrl(nextUrl); })
-      .catch(() => { if (!cancelled) setUrl(""); });
+    if (isWebImage(image)) {
+      setUrl(image.path);
+    } else {
+      localApi.vaultFileUrl(image.path)
+        .then((nextUrl) => { if (!cancelled) setUrl(nextUrl); })
+        .catch(() => { if (!cancelled) setUrl(""); });
+    }
     return () => { cancelled = true; };
   }, [image.path]);
 
@@ -970,7 +1287,13 @@ function VikiVaultImage({ image, onOpen, detailLabel }: {
         if (event.key === "Enter") open();
       }}
     >
-      <img src={url} alt={image.caption || ""} />
+      <img
+        src={url}
+        alt={image.caption || ""}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setUrl("")}
+      />
       {image.caption ? <figcaption>{image.caption}</figcaption> : null}
     </figure>
   );
@@ -1057,7 +1380,8 @@ function normalizeStoredMessage(item: any): ChatMessage[] {
         const requestedBlock = Number(image?.afterBlock);
         const lastBlock = lastMarkdownBlockIndex(content);
         const afterBlock = Number.isInteger(requestedBlock) ? clamp(requestedBlock, 0, lastBlock) : lastBlock;
-        return path ? [{ path, caption: String(image?.caption || "").trim().slice(0, 500), afterBlock }] : [];
+        const type = image?.type === "web" || /^https?:\/\//i.test(path) ? "web" as const : "vault" as const;
+        return path ? [{ path, caption: String(image?.caption || "").trim().slice(0, 500), afterBlock, type }] : [];
       })
     : undefined;
   return [{
@@ -1106,7 +1430,7 @@ function persistChatState(state: VikiChatState) {
       messages: item.messages.slice(-MAX_MESSAGES_PER_CONVERSATION).map((message) => ({
         ...message,
         content: message.content.slice(0, 12000),
-        images: message.images?.map(({ path, caption, afterBlock }) => ({ path, caption, afterBlock }))
+        images: message.images?.map(({ path, caption, afterBlock, type }) => ({ path, caption, afterBlock, type }))
       }))
     }));
     window.localStorage.setItem(CHAT_STATE_KEY, JSON.stringify({ activeId: state.activeId, conversations: compact }));
@@ -1146,6 +1470,22 @@ function agentModelLabel(agent: AgentInfo | null, provider: string, model: strin
 function agentSelectionLabel(agent: AgentInfo | null, provider: string, model: string, defaultLabel: string) {
   const providerLabel = agent?.providers.find((item) => item.provider === provider)?.label || provider;
   return providerLabel ? `${providerLabel} · ${agentModelLabel(agent, provider, model, defaultLabel)}` : "";
+}
+
+function compactAgentSelection(providerLabel: string, modelLabel: string) {
+  const provider = String(providerLabel || "").replace(/\s+CN$/i, "").trim();
+  const model = String(modelLabel || "").replace(/^CLI (?:default|默认)\s*·?\s*/i, "").trim();
+  return [provider, model].filter(Boolean).join(" · ");
+}
+
+function sameSelection(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+  const values = new Set(left);
+  return right.every((item) => values.has(item));
+}
+
+function isWebImage(image: AgentAnswer["images"][number]) {
+  return image.type === "web" || /^https?:\/\//i.test(image.path);
 }
 
 function petViewportOffset(
@@ -1393,14 +1733,7 @@ function ChatMarkdown({
     imagesByBlock.set(blockIndex, [...(imagesByBlock.get(blockIndex) || []), image]);
   }
   return <>{blocks.map((block, index) => {
-    const lines = block.split("\n");
-    let markdownBlock: React.ReactNode;
-    if (lines.every((line) => /^\s*[-*]\s+/.test(line))) {
-      markdownBlock = <ul>{lines.map((line, lineIndex) => <li key={lineIndex}>{inlineMarkdown(line.replace(/^\s*[-*]\s+/, ""))}</li>)}</ul>;
-    } else {
-      const heading = block.match(/^#{1,4}\s+(.+)$/);
-      markdownBlock = heading ? <h4>{inlineMarkdown(heading[1])}</h4> : <p>{inlineMarkdown(block.replace(/\n/g, " "))}</p>;
-    }
+    const markdownBlock = <Suspense fallback={<p className="viki-markdown-fallback">{block}</p>}><VikiMarkdown content={block} /></Suspense>;
     const placedImages = imagesByBlock.get(index) || [];
     return (
       <div className="viki-markdown-block" key={index}>
@@ -1416,26 +1749,6 @@ function ChatMarkdown({
       </div>
     );
   })}</>;
-}
-
-function inlineMarkdown(value: string) {
-  const nodes: React.ReactNode[] = [];
-  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\(https?:\/\/[^)]+\))/g;
-  let last = 0;
-  for (const match of value.matchAll(pattern)) {
-    const index = match.index ?? 0;
-    if (index > last) nodes.push(value.slice(last, index));
-    const token = match[0];
-    if (token.startsWith("`")) nodes.push(<code key={index}>{token.slice(1, -1)}</code>);
-    else if (token.startsWith("**")) nodes.push(<strong key={index}>{token.slice(2, -2)}</strong>);
-    else {
-      const link = token.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/);
-      if (link) nodes.push(<a key={index} href={link[2]} target="_blank" rel="noreferrer">{link[1]}</a>);
-    }
-    last = index + token.length;
-  }
-  if (last < value.length) nodes.push(value.slice(last));
-  return nodes;
 }
 
 function errorMessage(value: unknown) {

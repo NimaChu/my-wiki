@@ -6,10 +6,32 @@ import test from "node:test";
 
 import {
   createLocalAgentRunner,
+  parseStructuredOutput,
   parseOpenCodeConfig,
   parseProviderModels,
   providerInvocation
 } from "../scripts/core/agent-service.mjs";
+
+test("structured responses survive web-tool logs and literal newlines", () => {
+  const answer = {
+    answerMarkdown: "A silver spacecraft.",
+    sources: [{ path: "https://example.com/starship", title: "Starship", type: "web" }],
+    images: [{ path: "https://example.com/starship.jpg", caption: "Starship", afterBlock: 0, type: "web" }]
+  };
+  const noisy = [
+    JSON.stringify({ tool: "websearch", query: "starship appearance" }),
+    "Search completed.",
+    JSON.stringify(answer)
+  ].join("\n");
+  assert.deepEqual(parseStructuredOutput(noisy), answer);
+
+  const literalNewline = '{"answerMarkdown":"Line one\nLine two","sources":[],"images":[]}';
+  assert.deepEqual(parseStructuredOutput(literalNewline), {
+    answerMarkdown: "Line one\nLine two",
+    sources: [],
+    images: []
+  });
+});
 
 test("Codex and OpenCode receive page images through native CLI attachment flags", () => {
   const common = { command: "agent", vault: "/vault", mode: "query", prompt: "Repair", schema: {}, outputFile: "/out", schemaFile: "/schema", providerConfigFile: "/config", model: "vision", files: ["/pages/1.png", "/pages/2.png"] };

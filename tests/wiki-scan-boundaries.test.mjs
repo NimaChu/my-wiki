@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   frontmatterMetadataIssues,
   normalizeEscapedFrontmatterQuotes,
+  normalizeUniverseName,
   processedRawIssues,
   rawLayoutIssues,
   scanVault
@@ -104,4 +105,16 @@ test("frontmatter metadata normalization repairs escaped wrappers and the gate r
   assert.deepEqual(frontmatterMetadataIssues({ nodes: [{ ...node, content: inline }] }), [
     { source: "concepts/Calculus.md", field: "universes", value: '["数学]', reason: "unbalanced-quote" }
   ]);
+
+  const typographic = normalized.replace('  - "数学"', '  - "“AI”"');
+  assert.deepEqual(frontmatterMetadataIssues({ nodes: [{ ...node, content: typographic }] }), [
+    { source: "concepts/Calculus.md", field: "universes", value: '"“AI”"', reason: "wrapped-quote" }
+  ]);
+  const normalizedTypographic = normalizeEscapedFrontmatterQuotes(typographic);
+  assert.match(normalizedTypographic, /^  - "AI"$/m);
+  assert.deepEqual(frontmatterMetadataIssues({ nodes: [{ ...node, content: normalizedTypographic }] }), []);
+  assert.equal(normalizeUniverseName("“AI”"), "AI");
+  assert.equal(normalizeUniverseName('"“AI”"'), "AI");
+  assert.equal(normalizeUniverseName("『「‘AI’」』"), "AI");
+  assert.equal(normalizeUniverseName('\\"AI\\"'), "AI");
 });

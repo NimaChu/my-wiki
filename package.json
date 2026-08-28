@@ -43,6 +43,8 @@
     "graph": "node scripts/my-wiki.mjs refresh"
   },
   "dependencies": {
+    "jszip": "^3.10.1",
+    "undici": "^6.28.0",
     "yaml": "^2.9.0"
   }
 }

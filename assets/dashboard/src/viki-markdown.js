@@ -31,7 +31,8 @@ export function promoteVaultMarkdownImages(content, suppliedImages = []) {
   const seen = new Set();
   for (const image of embeddedImages) addImage(image);
   for (const image of Array.isArray(suppliedImages) ? suppliedImages : []) {
-    const path = normalizeImagePath(image?.path);
+    const web = image?.type === "web" || /^https?:\/\//i.test(String(image?.path || ""));
+    const path = web ? normalizeWebImagePath(image?.path) : normalizeImagePath(image?.path);
     if (!path) continue;
     const requestedBlock = Number(image?.afterBlock);
     const originalBlock = Number.isInteger(requestedBlock)
@@ -40,7 +41,8 @@ export function promoteVaultMarkdownImages(content, suppliedImages = []) {
     addImage({
       path,
       caption: String(image?.caption || "").slice(0, 300),
-      afterBlock: blockMap[originalBlock] ?? lastBlock
+      afterBlock: blockMap[originalBlock] ?? lastBlock,
+      ...(web ? { type: "web" } : image?.type === "vault" ? { type: "vault" } : {})
     });
   }
 
@@ -77,4 +79,14 @@ function normalizeImagePath(value) {
   }
   if (!IMAGE_PATH.test(decoded) || decoded.split("/").includes("..")) return "";
   return decoded;
+}
+
+function normalizeWebImagePath(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return "";
+    return url.href;
+  } catch {
+    return "";
+  }
 }

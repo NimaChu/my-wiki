@@ -95,7 +95,7 @@ export type PetAppearance = {
 export type AgentAnswer = {
   answerMarkdown: string;
   sources: Array<{ path: string; title: string; type?: "vault" | "web" }>;
-  images: Array<{ path: string; caption: string; afterBlock: number }>;
+  images: Array<{ path: string; caption: string; afterBlock: number; type?: "vault" | "web" }>;
 };
 
 export type MaintenanceResult = {
@@ -123,6 +123,13 @@ export type MarkdownDocument = {
   title: string;
   body: string;
   version: string;
+};
+
+export type LocalNoteSummary = {
+  path: string;
+  title: string;
+  updatedAt: string;
+  bytes: number;
 };
 
 let session: Promise<{ token: string; vault: string }> | null = null;
@@ -325,12 +332,13 @@ export const localApi = {
     provider: string,
     model: string,
     conversationId: string,
-    webSearch: boolean
+    webSearch: boolean,
+    galaxies: string[]
   ) {
     const response = await apiFetch("/api/v1/agent/ask", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ question, history, language, provider, model, conversationId, webSearch })
+      body: JSON.stringify({ question, history, language, provider, model, conversationId, webSearch, galaxies })
     });
     return response.json() as Promise<Job>;
   },
@@ -339,6 +347,64 @@ export const localApi = {
     const params = new URLSearchParams({ job: jobId });
     const response = await apiFetch(`/api/v1/agent/query?${params}`, { method: "DELETE" });
     return response.json() as Promise<{ cancelled: boolean; job: Job | null }>;
+  },
+
+  async exportConversationBundle(input: {
+    markdown: string;
+    markdownFilename: string;
+    archiveFilename: string;
+    images: Array<{ path: string; archivePath: string }>;
+  }) {
+    const response = await apiFetch("/api/v1/viki/conversation-export", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input)
+    });
+    return response.blob();
+  },
+
+  async notes() {
+    const response = await apiFetch("/api/v1/notes");
+    return response.json() as Promise<{ notes: LocalNoteSummary[] }>;
+  },
+
+  async deleteNote(path: string) {
+    const params = new URLSearchParams({ path });
+    const response = await apiFetch(`/api/v1/notes?${params}`, { method: "DELETE" });
+    return response.json() as Promise<{ deleted: boolean; path: string; directory: string }>;
+  },
+
+  async saveNoteBundle(title: string, bundle: Blob, path = "") {
+    const params = new URLSearchParams({ title });
+    if (path) params.set("path", path);
+    const response = await apiFetch(`/api/v1/notes/bundle?${params}`, {
+      method: "POST",
+      headers: { "content-type": "application/zip" },
+      body: bundle
+    });
+    return response.json() as Promise<MarkdownDocument>;
+  },
+
+  async createNoteFromViki(input: {
+    title: string;
+    markdown: string;
+    images: Array<{ path: string; archivePath: string }>;
+  }) {
+    const response = await apiFetch("/api/v1/notes/from-viki", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input)
+    });
+    return response.json() as Promise<MarkdownDocument>;
+  },
+
+  async captureNote(input: { path: string; title: string; collection?: string; suggestedUniverse?: string }) {
+    const response = await apiFetch("/api/v1/notes/capture", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input)
+    });
+    return response.json() as Promise<Job>;
   },
 
   async captureUrl(input: { url: string; title?: string; collection?: string; suggestedUniverse?: string }) {

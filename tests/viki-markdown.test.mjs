@@ -31,3 +31,19 @@ test("Viki de-duplicates embedded and structured images", () => {
   assert.equal(result.images.length, 1);
   assert.equal(result.images[0].caption, "Diagram");
 });
+
+test("Viki preserves validated structured web images for direct rendering", () => {
+  const result = promoteVaultMarkdownImages("Starship has a stainless-steel hull.", [{
+    path: "https://upload.wikimedia.org/wikipedia/commons/2/2b/Starship_full_stack_with_Jeep.jpg",
+    caption: "Starship full stack",
+    afterBlock: 0,
+    type: "web"
+  }]);
+
+  assert.deepEqual(result.images, [{
+    path: "https://upload.wikimedia.org/wikipedia/commons/2/2b/Starship_full_stack_with_Jeep.jpg",
+    caption: "Starship full stack",
+    afterBlock: 0,
+    type: "web"
+  }]);
+});

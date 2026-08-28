@@ -160,14 +160,14 @@ export function stringifyFrontmatter(frontmatter) {
 
 const GUARDED_FRONTMATTER_FIELDS = new Set(["title", "universes", "universe", "group"]);
 
-function frontmatterScalarIssue(value) {
+function frontmatterScalarIssue(value, { rejectTypographicWrapper = false } = {}) {
   const text = String(value || "").trim();
   if (!text) return "";
   if (/\\["']|["']\\/.test(text)) return "escaped-quote";
   if (/^\\|\\$/.test(text)) return "boundary-backslash";
   if (text.startsWith("[") && text.endsWith("]")) {
     for (const item of text.slice(1, -1).split(",")) {
-      const reason = frontmatterScalarIssue(item);
+      const reason = frontmatterScalarIssue(item, { rejectTypographicWrapper });
       if (reason) return reason;
     }
     return "";
@@ -177,6 +177,7 @@ function frontmatterScalarIssue(value) {
   const firstQuote = first === '"' || first === "'";
   const lastQuote = last === '"' || last === "'";
   if (firstQuote !== lastQuote || (firstQuote && first !== last)) return "unbalanced-quote";
+  if (rejectTypographicWrapper && unwrapTypographicQuoteWrapper(text) !== text) return "wrapped-quote";
   return "";
 }
 
@@ -194,7 +195,7 @@ export function frontmatterMetadataIssues(scan, { paths } = {}) {
         key = keyMatch[1];
         const raw = keyMatch[2].trim();
         if (raw && GUARDED_FRONTMATTER_FIELDS.has(key)) {
-          const reason = frontmatterScalarIssue(raw);
+          const reason = frontmatterScalarIssue(raw, { rejectTypographicWrapper: isGalaxyField(key) });
           if (reason) issues.push({ source: node.path, field: key, value: raw, reason });
         }
         continue;
@@ -202,7 +203,7 @@ export function frontmatterMetadataIssues(scan, { paths } = {}) {
       const item = line.match(/^\s*-\s+(.*)$/);
       if (item && GUARDED_FRONTMATTER_FIELDS.has(key)) {
         const raw = item[1].trim();
-        const reason = frontmatterScalarIssue(raw);
+        const reason = frontmatterScalarIssue(raw, { rejectTypographicWrapper: isGalaxyField(key) });
         if (reason) issues.push({ source: node.path, field: key, value: raw, reason });
       }
     }
@@ -216,14 +217,23 @@ export function normalizeEscapedFrontmatterQuotes(content) {
   const newline = content.includes("\r\n") ? "\r\n" : "\n";
   const lines = content.slice(bounds.dataStart, bounds.dataEnd).split(/\r?\n/);
   let changed = false;
+  let key = "";
   const normalized = lines.map((line) => {
+    const keyMatch = line.match(/^([A-Za-z0-9_-]+):/);
+    if (keyMatch) key = keyMatch[1];
     const match = line.match(/^(\s*(?:[A-Za-z0-9_-]+:\s*|-\s+))(.*)$/);
     if (!match) return line;
     const value = match[2].trim();
     const escaped = value.match(/^\\(["'])([\s\S]*)\\\1$/);
-    if (!escaped) return line;
+    if (escaped) {
+      changed = true;
+      return match[1] + escaped[1] + escaped[2] + escaped[1];
+    }
+    if (!isGalaxyField(key)) return line;
+    const unwrapped = unwrapTypographicQuoteWrapper(value);
+    if (unwrapped === value) return line;
     changed = true;
-    return match[1] + escaped[1] + escaped[2] + escaped[1];
+    return match[1] + JSON.stringify(unwrapped);
   });
   if (!changed) return content;
   return content.slice(0, bounds.dataStart) + normalized.join(newline) + content.slice(bounds.dataEnd);
@@ -291,13 +301,38 @@ export function slugify(value) {
 }
 
 export function normalizeUniverseName(value) {
-  const cleaned = String(value || "")
+  const cleaned = unwrapGalaxyNameWrappers(String(value || "").trim())
     .trim()
     .replace(/^Wiki\s*\/\s*/i, "")
     .replace(/^FlexSim\s*\/\s*/i, "");
   if (/^flexsim$/i.test(cleaned)) return "FlexSim";
   if (/^ai$/i.test(cleaned)) return "AI";
   return cleaned;
+}
+
+function isGalaxyField(value) {
+  return value === "universes" || value === "universe" || value === "group";
+}
+
+function unwrapTypographicQuoteWrapper(value) {
+  const text = String(value || "").trim();
+  const yamlQuoted = text.match(/^(["'])([\s\S]*)\1$/);
+  const inner = yamlQuoted ? yamlQuoted[2].trim() : text;
+  const unwrapped = unwrapGalaxyNameWrappers(inner);
+  return unwrapped !== inner ? unwrapped : text;
+}
+
+function unwrapGalaxyNameWrappers(value) {
+  let text = String(value || "").trim();
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const escaped = text.match(/^\\(["'`])([\s\S]+)\\\1$/);
+    const ascii = text.match(/^(["'`])([\s\S]+)\1$/);
+    const typographic = text.match(/^(?:“([\s\S]+)”|‘([\s\S]+)’|「([\s\S]+)」|『([\s\S]+)』)$/);
+    const next = escaped?.[2] ?? ascii?.[2] ?? typographic?.slice(1).find((item) => item !== undefined);
+    if (next === undefined) break;
+    text = String(next).trim();
+  }
+  return text;
 }
 
 export function inferWikiUniverse(title, tags = []) {

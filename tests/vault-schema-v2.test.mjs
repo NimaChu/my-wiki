@@ -36,6 +36,7 @@ test("vault initialization creates only the native OKF v2 layout", async (contex
     "references/sources",
     "references/assets",
     "references/originals",
+    "notes",
     ".my-wiki"
   ]) await fs.access(path.join(vault, relative));
   await assert.rejects(fs.access(path.join(vault, "wiki")), { code: "ENOENT" });

@@ -58,13 +58,17 @@ async function createFixture(context) {
   return { vault, dashboard, wikiFile, rawFile, imageFile };
 }
 
-test("Markdown document access accepts vault Wiki and raw source notes only", async (context) => {
+test("Markdown document access accepts Concepts, References, and local notes only", async (context) => {
   const fixture = await createFixture(context);
+  const localNote = path.join(fixture.vault, "notes", "field-note", "note.md");
+  await mkdir(path.dirname(localNote), { recursive: true });
+  await writeFile(localNote, "# Field note\n", "utf8");
 
   assert.equal(await resolveMarkdownVaultFile(fixture.vault, "concepts/note.md"), await realpath(fixture.wikiFile));
   assert.equal(await resolveMarkdownVaultFile(fixture.vault, "references/sources/evidence.md"), await realpath(fixture.rawFile));
-  await assert.rejects(resolveMarkdownVaultFile(fixture.vault, "references/originals/secret.md"), /Only Concept and Reference Markdown/);
-  await assert.rejects(resolveMarkdownVaultFile(fixture.vault, "../note.md"), /Only Concept and Reference Markdown/);
+  assert.equal(await resolveMarkdownVaultFile(fixture.vault, "notes/field-note/note.md"), await realpath(localNote));
+  await assert.rejects(resolveMarkdownVaultFile(fixture.vault, "references/originals/secret.md"), /Only Concept, Reference, and local note Markdown/);
+  await assert.rejects(resolveMarkdownVaultFile(fixture.vault, "../note.md"), /Only Concept, Reference, and local note Markdown/);
 
   const document = await readMarkdownDocument(fixture.vault, "concepts/note.md");
   assert.equal(document.title, "Note");
@@ -121,6 +125,73 @@ test("Markdown API reads and saves the body while preserving frontmatter and rej
   });
   assert.equal(stale.status, 409);
   assert.match(stale.body.error, /changed after it was opened/);
+});
+
+test("Viki can export an answer with vault images into a local quick note", async (context) => {
+  const fixture = await createFixture(context);
+  const server = http.createServer(createDashboardApi({
+    dashboardRoot: fixture.dashboard,
+    port: 0,
+    agentRunner: { info: async () => ({}) }
+  }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const payload = JSON.stringify({
+    title: "How does it work?",
+    markdown: "# How does it work?\n\nEvidence-backed.\n\n![Flow](assets/001-image.png)\n",
+    images: [{ path: "references/assets/capture/image.png", archivePath: "assets/001-image.png" }]
+  });
+  const created = await request(port, "POST", "/api/v1/notes/from-viki", {
+    headers: {
+      "x-my-wiki-token": session.body.token,
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(payload)
+    },
+    body: payload
+  });
+  assert.equal(created.status, 201);
+  assert.match(created.body.path, /^notes\/\d{4}-\d{2}-\d{2}-\d{6}-\d{3}--how-does-it-work\/note\.md$/);
+  assert.match(await readFile(path.join(fixture.vault, created.body.path), "utf8"), /!\[Flow\]\(assets\/001-image\.png\)/);
+  assert.equal(await readFile(path.join(fixture.vault, path.dirname(created.body.path), "assets", "001-image.png"), "hex"), "89504e47");
+});
+
+test("Viki downloads web images into a portable local quick note", async (context) => {
+  const fixture = await createFixture(context);
+  const png = await readFile(path.join(fixture.vault, "references", "assets", "capture", "image.png"));
+  const fetched = [];
+  const server = http.createServer(createDashboardApi({
+    dashboardRoot: fixture.dashboard,
+    port: 0,
+    agentRunner: { info: async () => ({}) },
+    remoteImageFetcher: async (source, archivePath) => {
+      fetched.push({ source, archivePath });
+      return png;
+    }
+  }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const payload = JSON.stringify({
+    title: "Starship",
+    markdown: "# Starship\n\n![Photo](assets/001-starship.png)\n",
+    images: [{ path: "https://images.example.com/starship.png", archivePath: "assets/001-starship.png", type: "web" }]
+  });
+  const created = await request(port, "POST", "/api/v1/notes/from-viki", {
+    headers: {
+      "x-my-wiki-token": session.body.token,
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(payload)
+    },
+    body: payload
+  });
+  assert.equal(created.status, 201);
+  assert.deepEqual(fetched, [{ source: "https://images.example.com/starship.png", archivePath: "assets/001-starship.png" }]);
+  assert.equal(await readFile(path.join(fixture.vault, path.dirname(created.body.path), "assets", "001-starship.png"), "hex"), "89504e47");
 });
 
 test("Maintenance queue items can be deleted with their unshared snapshot and owned assets", async (context) => {
@@ -963,7 +1034,10 @@ test("Maintenance normalizes escaped Wiki metadata and rejects residual malforme
       providers: [{ provider: "opencode", label: "OpenCode" }],
       message: ""
     }),
-    run: async () => {
+    run: async ({ prompt }) => {
+      assert.match(prompt, /Existing canonical knowledge galaxy names/);
+      assert.match(prompt, /^- AI$/m);
+      assert.match(prompt, /without adding ASCII, typographic, Chinese, or Markdown quote characters/);
       const raw = await readFile(sourceFile, "utf8");
       await writeFile(sourceFile, raw.replace("workflow_status: inbox", "workflow_status: processed"), "utf8");
       await writeFile(normalizedWikiFile, [
@@ -971,8 +1045,7 @@ test("Maintenance normalizes escaped Wiki metadata and rejects residual malforme
         "title: \\\"Calculus\\\"",
         "type: concept",
         "status: active",
-        "universes:",
-        "  - \\\"数学\\\"",
+        "universes: [\"“数学”\"]",
         "sources:",
         "  - \\\"[[references/sources/metadata-gate-source]]\\\"",
         "---",
@@ -1431,6 +1504,84 @@ test("Viki binds a question to its dispatched provider and pauses only the match
   await aborted;
 });
 
+test("Viki limits vault evidence to the selected knowledge galaxies", async (context) => {
+  const fixture = await createFixture(context);
+  const otherConcept = path.join(fixture.vault, "concepts", "math.md");
+  await writeFile(fixture.wikiFile, [
+    "---",
+    "title: AI Note",
+    "type: Concept",
+    "status: active",
+    "universes: [AI]",
+    "sources: ['[[references/sources/evidence]]']",
+    "---",
+    "# AI Note",
+    "",
+    "Scoped AI knowledge."
+  ].join("\n"), "utf8");
+  await writeFile(otherConcept, "---\ntitle: Math Note\ntype: Concept\nstatus: active\nuniverses: [Math]\n---\n# Math Note\n\nOut-of-scope knowledge.\n", "utf8");
+  let runOptions;
+  let scopedConceptFiles = [];
+  const agentRunner = {
+    info: async () => ({
+      available: true,
+      provider: "opencode",
+      label: "OpenCode",
+      defaultProvider: "opencode",
+      providers: [{ provider: "opencode", label: "OpenCode", defaultModel: "", models: [] }],
+      message: ""
+    }),
+    run: async (options) => {
+      runOptions = options;
+      scopedConceptFiles = await readdir(path.join(options.vault, "concepts"));
+      return {
+        answerMarkdown: "Leaked out-of-scope answer.",
+        sources: [{ path: "concepts/math.md", title: "Math Note" }],
+        images: []
+      };
+    }
+  };
+  const server = http.createServer(createDashboardApi({ dashboardRoot: fixture.dashboard, port: 0, agentRunner }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+  const body = JSON.stringify({
+    question: "Only use AI",
+    history: [],
+    language: "en",
+    provider: "opencode",
+    model: "",
+    conversationId: "conversation_scope_01",
+    webSearch: false,
+    galaxies: ["AI"]
+  });
+  const queued = await request(port, "POST", "/api/v1/agent/ask", {
+    headers: { ...auth, "content-type": "application/json", "content-length": Buffer.byteLength(body) },
+    body
+  });
+  assert.equal(queued.status, 202);
+  assert.deepEqual(queued.body.meta.galaxies, ["AI"]);
+  assert.equal(queued.body.meta.allGalaxies, false);
+
+  let completed;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    completed = await request(port, "GET", `/api/v1/jobs/${queued.body.id}`, { headers: auth });
+    if (completed.body.status === "complete") break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(completed.body.status, "complete");
+  assert.deepEqual(completed.body.result.sources, []);
+  assert.match(completed.body.result.answerMarkdown, /selected knowledge galaxies \(AI\) do not contain enough evidence/i);
+  assert.notEqual(runOptions.vault, fixture.vault);
+  assert.deepEqual(scopedConceptFiles, ["note.md"]);
+  assert.match(runOptions.prompt, /Knowledge galaxy scope: only AI/);
+  assert.match(runOptions.prompt, /concepts\/note\.md/);
+  assert.doesNotMatch(runOptions.prompt, /concepts\/math\.md/);
+});
+
 test("Viki preserves image block placement and rejects invalid answer images", async (context) => {
   const fixture = await createFixture(context);
   let runOptions;
@@ -1459,7 +1610,9 @@ test("Viki preserves image block placement and rejects invalid answer images", a
         ],
         images: [
           { path: "references/assets/capture/image.png", caption: "Supporting diagram", afterBlock: 99 },
-          { path: "concepts/not-an-image.png", caption: "Rejected", afterBlock: 0 }
+          { path: "concepts/not-an-image.png", caption: "Rejected", afterBlock: 0 },
+          { path: "https://cdn.example.com/current-chart.jpg", caption: "Current chart", afterBlock: 0, type: "web" },
+          { path: "http://127.0.0.1/private.png", caption: "Rejected local network image", afterBlock: 0, type: "web" }
         ]
       };
     }
@@ -1501,7 +1654,13 @@ test("Viki preserves image block placement and rejects invalid answer images", a
   assert.deepEqual(completed.body.result.images, [{
     path: "references/assets/capture/image.png",
     caption: "Supporting diagram",
-    afterBlock: 1
+    afterBlock: 1,
+    type: "vault"
+  }, {
+    path: "https://cdn.example.com/current-chart.jpg",
+    caption: "Current chart",
+    afterBlock: 0,
+    type: "web"
   }]);
   assert.deepEqual(completed.body.result.sources, [
     { path: "concepts/note.md", title: "Note", type: "vault" },
@@ -1510,6 +1669,7 @@ test("Viki preserves image block placement and rejects invalid answer images", a
   assert.equal(runOptions.model, "internal/default");
   assert.equal(runOptions.allowWeb, true);
   assert.match(runOptions.prompt, /afterBlock/);
+  assert.match(runOptions.prompt, /exact public http\(s\) image URL/);
 });
 
 test("Viki promotes valid Markdown image tags into authenticated answer images", async (context) => {
@@ -1569,6 +1729,7 @@ test("Viki promotes valid Markdown image tags into authenticated answer images",
   assert.deepEqual(completed.body.result.images, [{
     path: "references/assets/capture/image.png",
     caption: "Agent workflow",
-    afterBlock: 0
+    afterBlock: 0,
+    type: "vault"
   }]);
 });

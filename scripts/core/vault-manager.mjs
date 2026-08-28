@@ -70,6 +70,7 @@ async function initVault() {
   await fs.mkdir(path.join(target, "references", "assets"), { recursive: true });
   await fs.mkdir(path.join(target, "references", "originals"), { recursive: true });
   await fs.mkdir(path.join(target, "concepts"), { recursive: true });
+  await fs.mkdir(path.join(target, "notes"), { recursive: true });
   await fs.mkdir(path.join(target, ".my-wiki", "cache"), { recursive: true });
   await copyTemplates(target);
   await copyRawReadme(target);

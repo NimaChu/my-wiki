@@ -48,7 +48,7 @@ Treat short requests such as "维护知识库" or "maintain this vault" as compl
 3. Create, split, merge, and link atomic Concepts.
 4. Assign each concept planet one or more broad, durable galaxy names in `universes`, with the primary galaxy first. Prefer stable top-level domains over courses, projects, source collections, book series, or narrow subtopics; reuse and merge existing galaxies whenever their meaning fits, keeping the total galaxy count low.
 5. Repair links and update the index/log.
-6. Write YAML frontmatter values directly without JSON- or shell-style escaped wrapper quotes. Reuse the exact existing galaxy name; `\"数学\"` is malformed and must never be treated as a distinct galaxy.
+6. Write YAML frontmatter values directly without JSON-, shell-, typographic-, Chinese-, or Markdown-style wrapper quotes inside the value. Reuse the exact existing galaxy name; `\"数学\"` and `“AI”` are malformed and must never be treated as distinct galaxies.
 7. Keep Concepts OKF v0.2-compatible: structured `sources` mappings with concrete resources, standard Markdown links, and source-ID footnotes for attributed claims. Preserve My Wiki metadata as extension keys, and do not fabricate `verified` events.
 8. Run `lint` and report completed and remaining work. Treat any `malformedFrontmatterMetadata` finding as blocking: maintenance postflight returns the affected Reference to `inbox` until the metadata is corrected.
 

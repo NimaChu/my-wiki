@@ -715,23 +715,87 @@ function terminateProcessTree(child, signal) {
   }
 }
 
-function parseStructuredOutput(value) {
+export function parseStructuredOutput(value) {
   const cleaned = stripAnsi(String(value || "")).trim();
   const unfenced = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-  try {
-    return JSON.parse(unfenced);
-  } catch {
-    const start = unfenced.indexOf("{");
-    const end = unfenced.lastIndexOf("}");
-    if (start >= 0 && end > start) {
+  const candidates = [unfenced, ...jsonObjectCandidates(unfenced).reverse()];
+  for (const candidate of [...new Set(candidates)]) {
+    for (const attempt of [candidate, escapeJsonStringControls(candidate)]) {
       try {
-        return JSON.parse(unfenced.slice(start, end + 1));
+        const parsed = JSON.parse(attempt);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
       } catch {
-        // Fall through to a useful error.
+        // Try the next complete object or conservative string repair.
       }
     }
   }
   throw new Error("The local agent returned an invalid structured response");
+}
+
+function jsonObjectCandidates(value) {
+  const candidates = [];
+  let start = -1;
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') quoted = false;
+      continue;
+    }
+    if (character === '"') {
+      quoted = true;
+      continue;
+    }
+    if (character === "{") {
+      if (depth === 0) start = index;
+      depth += 1;
+      continue;
+    }
+    if (character !== "}" || depth === 0) continue;
+    depth -= 1;
+    if (depth === 0 && start >= 0) {
+      candidates.push(value.slice(start, index + 1));
+      start = -1;
+    }
+  }
+  return candidates;
+}
+
+function escapeJsonStringControls(value) {
+  let output = "";
+  let quoted = false;
+  let escaped = false;
+  for (const character of value) {
+    if (!quoted) {
+      output += character;
+      if (character === '"') quoted = true;
+      continue;
+    }
+    if (escaped) {
+      output += character;
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      output += character;
+      escaped = true;
+      continue;
+    }
+    if (character === '"') {
+      output += character;
+      quoted = false;
+      continue;
+    }
+    if (character === "\n") output += "\\n";
+    else if (character === "\r") output += "\\r";
+    else if (character === "\t") output += "\\t";
+    else output += character;
+  }
+  return output;
 }
 
 function cleanAgentError(value) {
