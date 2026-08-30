@@ -7,6 +7,13 @@ import { migrateWikiToOkf } from "../core/okf-lib.mjs";
 const vaultSpecifier = process.argv[2] || process.env.MY_WIKI_VAULT || "";
 if (!vaultSpecifier) throw new Error("Usage: node scripts/migrations/vault-schema-v2.mjs /path/to/vault");
 const vault = path.resolve(vaultSpecifier);
+const vaultStat = await fs.stat(vault).catch(() => null);
+if (!vaultStat || !vaultStat.isDirectory()) {
+  throw new Error(`Vault path does not exist or is not a directory: ${vault}`);
+}
+if (vault === path.parse(vault).root) {
+  throw new Error(`Refusing to operate on filesystem root: ${vault}`);
+}
 
 const legacy = {
   concepts: path.join(vault, "wiki"),
