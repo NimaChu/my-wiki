@@ -60,9 +60,10 @@ if (directory) {
     captureMethod: arg("--capture-method", "agent-file")
   });
 } else {
+  const suppliedTitle = arg("--title", "");
   result = await captureSource({
     vault,
-    title: arg("--title", "Untitled Source"),
+    title: suppliedTitle,
     url,
     sourceType: arg("--type", url ? "webpage" : "note"),
     author: arg("--author", ""),
@@ -74,7 +75,8 @@ if (directory) {
     content,
     imageInputs: args("--image"),
     shouldSnapshot: !has("--no-snapshot"),
-    shouldMirrorImages: !has("--no-mirror-images")
+    shouldMirrorImages: !has("--no-mirror-images"),
+    inferTitleFromSource: Boolean(url && !suppliedTitle)
   });
 }
 

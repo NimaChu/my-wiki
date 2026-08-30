@@ -152,6 +152,16 @@ test("Viki compact controls keep the requested order and open the pet menu to th
   assert.match(styles, /\.viki-pet-menu\s*\{[\s\S]*top: 0;[\s\S]*left: calc\(100% \+ 8px\)/);
 });
 
+test("Viki restores Agent selections without discarding temporarily undiscovered models", async () => {
+  const component = await readFile(new URL("../assets/dashboard/src/Viki.tsx", import.meta.url), "utf8");
+  const api = await readFile(new URL("../assets/dashboard/src/api.ts", import.meta.url), "utf8");
+  assert.match(component, /localApi\.agentPreferences\(\)/);
+  assert.match(component, /localApi\.saveAgentPreferences\(\{ viki:/);
+  assert.match(component, /return models\[provider\] \|\| ""/);
+  assert.match(component, /savedModel/);
+  assert.match(api, /\/api\/v1\/agent\/preferences/);
+});
+
 test("Viki renders assistant Markdown with GFM tables", async () => {
   const component = await readFile(new URL("../assets/dashboard/src/Viki.tsx", import.meta.url), "utf8");
   const renderer = await readFile(new URL("../assets/dashboard/src/VikiMarkdown.tsx", import.meta.url), "utf8");

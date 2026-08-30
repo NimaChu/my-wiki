@@ -9,6 +9,18 @@ export function shouldUseDegreeCenteredUniverseLayout(state: {
   groupCount: number;
 }): boolean;
 
+export function missingDeclaredUniverseNames(
+  declaredUniverses: string[],
+  representedUniverses: string[]
+): string[];
+
+export function centeredPairAxis(
+  center: number,
+  distance: number,
+  firstRadius: number,
+  secondRadius: number
+): [number, number];
+
 export function rankUniverseGroupsByConnectivity(
   groups: string[],
   connections: Array<{ source: string; target: string; weight?: number }>,

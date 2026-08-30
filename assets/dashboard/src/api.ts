@@ -90,6 +90,12 @@ export type AgentTaskSelection = {
   model: string;
 };
 
+export type AgentPreferences = {
+  version: 1;
+  viki: { provider: string; models: Record<string, string> };
+  queue: { distill: AgentTaskSelection; repair: AgentTaskSelection };
+};
+
 export type PetAppearance = {
   id: string;
   displayName: string;
@@ -310,6 +316,20 @@ export const localApi = {
   async agent() {
     const response = await apiFetch("/api/v1/agent");
     return response.json() as Promise<AgentInfo>;
+  },
+
+  async agentPreferences() {
+    const response = await apiFetch("/api/v1/agent/preferences");
+    return response.json() as Promise<AgentPreferences>;
+  },
+
+  async saveAgentPreferences(preferences: Partial<Pick<AgentPreferences, "viki" | "queue">>) {
+    const response = await apiFetch("/api/v1/agent/preferences", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(preferences)
+    });
+    return response.json() as Promise<AgentPreferences>;
   },
 
   async pets() {

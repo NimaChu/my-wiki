@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  centeredPairAxis,
   isUniverseOverviewMode,
+  missingDeclaredUniverseNames,
   rankUniverseGroupsByConnectivity,
   shouldUseDegreeCenteredUniverseLayout
 } from "../assets/dashboard/src/layout-mode.js";
@@ -31,6 +33,20 @@ test("an entered galaxy keeps the rotatable sphere layout", () => {
 test("local and evidence views do not use the universe overview layout", () => {
   assert.equal(isUniverseOverviewMode({ graphMode: "knowledge", graphScope: "local", focusedGroup: null }), false);
   assert.equal(isUniverseOverviewMode({ graphMode: "evidence", graphScope: "global", focusedGroup: null }), false);
+});
+
+test("declared galaxies do not create placeholders beside their populated graph groups", () => {
+  assert.deepEqual(
+    missingDeclaredUniverseNames(["FlexSim", "数学", "Empty"], ["Wiki / FlexSim", "Wiki / 数学"]),
+    ["Empty"]
+  );
+});
+
+test("two galaxies share the visual center instead of pinning one galaxy there", () => {
+  const [left, right] = centeredPairAxis(600, 420, 190, 210);
+  assert.equal(left, 380);
+  assert.equal(right, 800);
+  assert.equal(((left - 190) + (right + 210)) / 2, 600);
 });
 
 test("the galaxy connected to the most other galaxies ranks at the universe center", () => {

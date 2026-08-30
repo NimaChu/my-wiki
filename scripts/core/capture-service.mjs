@@ -20,7 +20,7 @@ const DEFAULT_FETCH_BYTES = 100 * 1024 * 1024;
 
 export async function captureSource({
   vault,
-  title = "Untitled Source",
+  title = "",
   url = "",
   sourceType = url ? "webpage" : "note",
   author = "",
@@ -55,7 +55,8 @@ export async function captureSource({
   requireSnapshot = false,
   shouldMirrorImages = true,
   fetchMaxBytes = DEFAULT_FETCH_BYTES,
-  validateUrl = null
+  validateUrl = null,
+  inferTitleFromSource = false
 }) {
   if (!vault) throw new Error("captureSource requires a vault path");
   const date = new Date().toISOString().slice(0, 10);
@@ -65,24 +66,29 @@ export async function captureSource({
   const resolvedSuggestedUniverse = String(suggestedUniverse || "").trim()
     ? validateUniverseName(suggestedUniverse)
     : "";
-  const noteSlug = slugify(title);
+  const requestedTitle = cleanSourceTitle(title);
+  const provisionalTitle = requestedTitle || titleFromSourceUrl(url) || "Untitled Source";
+  const provisionalSlug = slugify(provisionalTitle);
   await fs.mkdir(rawDir, { recursive: true });
 
-  let filename = `${date}--${noteSlug}.md`;
-  let target = path.join(rawDir, filename);
-  let counter = 2;
-  while (await exists(target)) {
-    filename = `${date}--${noteSlug}-${counter}.md`;
-    target = path.join(rawDir, filename);
-    counter += 1;
-  }
-
-  const rawBase = path.basename(target, ".md");
-  const snapshot = await saveSnapshot({ vault, rawBase, url, snapshotFile, snapshotReference, shouldSnapshot, fetchMaxBytes, validateUrl });
+  const provisionalTarget = await availableReferenceTarget(rawDir, date, provisionalSlug);
+  const snapshot = await saveSnapshot({ vault, rawBase: path.basename(provisionalTarget, ".md"), url, snapshotFile, snapshotReference, shouldSnapshot, fetchMaxBytes, validateUrl });
   if (requireSnapshot && !snapshot?.path) {
     throw new Error(snapshot?.method?.replace(/^snapshot-failed:/, "") || "The source could not be captured");
   }
-  const capturedContent = content.trim() || contentFromSnapshot(snapshot, sourceType);
+  const capturedContent = content.trim() || contentFromSnapshot(snapshot, sourceType, url);
+  const inferredTitle = inferTitleFromSource
+    ? inferCapturedTitle({
+      html: /html/i.test(snapshot?.contentType || "") ? snapshot.buffer?.toString("utf8") : "",
+      markdown: capturedContent,
+      sourceUrl: url
+    })
+    : "";
+  const resolvedTitle = inferredTitle || provisionalTitle;
+  const target = inferredTitle && inferredTitle !== provisionalTitle
+    ? await availableReferenceTarget(rawDir, date, slugify(resolvedTitle))
+    : provisionalTarget;
+  const rawBase = path.basename(target, ".md");
   const embedded = await materializeEmbeddedAssets({ vault, notePath: target, rawBase, markdown: capturedContent, assets: embeddedAssets });
   const mirroredContent = shouldMirrorImages
     ? await mirrorMarkdownImages({ vault, notePath: target, noteSlug: rawBase, markdown: embedded.markdown, fetchMaxBytes, validateUrl })
@@ -119,6 +125,7 @@ export async function captureSource({
   }
   if (extractionStatus && extractionStatus !== "complete") followupReasons.push(`extraction:${extractionStatus}`);
   if (initialStatus === "needs-followup" && followupReasons.length === 0) followupReasons.push("capture:needs-followup");
+  if (inferTitleFromSource && !inferredTitle) followupReasons.push("metadata:title-unresolved");
   followupReasons.push(...formulaGateFollowupReasons(formulaGate));
   followupReasons.push(...unicodeReplacementFollowupReasons(unicodeReplacementGate));
   for (const failure of attachmentFailures) followupReasons.push(`missing-attachment:${failure}`);
@@ -144,9 +151,9 @@ export async function captureSource({
     : "";
 
   const draft = `---
-title: ${yamlString(title)}
+title: ${yamlString(resolvedTitle)}
 type: Reference
-description: ${yamlString(`Captured evidence for ${title}.`)}
+description: ${yamlString(`Captured evidence for ${resolvedTitle}.`)}
 source_type: ${yamlString(sourceType)}
 collection: ${yamlString(resolvedCollection)}
 suggested_universe: ${yamlString(resolvedSuggestedUniverse)}
@@ -169,7 +176,7 @@ ${yamlList(tags)}
 related:
 ---
 
-# ${title}
+# ${resolvedTitle}
 
 ## Source
 
@@ -212,7 +219,7 @@ ${formulaNote}${encodingNote}${warningsNote}${attachmentNote}- Image mirror fail
   const body = normalizeReferenceNode({
     id: vaultRelative.replace(/\.md$/i, ""),
     path: vaultRelative,
-    title,
+    title: resolvedTitle,
     content: draft
   }, { nodes: [], resolve: () => null }, {
     generatedBy: "process:my-wiki-capture",
@@ -225,7 +232,7 @@ ${formulaNote}${encodingNote}${warningsNote}${attachmentNote}- Image mirror fail
   return {
     path: target,
     vaultRelative,
-    title,
+    title: resolvedTitle,
     collection: resolvedCollection,
     suggestedUniverse: resolvedSuggestedUniverse,
     originalFilename,
@@ -250,6 +257,70 @@ ${formulaNote}${encodingNote}${warningsNote}${attachmentNote}- Image mirror fail
     followupReasons,
     status: resolvedStatus
   };
+}
+
+async function availableReferenceTarget(rawDir, date, noteSlug) {
+  let filename = `${date}--${noteSlug}.md`;
+  let target = path.join(rawDir, filename);
+  let counter = 2;
+  while (await exists(target)) {
+    filename = `${date}--${noteSlug}-${counter}.md`;
+    target = path.join(rawDir, filename);
+    counter += 1;
+  }
+  return target;
+}
+
+export function inferCapturedTitle({ html = "", markdown = "", sourceUrl = "" } = {}) {
+  const candidates = [];
+  for (const tag of String(html).match(/<meta\b[^>]*>/gi) || []) {
+    const attributes = htmlAttributes(tag);
+    const key = String(attributes.property || attributes.name || "").toLowerCase();
+    if (["og:title", "twitter:title"].includes(key)) candidates.push(attributes.content);
+  }
+  candidates.push(String(html).match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1]);
+  for (const match of String(markdown).matchAll(/^#\s+(.+?)\s*$/gm)) candidates.push(match[1]);
+  return candidates
+    .map(cleanSourceTitle)
+    .find((candidate) => candidate && !isWeakSourceTitle(candidate, sourceUrl)) || "";
+}
+
+export function isWeakSourceTitle(value, sourceUrl = "") {
+  const title = cleanSourceTitle(value);
+  if (!title || /^(?:untitled source|微信公众平台|wechat|just a moment|access denied)$/i.test(title)) return true;
+  if (/^https?:\/\//i.test(title)) return true;
+  const fallback = titleFromSourceUrl(sourceUrl);
+  return Boolean(fallback && normalizeTitleComparison(title) === normalizeTitleComparison(fallback));
+}
+
+function htmlAttributes(tag) {
+  const attributes = {};
+  for (const match of String(tag).matchAll(/([:\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g)) {
+    attributes[match[1].toLowerCase()] = decodeHtmlEntities(match[2] ?? match[3] ?? match[4] ?? "");
+  }
+  return attributes;
+}
+
+function cleanSourceTitle(value) {
+  return decodeHtmlEntities(stripTags(String(value || "")))
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 300);
+}
+
+function titleFromSourceUrl(value) {
+  try {
+    const url = new URL(value);
+    const tail = decodeURIComponent(url.pathname.split("/").filter(Boolean).pop() || "").replace(/[-_]+/g, " ").trim();
+    return tail || url.hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function normalizeTitleComparison(value) {
+  return String(value || "").normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
 function compactPageList(pages) {
@@ -502,11 +573,11 @@ async function fetchBuffer(url, maxBytes = DEFAULT_FETCH_BYTES, validateUrl = nu
   }
 }
 
-function contentFromSnapshot(snapshot, sourceType) {
+function contentFromSnapshot(snapshot, sourceType, sourceUrl = "") {
   if (!snapshot?.buffer) return originalFileNotice(snapshot?.path);
   const contentType = snapshot.contentType || "";
   if (/html/i.test(contentType) || /webpage|html/i.test(sourceType)) {
-    return htmlToMarkdown(snapshot.buffer.toString("utf8"));
+    return capturedHtmlToMarkdown(snapshot.buffer.toString("utf8"), { sourceUrl });
   }
   if (/^(?:text\/|application\/(?:json|xml))/i.test(contentType) || /markdown|text|json|xml/i.test(sourceType)) {
     return snapshot.buffer.toString("utf8").trim();
@@ -514,11 +585,17 @@ function contentFromSnapshot(snapshot, sourceType) {
   return originalFileNotice(snapshot.path);
 }
 
-function htmlToMarkdown(html) {
-  const cleaned = String(html)
+export function capturedHtmlToMarkdown(html, { sourceUrl = "" } = {}) {
+  const isWechat = isWechatArticle(html, sourceUrl);
+  const scoped = isWechat ? extractHtmlElementById(html, "js_content") || String(html) : String(html);
+  const cleaned = scoped
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/<(script|style|svg|noscript|template)\b[^>]*>[\s\S]*?<\/\1>/gi, "")
-    .replace(/<img\b[^>]*\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))[^>]*>/gi, (_, a, b, c) => `\n![](${a || b || c})\n`)
+    .replace(/<img\b[^>]*>/gi, (tag) => {
+      const attributes = htmlAttributes(tag);
+      const source = attributes.src || attributes["data-src"];
+      return source ? `\n![](${source})\n` : "";
+    })
     .replace(/<a\b[^>]*\bhref\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi, (_, a, b, c, label) => `[${stripTags(label)}](${a || b || c})`)
     .replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_, level, value) => `\n${"#".repeat(Number(level))} ${stripTags(value)}\n`)
     .replace(/<li\b[^>]*>([\s\S]*?)<\/li>/gi, (_, value) => `\n- ${stripTags(value)}`)
@@ -526,11 +603,56 @@ function htmlToMarkdown(html) {
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/[^>]+>/g, "\n")
     .replace(/<[^>]+>/g, " ");
-  return decodeHtmlEntities(cleaned)
+  const markdown = decodeHtmlEntities(cleaned)
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n[ \t]+/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+  return isWechat ? trimWechatMarkdownFooter(markdown) : markdown;
+}
+
+function isWechatArticle(html, sourceUrl) {
+  let hostname = "";
+  try {
+    hostname = new URL(sourceUrl).hostname.toLowerCase();
+  } catch {}
+  return hostname === "mp.weixin.qq.com" || (/\bid\s*=\s*["']js_content["']/i.test(String(html)) && /rich_media_content/i.test(String(html)));
+}
+
+function extractHtmlElementById(html, id) {
+  const source = String(html || "");
+  const escapedId = String(id).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const opening = new RegExp(`<([a-z][\\w:-]*)\\b[^>]*\\bid\\s*=\\s*(?:"${escapedId}"|'${escapedId}'|${escapedId}(?=\\s|>))[^>]*>`, "i").exec(source);
+  if (!opening) return "";
+  const tagName = opening[1];
+  const start = opening.index + opening[0].length;
+  const tokens = new RegExp(`<\\/?${tagName}\\b[^>]*>`, "gi");
+  tokens.lastIndex = start;
+  let depth = 1;
+  for (let token = tokens.exec(source); token; token = tokens.exec(source)) {
+    if (/^<\//.test(token[0])) depth -= 1;
+    else if (!/\/>$/.test(token[0])) depth += 1;
+    if (depth === 0) return source.slice(start, token.index);
+  }
+  return "";
+}
+
+function trimWechatMarkdownFooter(markdown) {
+  const source = String(markdown || "").trim();
+  const threshold = Math.floor(source.length * 0.6);
+  const markers = [
+    /^推荐阅读\s*$/gm,
+    /^👇\s*点个\s*$/gm,
+    /^微信扫一扫可打开此内容[，,]?\s*$/gm
+  ];
+  const cuts = markers
+    .map((pattern) => {
+      pattern.lastIndex = threshold;
+      const match = pattern.exec(source);
+      return match?.index ?? -1;
+    })
+    .filter((index) => index >= threshold);
+  return (cuts.length ? source.slice(0, Math.min(...cuts)) : source).trim();
 }
 
 function stripTags(value) {

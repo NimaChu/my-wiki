@@ -24,6 +24,10 @@ test("needs-followup queue items expose the repair Agent action", async () => {
   assert.match(main, /<Settings2 size=\{15\}/);
   assert.match(main, /my-wiki-queue-repair-provider/);
   assert.match(main, /my-wiki-queue-distill-provider/);
+  assert.match(main, /localApi\.agentPreferences\(\)/);
+  assert.match(main, /localApi\.saveAgentPreferences\(\{ queue: queueAgentSettings \}\)/);
+  assert.match(main, /if \(selection\.provider\) return selection/);
+  assert.match(api, /\/api\/v1\/agent\/preferences/);
   assert.match(main, /<Wrench size=\{14\}/);
   assert.match(main, /queue-item-repair/);
   assert.match(api, /\/api\/v1\/agent\/repair/);

@@ -1,7 +1,7 @@
 import { lazy, Suspense, type CSSProperties, type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Bot, BookOpen, Check, CirclePause, Copy, Download, Globe2, HardDriveDownload, History, Layers3, Maximize2, MessageSquarePlus, Minimize2, MoveDiagonal2, NotebookPen, PawPrint, SendHorizontal, Trash2, X } from "lucide-react";
-import { AgentAnswer, AgentInfo, Job, localApi, PetAppearance, UniverseSummary, waitForJob } from "./api";
+import { AgentAnswer, AgentInfo, AgentPreferences, Job, localApi, PetAppearance, UniverseSummary, waitForJob } from "./api";
 import { shouldSubmitVikiComposer } from "./viki-composer.js";
 import { promoteVaultMarkdownImages } from "./viki-markdown.js";
 import { conversationExportBundle, conversationFilename, conversationNoteBundle, conversationToMarkdown } from "./viki-conversation.js";
@@ -74,6 +74,7 @@ const copy = {
     exitFullscreen: "Exit full screen",
     agentCli: "Agent CLI",
     model: "Model",
+    savedModel: "Saved model",
     agentSettings: "Agent and model",
     cliDefault: "CLI default",
     currentCli: "Current answer",
@@ -126,6 +127,7 @@ const copy = {
     exitFullscreen: "退出全屏",
     agentCli: "Agent CLI",
     model: "模型",
+    savedModel: "已保存模型",
     agentSettings: "Agent 与模型",
     cliDefault: "CLI 默认",
     currentCli: "本轮",
@@ -303,11 +305,20 @@ export function Viki({ language }: { language: Language }) {
   };
 
   useEffect(() => {
-    localApi.agent().then((nextAgent) => {
+    Promise.all([
+      localApi.agent(),
+      localApi.agentPreferences().catch(() => null)
+    ]).then(([nextAgent, remotePreferences]) => {
       setAgent(nextAgent);
-      const nextProvider = selectInitialProvider(nextAgent);
+      const saved = mergedVikiPreferences(remotePreferences);
+      const nextProvider = selectInitialProvider(nextAgent, saved.provider);
       setProvider(nextProvider);
-      setModel(selectInitialModel(nextAgent, nextProvider));
+      setModel(selectInitialModel(nextAgent, nextProvider, saved.models));
+      const preferredProvider = saved.provider || nextProvider;
+      cacheVikiPreferences(preferredProvider, saved.models);
+      void localApi.saveAgentPreferences({
+        viki: { provider: preferredProvider, models: saved.models }
+      }).catch(() => {});
       setBusy(nextAgent.busy);
       const active = nextAgent.activeJob;
       const conversationId = String(active?.meta?.conversationId || "");
@@ -965,6 +976,7 @@ export function Viki({ language }: { language: Language }) {
                           <span>{l.model}</span>
                           <select value={model} onChange={(event) => changeModel(event.target.value)}>
                             <option value="">{selectedProvider.defaultModel ? `${l.cliDefault} · ${selectedProvider.defaultModel}` : l.cliDefault}</option>
+                            {model && !(selectedProvider.models || []).some((item) => item.id === model) ? <option value={model}>{model} · {l.savedModel}</option> : null}
                             {(selectedProvider.models || []).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
                           </select>
                         </label>
@@ -1137,6 +1149,7 @@ export function Viki({ language }: { language: Language }) {
                             <span>{l.model}</span>
                             <select value={model} onChange={(event) => changeModel(event.target.value)}>
                               <option value="">{selectedProvider.defaultModel ? `${l.cliDefault} · ${selectedProvider.defaultModel}` : l.cliDefault}</option>
+                              {model && !(selectedProvider.models || []).some((item) => item.id === model) ? <option value={model}>{model} · {l.savedModel}</option> : null}
                               {(selectedProvider.models || []).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
                             </select>
                           </label>
@@ -1570,10 +1583,9 @@ function persistPanelSize(size: VikiPanelSize) {
   }
 }
 
-function selectInitialProvider(agent: AgentInfo) {
+function selectInitialProvider(agent: AgentInfo, preferred = readStoredProvider()) {
   const available = new Set(agent.providers.map((item) => item.provider));
-  const stored = readStoredProvider();
-  if (stored && available.has(stored)) return stored;
+  if (preferred && available.has(preferred)) return preferred;
   if (agent.defaultProvider && available.has(agent.defaultProvider)) return agent.defaultProvider;
   if (available.has("opencode")) return "opencode";
   return agent.providers[0]?.provider || "";
@@ -1593,13 +1605,13 @@ function persistProvider(provider: string) {
   } catch {
     // Provider persistence is optional.
   }
+  void localApi.saveAgentPreferences({ viki: { provider, models: readStoredModels() } }).catch(() => {});
 }
 
-function selectInitialModel(agent: AgentInfo | null, provider: string) {
+function selectInitialModel(agent: AgentInfo | null, provider: string, models = readStoredModels()) {
   const providerInfo = agent?.providers.find((item) => item.provider === provider);
   if (!providerInfo) return "";
-  const stored = readStoredModels()[provider];
-  return stored && providerInfo.models?.some((item) => item.id === stored) ? stored : "";
+  return models[provider] || "";
 }
 
 function readStoredModels(): Record<string, string> {
@@ -1617,13 +1629,32 @@ function readStoredModels(): Record<string, string> {
 }
 
 function persistModel(provider: string, model: string) {
+  const stored = readStoredModels();
+  if (model) stored[provider] = model;
+  else delete stored[provider];
   try {
-    const stored = readStoredModels();
-    if (model) stored[provider] = model;
-    else delete stored[provider];
     window.localStorage.setItem(MODEL_KEY, JSON.stringify(stored));
   } catch {
     // Model persistence is optional.
+  }
+  void localApi.saveAgentPreferences({ viki: { provider, models: stored } }).catch(() => {});
+}
+
+function mergedVikiPreferences(remote: AgentPreferences | null) {
+  const localProvider = readStoredProvider();
+  const localModels = readStoredModels();
+  return {
+    provider: localProvider || remote?.viki.provider || "",
+    models: { ...(remote?.viki.models || {}), ...localModels }
+  };
+}
+
+function cacheVikiPreferences(provider: string, models: Record<string, string>) {
+  try {
+    if (provider) window.localStorage.setItem(PROVIDER_KEY, provider);
+    window.localStorage.setItem(MODEL_KEY, JSON.stringify(models));
+  } catch {
+    // Vault persistence remains available when browser storage is unavailable.
   }
 }
 

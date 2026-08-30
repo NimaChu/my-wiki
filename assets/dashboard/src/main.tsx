@@ -15,9 +15,11 @@ import {
   Wrench,
   X
 } from "lucide-react";
-import { AgentInfo, AgentTaskSelection, InboxItem, Job, localApi, MaintenanceResult, MarkdownDocument, RepairResult, TaskProgress, waitForJob } from "./api";
+import { AgentInfo, AgentPreferences, AgentTaskSelection, InboxItem, Job, localApi, MaintenanceResult, MarkdownDocument, RepairResult, TaskProgress, waitForJob } from "./api";
 import {
+  centeredPairAxis,
   isUniverseOverviewMode,
+  missingDeclaredUniverseNames,
   rankUniverseGroupsByConnectivity,
   shouldUseDegreeCenteredUniverseLayout
 } from "./layout-mode.js";
@@ -189,6 +191,7 @@ const copy = {
     agentCli: "Agent CLI",
     agentModel: "Model",
     cliDefault: "CLI default",
+    savedSelection: "Saved selection",
     noPendingRaw: "No references awaiting maintenance",
     processBatch: "Maintain batch",
     maintainBatchConfirm: "Start batch maintenance for {distill} references awaiting distillation and {repair} references awaiting repair?",
@@ -294,6 +297,7 @@ const copy = {
     agentCli: "Agent CLI",
     agentModel: "模型",
     cliDefault: "CLI 默认",
+    savedSelection: "已保存设置",
     noPendingRaw: "没有待维护的参考资料",
     processBatch: "批量维护",
     maintainBatchConfirm: "将开始维护：待蒸馏 {distill} 条，待修复 {repair} 条。确认继续吗？",
@@ -520,9 +524,7 @@ function App() {
       const searchable = [node.title, node.path, node.type, node.status, ...universes, ...node.tags].join(" ").toLowerCase();
       return searchable.includes(needle);
     });
-    const represented = new Set(wikiNodes.map((node) => nodeUniverses(node)[0]).filter(Boolean).map((item) => item.toLocaleLowerCase()));
-    const placeholders = (graph.declaredUniverses ?? [])
-      .filter((universe) => !represented.has(universe.toLocaleLowerCase()))
+    const placeholders = missingDeclaredUniverseNames(graph.declaredUniverses ?? [], wikiNodes.flatMap(nodeUniverses))
       .filter((universe) => !hasSearch || universe.toLocaleLowerCase().includes(needle))
       .map(declaredUniversePlaceholder);
     return [...wikiNodes, ...placeholders];
@@ -1926,13 +1928,24 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
   const [errorAction, setErrorAction] = useState<"maintenance" | "repair">("maintenance");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [queueAgentSettings, setQueueAgentSettings] = useState<QueueAgentSettings>(() => loadQueueAgentSettings());
+  const [preferencesHydrated, setPreferencesHydrated] = useState(false);
+  const preferencesLoadedRef = useRef(false);
 
   useEffect(() => {
     const refresh = async () => {
-      const [agent, captures] = await Promise.all([localApi.agent(), localApi.captureJobs()]);
+      const [agent, captures, preferences] = await Promise.all([
+        localApi.agent(),
+        localApi.captureJobs(),
+        preferencesLoadedRef.current ? Promise.resolve(null) : localApi.agentPreferences().catch(() => null)
+      ]);
       setAgentState(agent);
       setActiveJobs(new Map((agent.activeRawJobs || []).flatMap((job) => rawJobPath(job) ? [[rawJobPath(job), job] as const] : [])));
       setCaptureItems(captures.items.filter((item) => item.jobId && ["queued", "running", "failed"].includes(item.jobStatus || "")));
+      if (!preferencesLoadedRef.current) {
+        preferencesLoadedRef.current = true;
+        setQueueAgentSettings((current) => mergeQueueAgentSettings(current, preferences?.queue));
+        setPreferencesHydrated(true);
+      }
     };
     void refresh().catch(() => setAgentState(null));
     const timer = window.setInterval(() => void refresh().catch(() => {}), 1500);
@@ -1941,12 +1954,14 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
 
   useEffect(() => {
     if (!agentState?.available) return;
-    setQueueAgentSettings((current) => normalizeQueueAgentSettings(agentState, current));
+    setQueueAgentSettings((current) => initializeQueueAgentSettings(agentState, current));
   }, [agentState]);
 
   useEffect(() => {
+    if (!preferencesHydrated) return;
     persistQueueAgentSettings(queueAgentSettings);
-  }, [queueAgentSettings]);
+    void localApi.saveAgentPreferences({ queue: queueAgentSettings }).catch(() => {});
+  }, [preferencesHydrated, queueAgentSettings]);
 
   const processNodes = async (selectedNodes: WikiNode[], confirmBatch = false) => {
     if (selectedNodes.length === 0 || !agentState?.available) return;
@@ -1962,7 +1977,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
     const selectedPaths = selectedNodes.map((node) => node.path);
     setPendingPaths((current) => new Set([...current, ...selectedPaths]));
     try {
-      const normalizedSettings = normalizeQueueAgentSettings(agentState, queueAgentSettings);
+      const normalizedSettings = effectiveQueueAgentSettings(agentState, queueAgentSettings);
       const distillSelection = normalizedSettings.distill;
       const outcome = selectedNodes.length === 1 && selectedNodes[0].status !== "needs-followup"
         ? { jobs: [await localApi.maintain([selectedNodes[0].path], 1, distillSelection)] }
@@ -2003,7 +2018,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
     setRepairResult(null);
     setPendingPaths((current) => new Set(current).add(node.path));
     try {
-      const normalizedSettings = normalizeQueueAgentSettings(agentState, queueAgentSettings);
+      const normalizedSettings = effectiveQueueAgentSettings(agentState, queueAgentSettings);
       const initial = await localApi.repair(node.path, normalizedSettings.repair);
       setActiveJobs((current) => new Map(current).set(node.path, initial));
       setPendingPaths((current) => { const next = new Set(current); next.delete(node.path); return next; });
@@ -2117,6 +2132,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
                       [kind]: { provider: event.target.value, model: "" }
                     }))}
                   >
+                    {selection.provider && !agentState.providers.some((provider) => provider.provider === selection.provider) ? <option value={selection.provider}>{selection.provider} · {t("savedSelection")}</option> : null}
                     {agentState.providers.map((provider) => <option value={provider.provider} key={provider.provider}>{provider.label}</option>)}
                   </select>
                 </label>
@@ -2130,6 +2146,7 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
                     }))}
                   >
                     <option value="">{t("cliDefault")}{providerInfo?.defaultModel ? ` · ${providerInfo.defaultModel}` : ""}</option>
+                    {selection.model && !(providerInfo?.models || []).some((model) => model.id === selection.model) ? <option value={selection.model}>{selection.model} · {t("savedSelection")}</option> : null}
                     {(providerInfo?.models || []).map((model) => <option value={model.id} key={model.id}>{model.label}</option>)}
                   </select>
                 </label>
@@ -2213,9 +2230,9 @@ type QueueAgentSettings = {
   repair: AgentTaskSelection;
 };
 
-function loadQueueAgentSettings(): QueueAgentSettings {
+function loadQueueAgentSettings(remote?: AgentPreferences["queue"]): QueueAgentSettings {
   try {
-    return {
+    const local = {
       distill: {
         provider: String(window.localStorage.getItem("my-wiki-queue-distill-provider") || "").trim().toLowerCase(),
         model: String(window.localStorage.getItem("my-wiki-queue-distill-model") || "").trim()
@@ -2225,25 +2242,58 @@ function loadQueueAgentSettings(): QueueAgentSettings {
         model: String(window.localStorage.getItem("my-wiki-queue-repair-model") || "").trim()
       }
     };
+    return {
+      distill: {
+        provider: local.distill.provider || remote?.distill.provider || "",
+        model: local.distill.model || remote?.distill.model || ""
+      },
+      repair: {
+        provider: local.repair.provider || remote?.repair.provider || "",
+        model: local.repair.model || remote?.repair.model || ""
+      }
+    };
   } catch {
     return { distill: { provider: "", model: "" }, repair: { provider: "", model: "" } };
   }
 }
 
-function normalizeQueueAgentSettings(agent: AgentInfo, settings: QueueAgentSettings): QueueAgentSettings {
-  const fallback = agent.providers.find((item) => item.provider === agent.defaultProvider) || agent.providers[0];
-  const normalize = (selection: AgentTaskSelection): AgentTaskSelection => {
-    const provider = agent.providers.find((item) => item.provider === selection.provider) || fallback;
-    const model = selection.model && provider?.models.some((item) => item.id === selection.model) ? selection.model : "";
-    return { provider: provider?.provider || agent.provider, model };
+function mergeQueueAgentSettings(local: QueueAgentSettings, remote?: AgentPreferences["queue"]): QueueAgentSettings {
+  return {
+    distill: {
+      provider: local.distill.provider || remote?.distill.provider || "",
+      model: local.distill.model || remote?.distill.model || ""
+    },
+    repair: {
+      provider: local.repair.provider || remote?.repair.provider || "",
+      model: local.repair.model || remote?.repair.model || ""
+    }
   };
-  const next = { distill: normalize(settings.distill), repair: normalize(settings.repair) };
+}
+
+function initializeQueueAgentSettings(agent: AgentInfo, settings: QueueAgentSettings): QueueAgentSettings {
+  const fallback = agent.providers.find((item) => item.provider === agent.defaultProvider) || agent.providers[0];
+  const initialize = (selection: AgentTaskSelection): AgentTaskSelection => {
+    if (selection.provider) return selection;
+    return { provider: fallback?.provider || agent.provider, model: selection.model };
+  };
+  const next = { distill: initialize(settings.distill), repair: initialize(settings.repair) };
   return next.distill.provider === settings.distill.provider
     && next.distill.model === settings.distill.model
     && next.repair.provider === settings.repair.provider
     && next.repair.model === settings.repair.model
     ? settings
     : next;
+}
+
+function effectiveQueueAgentSettings(agent: AgentInfo, settings: QueueAgentSettings): QueueAgentSettings {
+  const fallback = agent.providers.find((item) => item.provider === agent.defaultProvider) || agent.providers[0];
+  const resolve = (selection: AgentTaskSelection): AgentTaskSelection => {
+    const selected = agent.providers.find((item) => item.provider === selection.provider);
+    return selected
+      ? selection
+      : { provider: fallback?.provider || agent.provider, model: "" };
+  };
+  return { distill: resolve(settings.distill), repair: resolve(settings.repair) };
 }
 
 function persistQueueAgentSettings(settings: QueueAgentSettings) {
@@ -2582,6 +2632,21 @@ function wikiSphereCenters(
   if (groups.length === 0) return centers;
   if (groups.length === 1) {
     centers.set(groups[0], { x: viewBox.width / 2, y: viewBox.height / 2 });
+    return centers;
+  }
+
+  if (groups.length === 2) {
+    const firstRadius = universeRadii.get(groups[0]) ?? overviewUniverseRadius(2);
+    const secondRadius = universeRadii.get(groups[1]) ?? overviewUniverseRadius(2);
+    const firstShell = overviewUniverseShellRadius(firstRadius);
+    const secondShell = overviewUniverseShellRadius(secondRadius);
+    const connection = universeConnections.get(universePairKey(groups[0], groups[1]));
+    const distance = connection?.sharedMembership
+      ? (firstRadius + secondRadius) * 0.68
+      : firstShell + secondShell + 18;
+    const [firstX, secondX] = centeredPairAxis(viewBox.width / 2, distance, firstShell, secondShell);
+    centers.set(groups[0], { x: firstX, y: viewBox.height / 2 });
+    centers.set(groups[1], { x: secondX, y: viewBox.height / 2 });
     return centers;
   }
 
@@ -3034,13 +3099,14 @@ function buildGroupLabels(layout: LayoutNode[], language: Language): GroupLabel[
 }
 
 function declaredUniversePlaceholder(universe: string): WikiNode {
+  const group = `Wiki / ${universe}`;
   return {
     id: `concepts/__declared_universe__/${stableHash(universe)}`,
     path: "",
     title: universe,
     type: "declared-universe",
-    group: `Wiki / ${universe}`,
-    universes: [universe],
+    group,
+    universes: [group],
     status: "declared",
     tags: [],
     out: [],
