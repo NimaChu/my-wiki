@@ -102,7 +102,19 @@ Agent 会启动本地网页应用。你可以：
 - 使用快速笔记创建、导入、编辑和删除本地 Markdown/ZIP 图文笔记，保存后可选择进入正常入库与维护流程；
 - 新增、重命名、隐藏/显示或删除知识星系，并可导出单个星系、预览及导入别人分享的 `.mywiki` 知识包；删除前会把完整星系移入 `.my-wiki/trash/galaxies/`，可从网页回收站恢复或永久删除。共享 Concept 与证据不会被误删，也不会生成 `Uncategorized` 星系。
 
-网页前端默认只监听 `127.0.0.1`。日常通过 Agent 入库或维护时不会自动启动它；只有你明确要求打开知识宇宙、前端或 Dashboard 时才会启动。需要隔离的公网演示时，可使用 [`deploy/apple-container/`](deploy/apple-container/README.md) 的 Apple Container 方案并在本机端口前接 Cloudflare Tunnel。
+网页前端默认只监听 `127.0.0.1`。日常通过 Agent 入库或维护时不会自动启动它；只有你明确要求打开知识宇宙、前端或 Dashboard 时才会启动。需要公网访问时，可在本机端口前接 Cloudflare Tunnel，并启用应用内 GitHub-only OAuth。服务端只放行指定 GitHub 账号，验证通过后显示与本地一致的同一份知识库。配置方法见 [`assets/dashboard/README.md`](assets/dashboard/README.md)。
+
+### 在另一台电脑使用 Skill
+
+远程模式只需要 Node.js 18+ 和新版 Skill，不需要安装项目主体、OCR 环境或创建本地知识库：
+
+```bash
+node <skill-directory>/scripts/my-wiki.mjs remote connect
+node <skill-directory>/scripts/my-wiki.mjs search "查询内容"
+node <skill-directory>/scripts/my-wiki.mjs capture --file /path/to/document.pdf
+```
+
+也可以直接告诉 Agent：“连接远程知识库”“连接 mywiki”或“连接公网知识库”。默认连接已保存的服务地址，没有配置时使用 `https://my-wiki.cloud`。已有有效授权则直接连接；否则打开浏览器，使用服务端指定的 GitHub 账号登录后自动授权 CLI，无需复制令牌。设备凭据有效期为 90 天，支持独立撤销，保存在用户目录而非项目或 Skill 中。登录后默认走远程；`remote off` 或显式 `--local` 可返回本地模式。此版支持检索、阅读、下载证据、分片上传、查看提取任务和带版本检查的已有正文编辑；完整蒸馏提交及管理操作尚未开放。详见 [远程 Skill 使用说明](my-wiki-skill/references/remote.md)。
 
 ## 从资料到可复用知识
 

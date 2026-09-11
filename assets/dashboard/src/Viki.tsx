@@ -375,7 +375,7 @@ export function Viki({ language }: { language: Language }) {
   useEffect(() => {
     localApi.universes().then(({ universes }) => {
       setGalaxies(universes);
-      setSelectedGalaxies(universes.map((item) => item.name));
+      setSelectedGalaxies(universes.filter((item) => !item.hidden).map((item) => item.name));
     }).catch(() => {
       setGalaxies([]);
       setSelectedGalaxies([]);

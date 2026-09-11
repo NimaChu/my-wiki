@@ -135,10 +135,12 @@ export function createDashboardApi({
   localFileIngestor = ingestLocalFile,
   sourceReextractor = reextractSources,
   formulaDependencyRoot = dashboardRoot,
-  remoteImageFetcher = fetchPublicConversationImage
+  remoteImageFetcher = fetchPublicConversationImage,
+  requestContext = null,
+  remoteAccess = null
 }) {
   const runtimeFile = path.join(dashboardRoot, ".my-wiki-runtime.json");
-  const activeAgentJobs = { query: "" };
+  const activeAgentQueries = new Map();
   const createTaskLane = (limit) => {
     const queue = [];
     const active = new Map();
@@ -445,6 +447,25 @@ export function createDashboardApi({
   return async function handleDashboardApi(req, res) {
     try {
       const requestUrl = new URL(req.url || "/", `http://127.0.0.1:${port}`);
+      const isRemote = requestUrl.pathname.startsWith("/api/remote/v1/");
+      let remoteContext;
+      if (isRemote) {
+        enforceOrigin(req, allowedOrigins);
+        if (!remoteAccess) throw httpError(503, "Remote access is not configured");
+        remoteContext = await remoteAccess.authorize(req);
+        requestUrl.pathname = requestUrl.pathname.replace("/api/remote/v1/", "/api/v1/");
+        const route = `${req.method} ${requestUrl.pathname}`;
+        if (route === "GET /api/v1/devices") {
+          sendJson(res, 200, { devices: await remoteAccess.list(), currentDeviceId: remoteContext.deviceId });
+          return true;
+        }
+        if (route === "DELETE /api/v1/devices") {
+          await remoteAccess.revoke(requestUrl.searchParams.get("id") || remoteContext.deviceId);
+          sendJson(res, 200, { revoked: true });
+          return true;
+        }
+        if (!remoteRouteAllowed(route)) throw httpError(403, "This operation is not available through the remote API");
+      }
       if (!requestUrl.pathname.startsWith("/api/v1/")) return false;
 
       if (requestUrl.pathname === "/api/v1/health" && req.method === "GET") {
@@ -454,13 +475,16 @@ export function createDashboardApi({
       }
       if (requestUrl.pathname === "/api/v1/session" && req.method === "GET") {
         enforceOrigin(req, allowedOrigins);
-        const vault = await activeVault(runtimeFile);
-        sendJson(res, 200, { token: sessionToken, vault });
+        const context = requestContext ? await requestContext(req) : { vault: await activeVault(runtimeFile) };
+        sendJson(res, 200, {
+          token: sessionToken,
+          vault: "My Wiki"
+        });
         return true;
       }
 
       enforceOrigin(req, allowedOrigins);
-      enforceToken(req, requestUrl);
+      if (!isRemote) enforceToken(req, requestUrl);
 
       if (requestUrl.pathname === "/api/v1/pets" && req.method === "GET") {
         sendJson(res, 200, { pets: await availablePetAppearances(dashboardRoot) });
@@ -480,17 +504,63 @@ export function createDashboardApi({
         return true;
       }
 
-      const vault = await activeVault(runtimeFile);
+      const context = remoteContext || (requestContext ? await requestContext(req) : { vault: await activeVault(runtimeFile) });
+      const vault = context.vault;
       await recoverCaptureJobs(vault);
+
+      if (isRemote && requestUrl.pathname === "/api/v1/download" && req.method === "GET") {
+        const relative = normalizeVaultRelative(String(requestUrl.searchParams.get("path") || ""));
+        if (!/^references\/(assets|originals)\//.test(relative)) throw httpError(400, "Only Reference assets and originals can be downloaded");
+        const root = await fs.realpath(vault);
+        const file = await fs.realpath(path.join(root, relative)).catch(() => null);
+        if (!file || !isWithin(root, file) || !/^(assets|originals)\//.test(slash(path.relative(path.join(root, "references"), file)))) {
+          throw httpError(404, "Reference file not found");
+        }
+        const stat = await fs.stat(file);
+        if (!stat.isFile()) throw httpError(404, "Reference file not found");
+        res.writeHead(200, { "content-type": "application/octet-stream", "content-length": stat.size, "cache-control": "no-store", "x-content-type-options": "nosniff" });
+        createReadStream(file).pipe(res);
+        return true;
+      }
+
+      if (isRemote && requestUrl.pathname === "/api/v1/search" && req.method === "GET") {
+        const query = String(requestUrl.searchParams.get("q") || "").trim().toLocaleLowerCase();
+        if (!query || query.length > 500) throw httpError(400, "Query must contain 1-500 characters");
+        const requested = requestUrl.searchParams.getAll("galaxy");
+        const scope = await resolveVikiGalaxyScope(dashboardRoot, vault, requested.length ? requested : undefined);
+        const scan = await scanVault(vault);
+        const limit = Math.max(1, Math.min(100, Number(requestUrl.searchParams.get("limit")) || 20));
+        const matches = scan.nodes.filter((node) => /^(concepts|references\/sources)\//.test(node.path)
+          && (!scope.allowedPaths || scope.allowedPaths.has(slash(node.path)))
+          && node.content.toLocaleLowerCase().includes(query));
+        matches.sort((a, b) => Number(b.title.toLocaleLowerCase().includes(query)) - Number(a.title.toLocaleLowerCase().includes(query)));
+        sendJson(res, 200, { galaxies: scope.names, total: matches.length, results: matches.slice(0, limit).map((node) => {
+          const position = node.content.toLocaleLowerCase().indexOf(query);
+          return { path: slash(node.path), title: node.title, excerpt: node.content.slice(Math.max(0, position - 120), position + 600) };
+        }) });
+        return true;
+      }
+
+      if (requestUrl.pathname === "/api/v1/graph" && req.method === "GET") {
+        let graph = await readDashboardGraph(dashboardRoot, vault);
+        if (!graph) {
+          await refreshDashboardGraph(dashboardRoot, vault);
+          graph = await readDashboardGraph(dashboardRoot, vault);
+        }
+        if (!graph) throw httpError(503, "Knowledge graph is unavailable");
+        sendJson(res, 200, graph);
+        return true;
+      }
 
       if (requestUrl.pathname === "/api/v1/vault" && req.method === "GET") {
         const scan = await scanVault(vault);
-        sendJson(res, 200, { vault, stats: statsFromScan(scan) });
+        sendJson(res, 200, { vault: isRemote ? "My Wiki" : vault, stats: statsFromScan(scan) });
         return true;
       }
       if (requestUrl.pathname === "/api/v1/agent" && req.method === "GET") {
         const info = await agentRunner.info();
-        const activeQuery = activeAgentJobs.query ? jobs.get(activeAgentJobs.query) : null;
+        const activeQueryId = activeAgentQueries.get(vault) || "";
+        const activeQuery = activeQueryId ? jobs.get(activeQueryId) : null;
         const activeAgentTaskJobs = agentTasks.jobs(vault);
         const activeExtractionJobs = extractionTasks.jobs(vault);
         sendJson(res, 200, {
@@ -852,7 +922,7 @@ export function createDashboardApi({
         return true;
       }
       if (requestUrl.pathname === "/api/v1/agent/ask" && req.method === "POST") {
-        ensureAgentIdle(activeAgentJobs.query, "query");
+        ensureAgentIdle(activeAgentQueries.get(vault) || "", "query");
         const body = await readJson(req);
         const requestedProvider = String(body.provider || "").trim().toLowerCase();
         const info = await requireAgent(agentRunner, requestedProvider);
@@ -875,9 +945,9 @@ export function createDashboardApi({
           galaxies: galaxyScope.names,
           allGalaxies: galaxyScope.all,
           question: question.slice(0, 180)
-        });
+        }, vault);
         job.abortController = new AbortController();
-        activeAgentJobs.query = job.id;
+        activeAgentQueries.set(vault, job.id);
         runJob(job, async () => {
           const scopedWorkspace = await createVikiScopeWorkspace(vault, galaxyScope);
           try {
@@ -902,16 +972,17 @@ export function createDashboardApi({
             });
           } finally {
             await scopedWorkspace.cleanup();
-            if (activeAgentJobs.query === job.id) activeAgentJobs.query = "";
+            if (activeAgentQueries.get(vault) === job.id) activeAgentQueries.delete(vault);
           }
         });
         sendJson(res, 202, publicJob(job));
         return true;
       }
       if (requestUrl.pathname === "/api/v1/agent/query" && req.method === "DELETE") {
-        const active = activeAgentJobs.query ? jobs.get(activeAgentJobs.query) : null;
+        const activeQueryId = activeAgentQueries.get(vault) || "";
+        const active = activeQueryId ? jobs.get(activeQueryId) : null;
         if (!isActiveJob(active)) {
-          activeAgentJobs.query = "";
+          activeAgentQueries.delete(vault);
           sendJson(res, 200, { cancelled: false, job: active ? publicJob(active) : null });
           return true;
         }
@@ -920,7 +991,7 @@ export function createDashboardApi({
           throw httpError(409, "The active Viki question does not match this browser request");
         }
         cancelJob(active, "Viki question was cancelled");
-        if (activeAgentJobs.query === active.id) activeAgentJobs.query = "";
+        if (activeAgentQueries.get(vault) === active.id) activeAgentQueries.delete(vault);
         sendJson(res, 200, { cancelled: true, job: publicJob(active) });
         return true;
       }
@@ -1033,7 +1104,7 @@ export function createDashboardApi({
         const body = await readJson(req);
         const universe = String(body.universe || "").trim();
         if (!universe) throw httpError(400, "Knowledge galaxy name is required");
-        const job = createJob("export", { universe });
+        const job = createJob("export", { universe }, vault);
         runJob(job, async () => {
           const output = path.join(vault, ".my-wiki", "exports", `${slugify(universe)}-${timestamp()}-${job.id.slice(0, 8)}.mywiki`);
           const result = await exportUniverse({ vault, universeName: universe, output });
@@ -1096,7 +1167,7 @@ export function createDashboardApi({
           throw httpError(409, `Upload is incomplete; received ${upload.offset} of ${upload.size} bytes`);
         }
         pendingUploads.delete(upload.id);
-        const job = createJob("import-preview", { filename: upload.filename, as: upload.as });
+        const job = createJob("import-preview", { filename: upload.filename, as: upload.as }, vault);
         job.packageFile = upload.temporary;
         runJob(job, () => importUniverse({ vault, packageFile: upload.temporary, as: upload.as, apply: false }));
         sendJson(res, 202, publicJob(job));
@@ -1115,7 +1186,7 @@ export function createDashboardApi({
         if (!filename.toLowerCase().endsWith(".mywiki")) throw httpError(400, "Only .mywiki packages can be imported");
         const as = String(requestUrl.searchParams.get("as") || "").trim();
         const packageFile = await receiveUpload(req, vault, filename, "imports-upload");
-        const job = createJob("import-preview", { filename, as });
+        const job = createJob("import-preview", { filename, as }, vault);
         job.packageFile = packageFile;
         runJob(job, () => importUniverse({ vault, packageFile, as, apply: false }));
         sendJson(res, 202, publicJob(job));
@@ -1125,11 +1196,11 @@ export function createDashboardApi({
       const applyMatch = requestUrl.pathname.match(/^\/api\/v1\/universe-imports\/([^/]+)\/apply$/);
       if (applyMatch && req.method === "POST") {
         const preview = jobs.get(applyMatch[1]);
-        if (!preview || preview.type !== "import-preview") throw httpError(404, "Import preview job not found");
+        if (!preview || preview.vault !== vault || preview.type !== "import-preview") throw httpError(404, "Import preview job not found");
         if (preview.status !== "complete") throw httpError(409, "Import preview is not complete");
         const body = await readJson(req);
         const as = String(body.as ?? preview.meta.as ?? "").trim();
-        const job = createJob("import-apply", { filename: preview.meta.filename, as });
+        const job = createJob("import-apply", { filename: preview.meta.filename, as }, vault);
         job.packageFile = preview.packageFile;
         runJob(job, async () => {
           const result = await importUniverse({ vault, packageFile: preview.packageFile, as, apply: true });
@@ -1203,7 +1274,7 @@ export function createDashboardApi({
       const downloadMatch = requestUrl.pathname.match(/^\/api\/v1\/jobs\/([^/]+)\/download$/);
       if (downloadMatch && req.method === "GET") {
         const job = jobs.get(downloadMatch[1]);
-        if (!job || job.status !== "complete" || !job.outputFile) throw httpError(404, "Export is not available");
+        if (!job || job.vault !== vault || job.status !== "complete" || !job.outputFile) throw httpError(404, "Export is not available");
         const stat = await fs.stat(job.outputFile);
         res.writeHead(200, {
           "content-type": "application/octet-stream",
@@ -1218,7 +1289,7 @@ export function createDashboardApi({
       const jobMatch = requestUrl.pathname.match(/^\/api\/v1\/jobs\/([^/]+)$/);
       if (jobMatch && req.method === "GET") {
         const job = jobs.get(jobMatch[1]);
-        if (!job) throw httpError(404, "Job not found");
+        if (!job || job.vault !== vault) throw httpError(404, "Job not found");
         sendJson(res, 200, publicJob(job));
         return true;
       }
@@ -1380,20 +1451,22 @@ async function rewriteUniverseAssignments(vault, currentName, nextName) {
 }
 
 async function readDashboardGraph(dashboardRoot, vault) {
-  try {
-    const file = path.join(dashboardRoot, "public", "wiki-graph.json");
+  for (const file of [dashboardGraphFile(vault), path.join(dashboardRoot, "public", "wiki-graph.json")]) {
+    try {
     const stat = await fs.stat(file);
     const cacheKey = path.resolve(file);
     const cached = dashboardGraphCache.get(cacheKey);
     if (cached?.mtimeMs === stat.mtimeMs && cached?.size === stat.size && cached?.vault === path.resolve(vault)) return cached.graph;
     const content = await fs.readFile(file, "utf8");
     const graph = JSON.parse(content);
-    if (path.resolve(String(graph.vaultRoot || "")) !== path.resolve(vault) || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return null;
+    if (path.resolve(String(graph.vaultRoot || "")) !== path.resolve(vault) || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) continue;
     dashboardGraphCache.set(cacheKey, { graph, mtimeMs: stat.mtimeMs, size: stat.size, vault: path.resolve(vault) });
     return graph;
-  } catch {
-    return null;
+    } catch {
+      // Try the build-time graph when this Vault has not produced its private cache yet.
+    }
   }
+  return null;
 }
 
 function inboxItemsFromGraph(graph) {
@@ -2231,14 +2304,14 @@ async function resolveVikiGalaxyScope(dashboardRoot, vault, requested) {
   if (!implicitAll && (!Array.isArray(requested) || requested.length === 0)) {
     throw httpError(400, "Select at least one knowledge galaxy");
   }
-  const names = implicitAll ? allNames : [...new Set(requested.map((item) => {
+  const names = implicitAll ? summaries.filter((item) => !item.hidden).map((item) => item.name) : [...new Set(requested.map((item) => {
     const value = String(item || "").trim();
     const name = canonical.get(value.toLocaleLowerCase());
     if (!name) throw httpError(400, `Unknown knowledge galaxy: ${value || "(empty)"}`);
     return name;
   }))];
   if (names.length > 100) throw httpError(400, "Too many knowledge galaxies selected");
-  const all = implicitAll || (names.length === allNames.length && names.every((name) => canonical.has(name.toLocaleLowerCase())));
+  const all = names.length === allNames.length && names.every((name) => canonical.has(name.toLocaleLowerCase()));
   if (all) return { all: true, names, conceptPaths: [], allowedPaths: null };
 
   const selected = new Set(names.map((item) => item.toLocaleLowerCase()));
@@ -3031,7 +3104,7 @@ async function refreshDashboardGraph(dashboardRoot, vault) {
   await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [script], {
       cwd: dashboardRoot,
-      env: { ...process.env, MY_WIKI_VAULT: vault },
+      env: { ...process.env, MY_WIKI_VAULT: vault, MY_WIKI_GRAPH_OUTPUT: dashboardGraphFile(vault) },
       windowsHide: true,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"]
@@ -3042,6 +3115,10 @@ async function refreshDashboardGraph(dashboardRoot, vault) {
     child.on("close", (code) => code === 0 ? resolve() : reject(new Error(stderr || "Could not refresh Dashboard graph")));
   });
   return true;
+}
+
+function dashboardGraphFile(vault) {
+  return path.join(vault, ".my-wiki", "dashboard-graph.json");
 }
 
 async function lintVault(vault) {
@@ -3204,6 +3281,15 @@ export function dashboardAllowedOrigins(port, configured = process.env.MY_WIKI_D
       .map((origin) => origin.trim().replace(/\/+$/, ""))
       .filter(Boolean)
   ]);
+}
+
+function remoteRouteAllowed(route) {
+  return /^(GET) \/api\/v1\/(vault|search|universes|inbox|capture-jobs|markdown|markdown-image|download)$/.test(route)
+    || /^PUT \/api\/v1\/markdown$/.test(route)
+    || /^POST \/api\/v1\/inbox\/(url|file\/uploads)$/.test(route)
+    || /^(PATCH|DELETE) \/api\/v1\/inbox\/file\/uploads\/[a-f0-9-]+$/.test(route)
+    || /^POST \/api\/v1\/inbox\/file\/uploads\/[a-f0-9-]+\/complete$/.test(route)
+    || /^GET \/api\/v1\/jobs\/[a-f0-9-]+$/.test(route);
 }
 
 function enforceOrigin(req, allowedOrigins) {

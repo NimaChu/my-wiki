@@ -5,6 +5,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDashboardApi } from "../../scripts/core/dashboard-api.mjs";
+import { createPublicAccess } from "../../scripts/core/public-access.mjs";
 import { resolveVaultPath } from "../../scripts/core/vault-config.mjs";
 
 await configureNetworkProxy();
@@ -16,10 +17,18 @@ const port = Number(process.env.MY_WIKI_DASHBOARD_PORT || process.argv[2] || 517
 const allowedHosts = commaSeparated(process.env.MY_WIKI_DASHBOARD_PUBLIC_HOSTS);
 const pidFile = path.join(root, ".dashboard-server.pid");
 const runtimeFile = path.join(root, ".my-wiki-runtime.json");
+let personalVault = "";
 if (process.env.MY_WIKI_VAULT) {
+  personalVault = resolveVaultPath({ specifier: process.env.MY_WIKI_VAULT });
   await fs.writeFile(runtimeFile, `${JSON.stringify({ vault: resolveVaultPath({ specifier: process.env.MY_WIKI_VAULT }), updatedAt: new Date().toISOString() }, null, 2)}\n`, "utf8");
 }
-const api = createDashboardApi({ dashboardRoot: root, port });
+if (!personalVault) {
+  try {
+    personalVault = JSON.parse(await fs.readFile(runtimeFile, "utf8")).vault || "";
+  } catch {}
+}
+const access = await createPublicAccess({ personalVault: path.resolve(personalVault) });
+const api = createDashboardApi({ dashboardRoot: root, port, requestContext: (req) => access.context(req), remoteAccess: access.remote });
 const vite = production
   ? null
   : await (await import("vite")).createServer({
@@ -33,17 +42,24 @@ const vite = production
     });
 
 const server = http.createServer(async (req, res) => {
-  if (await api(req, res)) return;
-  if (!vite) {
-    await serveProductionFile(req, res);
-    return;
-  }
-  vite.middlewares(req, res, (error) => {
-    if (error && !res.headersSent) {
-      res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
-      res.end(error.stack || error.message || String(error));
+  try {
+    if (await access.handle(req, res)) return;
+    if (await api(req, res)) return;
+    if (!vite) {
+      await serveProductionFile(req, res);
+      return;
     }
-  });
+    vite.middlewares(req, res, (error) => {
+      if (error && !res.headersSent) {
+        res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+        res.end(error.stack || error.message || String(error));
+      }
+    });
+  } catch (error) {
+    if (res.headersSent) return res.end();
+    res.writeHead(error.status || 500, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    res.end(JSON.stringify({ error: error.message || "Request failed" }));
+  }
 });
 
 await fs.writeFile(pidFile, String(process.pid), "utf8");
@@ -88,11 +104,8 @@ async function serveProductionFile(req, res) {
   }
 
   const distRoot = path.join(root, "dist");
-  const runtimeGraph = path.join(root, "public", "wiki-graph.json");
-  const requested = pathname === "/wiki-graph.json"
-    ? runtimeGraph
-    : path.resolve(distRoot, pathname.replace(/^\/+/, ""));
-  const file = await productionFile(distRoot, requested, pathname, runtimeGraph);
+  const requested = path.resolve(distRoot, pathname.replace(/^\/+/, ""));
+  const file = await productionFile(distRoot, requested, pathname);
   if (!file) {
     res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
     res.end("Not found");
@@ -103,9 +116,7 @@ async function serveProductionFile(req, res) {
   res.writeHead(200, {
     "content-type": contentType(file),
     "content-length": stat.size,
-    "cache-control": file === runtimeGraph
-      ? "no-store"
-      : pathname.startsWith("/assets/")
+    "cache-control": pathname.startsWith("/assets/")
         ? "public, max-age=31536000, immutable"
         : "no-cache",
     "x-content-type-options": "nosniff"
@@ -117,10 +128,7 @@ async function serveProductionFile(req, res) {
   createReadStream(file).pipe(res);
 }
 
-async function productionFile(distRoot, requested, pathname, runtimeGraph) {
-  if (requested === runtimeGraph) {
-    return await isFile(runtimeGraph) ? runtimeGraph : "";
-  }
+async function productionFile(distRoot, requested, pathname) {
   if (!isWithin(distRoot, requested)) return "";
   if (await isFile(requested)) return requested;
   if (path.extname(pathname)) return "";

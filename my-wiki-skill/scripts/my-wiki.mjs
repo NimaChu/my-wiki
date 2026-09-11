@@ -4,6 +4,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readRemoteConfig, remoteCli } from "./remote.mjs";
+
+const args = process.argv.slice(2);
+const forceLocal = args.includes("--local") || args.includes("--vault");
+if (args[0] === "remote" || (!forceLocal && (await readRemoteConfig())?.enabled)) {
+  await remoteCli(args);
+  process.exit(process.exitCode || 0);
+}
+const localArgs = args.filter((arg) => arg !== "--local");
 
 const bridgeRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const projectConfigPath = process.env.MY_WIKI_PROJECT_CONFIG_PATH
@@ -71,7 +80,7 @@ Afterward, create a separate local vault with:
   process.exit(1);
 }
 
-const result = spawnSync(process.execPath, [path.join(projectRoot, "scripts", "my-wiki.mjs"), ...process.argv.slice(2)], {
+const result = spawnSync(process.execPath, [path.join(projectRoot, "scripts", "my-wiki.mjs"), "--local", ...localArgs], {
   stdio: "inherit",
   env: process.env,
   shell: false

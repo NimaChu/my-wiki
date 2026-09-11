@@ -1,4 +1,4 @@
 interface:
   display_name: "My Wiki"
-  short_description: "Capture, maintain, search, and visualize local knowledge vaults"
-  default_prompt: "Use $my-wiki to work with my local Markdown knowledge vault."
+  short_description: "连接远程知识库，或采集、查询和维护本地 My Wiki"
+  default_prompt: "Use $my-wiki to connect to my remote knowledge base or work with my selected local My Wiki vault."

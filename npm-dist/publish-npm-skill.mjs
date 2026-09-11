@@ -63,7 +63,7 @@ async function createStagingPackage() {
     description: "Thin Agent Skill adapter for the standalone My Wiki local knowledge project.",
     license: "MIT",
     type: "module",
-    bin: { [packageName]: "bin/install.mjs" },
+    bin: { [packageName]: "bin/install.mjs", "my-wiki-remote": "my-wiki-skill/scripts/remote.mjs" },
     files: ["bin", "my-wiki-skill", "LICENSE.txt", "README.md", "README.en.md"],
     repository: { type: "git", url: "git+https://github.com/NimaChu/my-wiki.git" },
     homepage: "https://github.com/NimaChu/my-wiki#readme",

@@ -478,11 +478,7 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     const loadGraph = (resetSelection = false) => {
-      fetch(`/wiki-graph.json?t=${Date.now()}`, { cache: "no-store" })
-        .then((response) => {
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          return response.json();
-        })
+      localApi.graph()
         .then((data: WikiGraph) => {
           if (cancelled) return;
           setGraph((current) => current?.generatedAt === data.generatedAt && current.nodes.length === data.nodes.length ? current : data);

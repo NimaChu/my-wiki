@@ -149,7 +149,9 @@ export type LocalNoteSummary = {
   bytes: number;
 };
 
-let session: Promise<{ token: string; vault: string }> | null = null;
+export type DashboardSession = { token: string; vault: string };
+
+let session: Promise<DashboardSession> | null = null;
 const CHUNKED_UPLOAD_THRESHOLD = 1024 * 1024;
 
 async function getSession() {
@@ -209,6 +211,15 @@ async function responseError(response: Response) {
 }
 
 export const localApi = {
+  async session() {
+    return getSession();
+  },
+
+  async graph() {
+    const response = await apiFetch("/api/v1/graph");
+    return response.json();
+  },
+
   async vault() {
     const response = await apiFetch("/api/v1/vault");
     return response.json() as Promise<{ vault: string; stats: Record<string, number> }>;

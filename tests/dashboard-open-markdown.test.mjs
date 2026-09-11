@@ -76,6 +76,42 @@ test("Markdown document access accepts Concepts, References, and local notes onl
   assert.match(document.version, /^[a-f0-9]{64}$/);
 });
 
+test("Dashboard graph API serves only the request tenant graph", async (context) => {
+  const fixture = await createFixture(context);
+  const secondVault = path.join(path.dirname(fixture.vault), "second-vault");
+  await mkdir(path.join(fixture.vault, ".my-wiki"), { recursive: true });
+  await mkdir(path.join(secondVault, ".my-wiki"), { recursive: true });
+  await writeFile(path.join(fixture.vault, ".my-wiki", "dashboard-graph.json"), JSON.stringify({
+    generatedAt: "one",
+    vaultRoot: fixture.vault,
+    nodes: [{ id: "concepts/private-one" }],
+    edges: []
+  }), "utf8");
+  await writeFile(path.join(secondVault, ".my-wiki", "dashboard-graph.json"), JSON.stringify({
+    generatedAt: "two",
+    vaultRoot: secondVault,
+    nodes: [{ id: "concepts/private-two" }],
+    edges: []
+  }), "utf8");
+  const server = http.createServer(createDashboardApi({
+    dashboardRoot: fixture.dashboard,
+    port: 0,
+    agentRunner: { info: async () => ({}) },
+    requestContext: async (req) => ({ vault: req.headers["x-test-tenant"] === "two" ? secondVault : fixture.vault })
+  }));
+  context.after(() => server.close());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const session = await request(port, "GET", "/api/v1/session");
+  const auth = { "x-my-wiki-token": session.body.token };
+
+  const first = await request(port, "GET", "/api/v1/graph", { headers: auth });
+  const second = await request(port, "GET", "/api/v1/graph", { headers: { ...auth, "x-test-tenant": "two" } });
+  assert.deepEqual(first.body.nodes.map((node) => node.id), ["concepts/private-one"]);
+  assert.deepEqual(second.body.nodes.map((node) => node.id), ["concepts/private-two"]);
+});
+
 test("Markdown API reads and saves the body while preserving frontmatter and rejecting stale writes", async (context) => {
   const fixture = await createFixture(context);
   const server = http.createServer(createDashboardApi({
@@ -1580,6 +1616,28 @@ test("Viki limits vault evidence to the selected knowledge galaxies", async (con
   assert.match(runOptions.prompt, /Knowledge galaxy scope: only AI/);
   assert.match(runOptions.prompt, /concepts\/note\.md/);
   assert.doesNotMatch(runOptions.prompt, /concepts\/math\.md/);
+
+  const visibilityBody = JSON.stringify({ name: "Math", hidden: true });
+  const visibility = await request(port, "POST", "/api/v1/universes/visibility", {
+    headers: { ...auth, "content-type": "application/json" },
+    body: visibilityBody
+  });
+  assert.equal(visibility.status, 200);
+  const defaultBody = JSON.stringify({ ...JSON.parse(body), galaxies: undefined });
+  const defaultQueued = await request(port, "POST", "/api/v1/agent/ask", {
+    headers: { ...auth, "content-type": "application/json" },
+    body: defaultBody
+  });
+  assert.equal(defaultQueued.status, 202);
+  assert.deepEqual(defaultQueued.body.meta.galaxies, ["AI"]);
+  assert.equal(defaultQueued.body.meta.allGalaxies, false);
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    completed = await request(port, "GET", `/api/v1/jobs/${defaultQueued.body.id}`, { headers: auth });
+    if (completed.body.status === "complete") break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(completed.body.status, "complete");
+  assert.deepEqual(scopedConceptFiles, ["note.md"]);
 });
 
 test("Viki preserves image block placement and rejects invalid answer images", async (context) => {

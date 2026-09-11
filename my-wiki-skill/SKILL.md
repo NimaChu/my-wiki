@@ -1,15 +1,17 @@
 ---
 name: my-wiki
-description: Manage local OKF-compatible Markdown My Wiki vaults with an AI agent. Use for capturing webpages, PDFs, Office documents, notes, images, folders, and ZIP bundles as References; maintaining Reference-to-Concept evidence links; searching or answering from a vault; checking or repairing vault health; switching among local vaults; and opening the My Wiki knowledge graph or dashboard.
+description: Manage OKF-compatible My Wiki knowledge locally or remotely. Use when the user says "连接远程知识库", "连接 mywiki", "连接公网知识库", or asks to connect to My Wiki; also use for capture, knowledge search, evidence reading, local maintenance, galaxy management, and Dashboard operations.
 ---
 
 # My Wiki
 
-This Skill is a thin Agent adapter, not the My Wiki application. Use its bundled `scripts/my-wiki.mjs` bridge, which locates and invokes a separately installed My Wiki project. Never expect application code, Dashboard assets, or a knowledge vault to live inside the installed Skill.
+This Skill is a thin Agent adapter, not the My Wiki application. Use its bundled `scripts/my-wiki.mjs` bridge. In local mode it invokes a separately installed My Wiki project; in remote mode its dependency-free client connects to an authorized My Wiki service without a local project or vault. Never expect application code, Dashboard assets, or a knowledge vault to live inside the installed Skill.
+
+For requests such as "连接远程知识库", "连接 mywiki", or "连接公网知识库", run `node <skill-directory>/scripts/my-wiki.mjs remote connect` directly. Do not ask for a URL or bootstrap a local project: the command reuses the saved server, or defaults to `https://my-wiki.cloud`. If the user specifies another server, pass that HTTPS origin to `remote connect`. Valid device authorization is reused; otherwise the browser opens for the owner-only GitHub login and the CLI automatically stores a revocable device credential. Tell the user when browser login is needed, and report connection success only after the command succeeds. Read [remote.md](references/remote.md) for supported operations. Once configured, `where` reports `mode: remote` and ordinary bridge commands use that service. Explicit `--local` or `--vault <name-or-path>` selects local mode; an unsupported remote command fails without falling back locally.
 
 Use native OKF terminology in user-facing explanations and new knowledge: **Concept** means a durable synthesized page under `concepts/`, **Reference** means captured evidence under `references/sources/`, and **original** means its preserved snapshot or binary under `references/originals/`. My Wiki displays Concepts as concept planets. Legacy command names and internal fields such as `organize-raw`, `rawSources`, `wikiPages`, `export-universe`, and `workflow_status` remain compatibility APIs; they do not restore the old `raw/` or `wiki/` layout.
 
-Before the first operation, run the bridge with `where`. If it reports that the My Wiki project is missing, explain that both components are required and ask the user before cloning or registering the project. The normal setup is:
+Before the first operation, run the bridge with `where`. For local mode only, if it reports that the My Wiki project is missing, explain that both components are required and ask the user before cloning or registering the project. The normal local setup is:
 
 ```bash
 git clone https://github.com/NimaChu/my-wiki.git
@@ -122,10 +124,10 @@ Read [ima-local-import.md](references/ima-local-import.md) only when the user ex
 - Preserve topology-heavy figures such as content maps, flowcharts, relationship diagrams, mind maps, and organization charts as local image assets whenever OCR cannot faithfully retain both nodes and edges. Insert each image at its source page, maintain `references/assets/<source>/image-index.json`, and verify the Markdown reference. A later `reextract` must restore indexed page assets rather than silently dropping them.
 - Treat `extraction_quality: degraded` as an evidence-quality warning, not by itself as a workflow status. A degraded source may be `inbox` or `processed` only when extraction is complete, substantive evidence is readable, attachments resolve, risky pages were reviewed, and Wiki evidence closure is complete; otherwise keep it `needs-followup`.
 - Verify local Markdown and HTML image references after capture and again before maintenance. Never ask an Agent to distill a Reference with missing attachments.
-- Keep vault data local. Do not commit or push it unless the user explicitly requests that exact action.
+- Keep vault data in the selected local vault or explicitly authorized remote service. Do not commit or push it unless the user explicitly requests that exact action.
 - Do not start the Dashboard during ordinary ingest or maintenance. Open it only for graph/frontend requests.
-- Keep the normal local web service bound to `127.0.0.1`. A deliberately isolated
-  public sandbox may override the bind host and explicit browser origins through
-  deployment environment variables; never expose a personal vault this way.
+- Keep the normal local web service bound to `127.0.0.1`. An explicitly authorized
+  personal remote service may use a Tunnel with the owner-only GitHub gate and
+  separate device authorization. Never disable authentication to connect a Skill.
   Preserve the session token, upload limits, URL private-network checks, import
   preview, checksum validation, and no-overwrite behavior.

@@ -23,7 +23,7 @@ const vaultRoot = path.resolve(
   process.env.OBSIDIAN_VAULT_PATH ||
   toolRoot
 );
-const outputPath = path.join(appRoot, "public", "wiki-graph.json");
+const outputPath = path.resolve(process.env.MY_WIKI_GRAPH_OUTPUT || path.join(appRoot, "public", "wiki-graph.json"));
 
 const scanRoots = ["references/sources", "concepts"];
 const graphExcludedIds = new Set([
