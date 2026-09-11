@@ -144,7 +144,12 @@ test("standalone Skill explains both missing project and vault setup", async (co
   assert.match(result.stderr, /Install the project first/);
   assert.match(result.stderr, /create a separate local vault/);
 
-  const instructions = await fs.readFile(path.join(skill, "SKILL.md"), "utf8");
+  const router = await fs.readFile(path.join(skill, "SKILL.md"), "utf8");
+  assert.ok(router.split(/\s+/).length < 500, "Skill entry must stay a concise router");
+  assert.match(router, /references\/setup\.md/);
+  assert.doesNotMatch(router, /https:\/\/my-wiki\.cloud/);
+  for (const match of router.matchAll(/\]\((references\/[^)#]+)(?:#[^)]*)?\)/g)) await fs.access(path.join(skill, match[1]));
+  const instructions = await fs.readFile(path.join(skill, "references", "setup.md"), "utf8");
   assert.match(instructions, /Bootstrap Missing Layers/);
   assert.match(instructions, /https:\/\/github\.com\/NimaChu\/my-wiki\.git/);
   assert.match(instructions, /Rerun `where`/);

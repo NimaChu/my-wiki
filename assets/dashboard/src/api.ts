@@ -149,7 +149,8 @@ export type LocalNoteSummary = {
   bytes: number;
 };
 
-export type DashboardSession = { token: string; vault: string };
+export type DashboardSession = { token: string; vault: string; canManageAccess?: boolean };
+export type GithubAllowlist = { owner: string; accounts: Array<{ login: string; owner: boolean }> };
 
 let session: Promise<DashboardSession> | null = null;
 const CHUNKED_UPLOAD_THRESHOLD = 1024 * 1024;
@@ -211,6 +212,17 @@ async function responseError(response: Response) {
 }
 
 export const localApi = {
+  async githubAllowlist() {
+    const response = await apiFetch("/api/v1/access/allowlist");
+    return response.json() as Promise<GithubAllowlist>;
+  },
+  async updateGithubAccess(login: string, remove = false) {
+    const response = await apiFetch("/api/v1/access/allowlist", {
+      method: remove ? "DELETE" : "POST",
+      headers: { "content-type": "application/json" }, body: JSON.stringify({ login })
+    });
+    return response.json() as Promise<GithubAllowlist>;
+  },
   async session() {
     return getSession();
   },

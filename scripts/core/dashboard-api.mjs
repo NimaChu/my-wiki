@@ -137,7 +137,8 @@ export function createDashboardApi({
   formulaDependencyRoot = dashboardRoot,
   remoteImageFetcher = fetchPublicConversationImage,
   requestContext = null,
-  remoteAccess = null
+  remoteAccess = null,
+  accessControl = null
 }) {
   const runtimeFile = path.join(dashboardRoot, ".my-wiki-runtime.json");
   const activeAgentQueries = new Map();
@@ -456,11 +457,11 @@ export function createDashboardApi({
         requestUrl.pathname = requestUrl.pathname.replace("/api/remote/v1/", "/api/v1/");
         const route = `${req.method} ${requestUrl.pathname}`;
         if (route === "GET /api/v1/devices") {
-          sendJson(res, 200, { devices: await remoteAccess.list(), currentDeviceId: remoteContext.deviceId });
+          sendJson(res, 200, { devices: await remoteAccess.list(remoteContext), currentDeviceId: remoteContext.deviceId });
           return true;
         }
         if (route === "DELETE /api/v1/devices") {
-          await remoteAccess.revoke(requestUrl.searchParams.get("id") || remoteContext.deviceId);
+          await remoteAccess.revoke(requestUrl.searchParams.get("id") || remoteContext.deviceId, remoteContext);
           sendJson(res, 200, { revoked: true });
           return true;
         }
@@ -478,7 +479,8 @@ export function createDashboardApi({
         const context = requestContext ? await requestContext(req) : { vault: await activeVault(runtimeFile) };
         sendJson(res, 200, {
           token: sessionToken,
-          vault: "My Wiki"
+          vault: "My Wiki",
+          canManageAccess: context.canManageAccess === true
         });
         return true;
       }
@@ -506,6 +508,14 @@ export function createDashboardApi({
 
       const context = remoteContext || (requestContext ? await requestContext(req) : { vault: await activeVault(runtimeFile) });
       const vault = context.vault;
+      if (requestUrl.pathname === "/api/v1/access/allowlist") {
+        if (!accessControl || !context.canManageAccess) throw httpError(403, "Only the owner can manage GitHub access");
+        if (req.method === "GET") sendJson(res, 200, accessControl.list());
+        else if (req.method === "POST") sendJson(res, 200, await accessControl.add((await readJson(req)).login));
+        else if (req.method === "DELETE") sendJson(res, 200, await accessControl.remove((await readJson(req)).login));
+        else throw httpError(405, "Method not allowed");
+        return true;
+      }
       await recoverCaptureJobs(vault);
 
       if (isRemote && requestUrl.pathname === "/api/v1/download" && req.method === "GET") {

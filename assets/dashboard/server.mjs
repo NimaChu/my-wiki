@@ -28,7 +28,7 @@ if (!personalVault) {
   } catch {}
 }
 const access = await createPublicAccess({ personalVault: path.resolve(personalVault) });
-const api = createDashboardApi({ dashboardRoot: root, port, requestContext: (req) => access.context(req), remoteAccess: access.remote });
+const api = createDashboardApi({ dashboardRoot: root, port, requestContext: (req) => access.context(req), remoteAccess: access.remote, accessControl: access.allowlist });
 const vite = production
   ? null
   : await (await import("vite")).createServer({

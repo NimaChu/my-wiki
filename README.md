@@ -114,7 +114,9 @@ node <skill-directory>/scripts/my-wiki.mjs search "查询内容"
 node <skill-directory>/scripts/my-wiki.mjs capture --file /path/to/document.pdf
 ```
 
-也可以直接告诉 Agent：“连接远程知识库”“连接 mywiki”或“连接公网知识库”。默认连接已保存的服务地址，没有配置时使用 `https://my-wiki.cloud`。已有有效授权则直接连接；否则打开浏览器，使用服务端指定的 GitHub 账号登录后自动授权 CLI，无需复制令牌。设备凭据有效期为 90 天，支持独立撤销，保存在用户目录而非项目或 Skill 中。登录后默认走远程；`remote off` 或显式 `--local` 可返回本地模式。此版支持检索、阅读、下载证据、分片上传、查看提取任务和带版本检查的已有正文编辑；完整蒸馏提交及管理操作尚未开放。详见 [远程 Skill 使用说明](my-wiki-skill/references/remote.md)。
+没有保存远程授权时，普通 My Wiki 请求默认操作本机。首次连接请明确告诉 Agent：“连接远程知识库”“连接远程服务”“连接公网知识库”或“连接公网服务”；仅说“连接 mywiki”不会自动发起公网登录。远程连接使用已保存的服务地址，没有配置时使用 `https://my-wiki.cloud`，也可指定自己的服务。
+
+已有有效授权则直接连接；否则打开浏览器，仅服务端 GitHub 白名单内的账号可以登录并自动授权 CLI，无需复制令牌。公开仓库和安装 Skill 不代表获得公网访问权。管理员可在网页的 GitHub 访问白名单中添加或移除成员；成员访问同一份知识库，不创建独立用户库。设备凭据有效期为 90 天，支持独立撤销，保存在用户目录而非项目或 Skill 中。保存授权后默认走远程；`remote off` 或显式 `--local` 可返回本地模式。此版支持检索、阅读、下载证据、分片上传、查看提取任务和带版本检查的已有正文编辑；完整蒸馏提交及管理操作尚未开放。详见 [远程 Skill 使用说明](my-wiki-skill/references/remote.md)。
 
 ## 从资料到可复用知识
 

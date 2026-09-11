@@ -367,6 +367,19 @@ h3 {
   padding: 8px 22px 0;
 }
 
+.github-access-content { padding: 20px 22px; overflow-y: auto; }
+.github-access-form { display: grid; gap: 8px; }
+.github-access-form label { color: #bec8c7; font-size: 13px; }
+.github-access-form > div { display: flex; gap: 8px; }
+.github-access-form input { min-width: 0; width: 100%; flex: 1; border: 1px solid #454b4c; background: #25292a; color: #eef1ed; border-radius: 6px; padding: 10px; font: inherit; }
+.github-access-form button { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.github-access-list { list-style: none; padding: 0; margin: 18px 0 0; }
+.github-access-list li { display: flex; align-items: center; gap: 12px; min-height: 52px; border-top: 1px solid #343a3b; }
+.github-access-list li > span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.github-access-list button { color: #df9b91; }
+.github-access-owner { color: #9fbbb0; font-size: 12px; }
+.github-access-error { color: #f0a9a0; margin-top: 12px; overflow-wrap: anywhere; }
+
 .workspace-dialog .dialog-tabs button {
   min-height: 38px;
   border: 0;

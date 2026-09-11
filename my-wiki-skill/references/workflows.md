@@ -2,6 +2,8 @@
 
 ## Ingest
 
+Use [Knowledge model](knowledge-model.md) for document metadata and [Evidence rules](evidence-rules.md) for extraction acceptance and closure.
+
 1. Resolve the target vault.
 2. Capture the source into flat `references/sources/` storage with complete provenance and local snapshots when practical.
    For local files, use the bundled parser through `capture --file` or `capture --directory`; do not ask the host agent to improvise a binary conversion when the deterministic extractor supports the format.
@@ -40,6 +42,8 @@ Treat ordinary questions about concepts, people, products, methods, events, comp
 Never substitute model memory for an existing vault Concept. For example, a question such as `Loop 工程是什么` should retrieve the `Loop Engineering` Concept and its References rather than infer from the term or search the My Wiki repository.
 
 ## Maintain
+
+Read [Knowledge model](knowledge-model.md) and [Evidence rules](evidence-rules.md) for the full entity, provenance, and quality requirements.
 
 Treat short requests such as "维护知识库" or "maintain this vault" as complete instructions:
 
@@ -81,6 +85,8 @@ Galaxy packages use names rather than package IDs or galaxy IDs. The package sch
 - Use `organize-raw` for a dry-run report before applying legacy layout cleanup with `organize-raw --apply`.
 
 ## Dashboard
+
+See [Local commands](commands.md) for launch syntax and [Runtime details](dashboard-runtime.md) for queue, editor, Viki, and sharing behavior.
 
 Treat requests to view the graph, frontend, or Dashboard as permission to run `open-dashboard`. Each registered My Wiki project uses a stable local port, so separate project installations do not serve one another's stale graph. Within one installation, opening another vault switches graph generation and the watcher to that vault.
 

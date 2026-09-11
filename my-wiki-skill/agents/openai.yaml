@@ -1,4 +1,4 @@
 interface:
   display_name: "My Wiki"
-  short_description: "连接远程知识库，或采集、查询和维护本地 My Wiki"
-  default_prompt: "Use $my-wiki to connect to my remote knowledge base or work with my selected local My Wiki vault."
+  short_description: "本机知识库与已授权远程知识库；首次公网连接需明确请求"
+  default_prompt: "Use $my-wiki with my saved knowledge connection, defaulting to local when no remote authorization is configured."

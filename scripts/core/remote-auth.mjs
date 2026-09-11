@@ -7,7 +7,7 @@ const secret = () => randomBytes(32).toString("base64url");
 const fail = (status, message) => Object.assign(new Error(message), { status, statusCode: status });
 
 // Pending grants are deliberately ephemeral; device credentials survive restarts.
-export function createRemoteAuth({ directory, owner, vault, enabled, now = Date.now }) {
+export function createRemoteAuth({ directory, owner, vault, enabled, now = Date.now, isAllowed = (login) => login.toLowerCase() === owner.toLowerCase() }) {
   const pending = new Map();
   const oauthStates = new Map();
   const codes = new Map();
@@ -48,9 +48,9 @@ export function createRemoteAuth({ directory, owner, vault, enabled, now = Date.
     const flow = oauthStates.get(state);
     if (!flow) return null;
     oauthStates.delete(state);
-    if (login.toLowerCase() !== owner.toLowerCase()) throw fail(403, "Account is not authorized");
+    if (!isAllowed(login)) throw fail(403, "Account is not authorized");
     const code = secret();
-    codes.set(digest(code), { ...flow, expiresAt: now() + 60000 });
+    codes.set(digest(code), { ...flow, login, expiresAt: now() + 60000 });
     const redirect = new URL(flow.redirect);
     redirect.searchParams.set("code", code);
     redirect.searchParams.set("state", flow.state);
@@ -62,10 +62,11 @@ export function createRemoteAuth({ directory, owner, vault, enabled, now = Date.
     const key = digest(code);
     const flow = codes.get(key);
     if (!flow || digest(verifier) !== flow.challenge) throw fail(401, "Invalid or expired login code");
+    if (!isAllowed(flow.login)) throw fail(403, "Account is no longer authorized");
     codes.delete(key);
     const token = `mw_${secret()}`;
     const id = digest(token);
-    const record = { id, name: String(name || "CLI").slice(0, 100), login: owner, createdAt: now(), expiresAt: now() + 90 * 86400000 };
+    const record = { id, name: String(name || "CLI").slice(0, 100), login: flow.login, createdAt: now(), expiresAt: now() + 90 * 86400000 };
     await fs.mkdir(directory, { recursive: true, mode: 0o700 });
     await fs.writeFile(path.join(directory, `${id}.json`), JSON.stringify(record), { flag: "wx", mode: 0o600 });
     return { access_token: token, token_type: "Bearer", expiresAt: record.expiresAt, deviceId: id };
@@ -76,19 +77,23 @@ export function createRemoteAuth({ directory, owner, vault, enabled, now = Date.
     if (!/^Bearer mw_[A-Za-z0-9_-]{43}$/.test(header)) throw fail(401, "Run remote login to authorize this device");
     const id = digest(header.slice(7));
     const record = await fs.readFile(path.join(directory, `${id}.json`), "utf8").then(JSON.parse).catch(() => null);
-    if (!record || record.expiresAt <= now() || record.login.toLowerCase() !== owner.toLowerCase()) throw fail(401, "Device authorization expired or was revoked; run remote login again");
-    return { vault, deviceId: id };
+    if (!record || record.expiresAt <= now() || !isAllowed(record.login)) throw fail(401, "Device authorization expired or was revoked; run remote login again");
+    return { vault, deviceId: id, login: record.login, canManageAccess: record.login.toLowerCase() === owner.toLowerCase() };
   }
-  async function revoke(id) {
+  async function revoke(id, context) {
     if (!/^[A-Za-z0-9_-]{43}$/.test(id)) throw fail(400, "Invalid device ID");
+    if (context && !context.canManageAccess) {
+      const record = await fs.readFile(path.join(directory, `${id}.json`), "utf8").then(JSON.parse).catch(() => null);
+      if (!record || record.login.toLowerCase() !== context.login.toLowerCase()) throw fail(403, "Cannot revoke another account's device");
+    }
     await fs.rm(path.join(directory, `${id}.json`), { force: true });
   }
-  async function list() {
+  async function list(context) {
     const entries = await fs.readdir(directory).catch((error) => { if (error.code === "ENOENT") return []; throw error; });
     const records = [];
     for (const entry of entries.filter((entry) => /^[A-Za-z0-9_-]{43}\.json$/.test(entry))) {
       const record = JSON.parse(await fs.readFile(path.join(directory, entry), "utf8"));
-      if (record.login.toLowerCase() === owner.toLowerCase() && record.expiresAt > now()) records.push(record);
+      if (record.expiresAt > now() && (!context || context.canManageAccess || record.login.toLowerCase() === context.login.toLowerCase())) records.push(record);
     }
     return records;
   }

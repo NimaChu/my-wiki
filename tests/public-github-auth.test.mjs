@@ -7,6 +7,7 @@ import test from "node:test";
 import { SignJWT } from "jose";
 import { createHash } from "node:crypto";
 import { createPublicAccess } from "../scripts/core/public-access.mjs";
+import { createDashboardApi } from "../scripts/core/dashboard-api.mjs";
 
 test("public hosts show GitHub-only login before any vault response", async (context) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "my-wiki-auth-"));
@@ -32,8 +33,10 @@ test("public hosts show GitHub-only login before any vault response", async (con
   });
 
   const auth = await createPublicAccess({ personalVault: "/private/local-vault" });
+  const dashboardApi = createDashboardApi({ dashboardRoot: root, port: 0, requestContext: auth.context, accessControl: auth.allowlist, remoteAccess: auth.remote });
   const server = http.createServer(async (req, res) => {
     if (await auth.handle(req, res)) return;
+    if (await dashboardApi(req, res)) return;
     res.writeHead(200).end("private application");
   });
   context.after(() => server.close());
@@ -102,9 +105,40 @@ test("public hosts show GitHub-only login before any vault response", async (con
   assert.equal(reuse.status, 401);
   const browserWithCliToken = await request(port, "/", { host: "my-wiki.cloud", authorization: `Bearer ${token}` });
   assert.match(browserWithCliToken.body, /使用 GitHub 登录/);
+
+  const ownerCookie = callback.headers["set-cookie"][0].split(";")[0];
+  const session = await request(port, "/api/v1/session", { host: "my-wiki.cloud", cookie: ownerCookie });
+  assert.equal(JSON.parse(session.body).canManageAccess, true);
+  const ownerHeaders = { host: "my-wiki.cloud", cookie: ownerCookie, "x-my-wiki-token": JSON.parse(session.body).token, "content-type": "application/json" };
+  const initial = await request(port, "/api/v1/access/allowlist", ownerHeaders);
+  assert.deepEqual(JSON.parse(initial.body).accounts, [{ login: "NimaChu", owner: true }]);
+  const added = await request(port, "/api/v1/access/allowlist", ownerHeaders, "POST", JSON.stringify({ login: "someone-else" }));
+  assert.equal(added.status, 200);
+  const guestHeaders = { ...ownerHeaders, cookie: `my_wiki_session=${untrustedToken}` };
+  assert.equal((await auth.context({ headers: guestHeaders })).canManageAccess, false);
+  assert.equal((await request(port, "/api/v1/access/allowlist", guestHeaders)).status, 403);
+  assert.equal((await request(port, "/api/v1/access/allowlist", guestHeaders, "POST", JSON.stringify({ login: "intruder" }))).status, 403);
+  auth.remote.bind("guest-state", auth.remote.begin(params));
+  const guestCode = new URL(auth.remote.complete("guest-state", "someone-else")).searchParams.get("code");
+  const guestToken = await auth.remote.exchange({ code: guestCode, code_verifier: verifier });
+  const guestReq = { headers: { authorization: `Bearer ${guestToken.access_token}` } };
+  const guestContext = await auth.remote.authorize(guestReq);
+  assert.equal(guestContext.login, "someone-else");
+  assert.equal(guestContext.canManageAccess, false);
+  assert.equal((await auth.remote.list(guestContext)).length, 1);
+  const ownerDevice = (await auth.remote.list()).find((entry) => entry.login === "NimaChu");
+  await assert.rejects(auth.remote.revoke(ownerDevice.id, guestContext), { status: 403 });
+  const protectedOwner = await request(port, "/api/v1/access/allowlist", ownerHeaders, "DELETE", JSON.stringify({ login: "nimachu" }));
+  assert.equal(protectedOwner.status, 400);
+  assert.equal((await request(port, "/api/v1/access/allowlist", ownerHeaders, "DELETE", JSON.stringify({ login: "someone-else" }))).status, 200);
+  await assert.rejects(auth.context({ headers: guestHeaders }), { status: 403 });
+  await assert.rejects(auth.remote.authorize(guestReq), { status: 401 });
+  const restarted = await createPublicAccess({ personalVault: "/private/local-vault" });
+  assert.deepEqual(restarted.allowlist.list().accounts, [{ login: "NimaChu", owner: true }]);
 });
 
 function request(port, route, headers, method = "GET", data = "") {
+  if (data) headers = { ...headers, "content-length": Buffer.byteLength(data) };
   return new Promise((resolve, reject) => {
     const outgoing = http.request({ host: "127.0.0.1", port, path: route, headers, method }, (response) => {
       let body = "";

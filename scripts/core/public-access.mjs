@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { jwtVerify, SignJWT } from "jose";
 import { createRemoteAuth, readRemoteJson } from "./remote-auth.mjs";
+import { createGithubAllowlist } from "./github-allowlist.mjs";
 
 const SESSION_COOKIE = "my_wiki_session";
 const STATE_COOKIE = "my_wiki_oauth_state";
@@ -15,14 +16,18 @@ export async function createPublicAccess({ personalVault }) {
   const oauth = configFile ? await readOauthConfig(configFile) : {};
   const enabled = Boolean(publicHosts.size && adminLogin && oauth.clientId && oauth.clientSecret && oauth.sessionSecret);
   const signingKey = enabled ? new TextEncoder().encode(oauth.sessionSecret) : null;
+  const allowlist = await createGithubAllowlist({
+    file: path.join(path.dirname(configFile || "."), "github-allowlist.json"),
+    owner: String(process.env.MY_WIKI_ADMIN_GITHUB_LOGIN || "").trim(), enabled
+  });
   const remote = createRemoteAuth({
     directory: path.join(path.dirname(configFile || "."), "remote-devices"),
-    owner: adminLogin, vault: personalVault, enabled
+    owner: adminLogin, vault: personalVault, enabled, isAllowed: allowlist.allowed
   });
 
   async function context(req) {
     const host = normalizeHost(req.headers.host);
-    if (!publicHosts.has(host)) return { vault: personalVault };
+    if (!publicHosts.has(host)) return { vault: personalVault, canManageAccess: enabled };
     if (!enabled) throw authError(503, "Public GitHub authentication is not configured");
     const token = requestCookies(req)[SESSION_COOKIE];
     if (!token) throw authError(401, "GitHub authentication is required");
@@ -30,14 +35,15 @@ export async function createPublicAccess({ personalVault }) {
       .catch(() => { throw authError(401, "GitHub session is missing or expired"); });
     const login = String(payload.login || "").trim();
     if (!login) throw authError(401, "GitHub session is incomplete");
-    if (login.toLowerCase() !== adminLogin) throw authError(403, "This GitHub account is not authorized to access My Wiki");
-    return { vault: personalVault };
+    if (!allowlist.allowed(login)) throw authError(403, "This GitHub account is not authorized to access My Wiki");
+    return { vault: personalVault, login, canManageAccess: login.toLowerCase() === adminLogin };
   }
 
   return {
     enabled,
     context,
     remote,
+    allowlist,
     async handle(req, res) {
       const host = normalizeHost(req.headers.host);
       if (!publicHosts.has(host)) return false;
@@ -95,7 +101,7 @@ export async function createPublicAccess({ personalVault }) {
           validateState(state, requestCookies(req)[STATE_COOKIE], oauth.sessionSecret);
           if (!code) throw authError(400, "GitHub did not return an authorization code");
           const identity = await exchangeGithubIdentity(oauth, code, `https://${host}/auth/github/callback`);
-          if (identity.login.toLowerCase() !== adminLogin) throw authError(403, "This GitHub account is not authorized to access My Wiki");
+          if (!allowlist.allowed(identity.login)) throw authError(403, "This GitHub account is not authorized to access My Wiki");
           const token = await new SignJWT({ login: identity.login }).setProtectedHeader({ alg: "HS256" }).setIssuedAt()
             .setIssuer("my-wiki").setAudience(host).setExpirationTime("7d").sign(signingKey);
           res.writeHead(302, {

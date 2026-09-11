@@ -1,12 +1,12 @@
 import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArchiveRestore, BookOpen, Download, Eye, EyeOff, FileArchive, FileUp, FolderUp, Inbox, Link2, LoaderCircle, NotebookPen, Orbit, Pencil, Plus, RotateCcw, Trash2, Upload, X } from "lucide-react";
-import { GalaxyTrashEntry, InboxItem, Job, localApi, TaskProgress, UniverseSummary, waitForJob } from "./api";
+import { ArchiveRestore, BookOpen, Download, Eye, EyeOff, FileArchive, FileUp, FolderUp, Inbox, Link2, LoaderCircle, NotebookPen, Orbit, Pencil, Plus, RotateCcw, ShieldCheck, Trash2, Upload, X } from "lucide-react";
+import { GalaxyTrashEntry, GithubAllowlist, InboxItem, Job, localApi, TaskProgress, UniverseSummary, waitForJob } from "./api";
 
 const QuickNotes = lazy(() => import("./QuickNotes").then((module) => ({ default: module.QuickNotes })));
 
 type Language = "en" | "zh";
-type ActionView = "notes" | "add" | "universes" | null;
+type ActionView = "notes" | "add" | "universes" | "access" | null;
 type AddTab = "link" | "file" | "folder" | "zip" | "inbox";
 
 const labels = {
@@ -203,6 +203,12 @@ const labels = {
 export function WorkspaceActions({ language }: { language: Language }) {
   const [view, setView] = useState<ActionView>(null);
   const [initialNotePath, setInitialNotePath] = useState("");
+  const [canManageAccess, setCanManageAccess] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    localApi.session().then((session) => { if (!cancelled) setCanManageAccess(session.canManageAccess === true); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
   const l = labels[language];
   useEffect(() => {
     const openQuickNote = (event: Event) => {
@@ -245,12 +251,54 @@ export function WorkspaceActions({ language }: { language: Language }) {
           <NotebookPen size={16} aria-hidden="true" />
           <span>{l.quickNotes}</span>
         </button>
+        {canManageAccess ? <button type="button" className="workspace-action" aria-label={language === "zh" ? "GitHub 访问白名单" : "GitHub access allowlist"} title={language === "zh" ? "GitHub 访问白名单" : "GitHub access allowlist"} onClick={() => setView("access")}><ShieldCheck size={16} aria-hidden="true" /></button> : null}
       </div>
       {view === "notes" ? <Suspense fallback={null}><QuickNotes language={language} initialPath={initialNotePath} onClose={() => setView(null)} /></Suspense> : null}
       {view === "add" ? <AddKnowledgeDialog language={language} onClose={() => setView(null)} /> : null}
       {view === "universes" ? <UniverseDialog language={language} onClose={() => setView(null)} /> : null}
+      {view === "access" ? <GithubAccessDialog language={language} onClose={() => setView(null)} /> : null}
     </>
   );
+}
+
+function GithubAccessDialog({ language, onClose }: { language: Language; onClose: () => void }) {
+  const zh = language === "zh";
+  const [data, setData] = useState<GithubAllowlist | null>(null);
+  const [login, setLogin] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    localApi.githubAllowlist().then((result) => { if (!cancelled) setData(result); }).catch((error) => { if (!cancelled) setError(errorMessage(error)); });
+    return () => { cancelled = true; };
+  }, []);
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy) onClose(); };
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  }, [busy, onClose]);
+  const update = async (name: string, remove = false) => {
+    if (busy) return;
+    if (remove && !window.confirm(zh ? `移除 ${name} 的访问权限？该账号现有网页登录和 CLI 授权将无法继续访问。` : `Remove access for ${name}? Existing browser and CLI authorization will stop working.`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      setData(await localApi.updateGithubAccess(name, remove));
+      if (!remove) setLogin("");
+    } catch (error) { setError(errorMessage(error)); }
+    finally { setBusy(false); }
+  };
+  return <Dialog title={zh ? "GitHub 访问白名单" : "GitHub access allowlist"} description={zh ? "白名单成员可访问和编辑同一份知识库。仅管理员可更改白名单。" : "Members can access and edit the same knowledge base. Only the owner can change this list."} onClose={() => { if (!busy) onClose(); }}>
+    <div className="github-access-content">
+      <form className="github-access-form" onSubmit={(event) => { event.preventDefault(); void update(login.trim()); }}>
+        <label htmlFor="github-access-login">{zh ? "GitHub 用户名" : "GitHub username"}</label>
+        <div><input id="github-access-login" autoFocus autoComplete="off" maxLength={39} value={login} onChange={(event) => setLogin(event.target.value)} placeholder="octocat" disabled={busy || !data} required /><button type="submit" disabled={busy || !data || !login.trim()}>{busy ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />}{zh ? "添加" : "Add"}</button></div>
+      </form>
+      {error ? <p role="alert" className="github-access-error">{error}</p> : null}
+      {!data && !error ? <p role="status">{zh ? "加载中…" : "Loading…"}</p> : null}
+      <ul className="github-access-list">{data?.accounts.map((account) => <li key={account.login.toLowerCase()}><span>{account.login}</span>{account.owner ? <span className="github-access-owner">{zh ? "管理员" : "Owner"}</span> : <button type="button" className="icon-button" disabled={busy} title={zh ? "移除账号" : "Remove account"} aria-label={`${zh ? "移除账号" : "Remove account"}: ${account.login}`} onClick={() => void update(account.login, true)}><Trash2 size={16} /></button>}</li>)}</ul>
+    </div>
+  </Dialog>;
 }
 
 function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose: () => void }) {

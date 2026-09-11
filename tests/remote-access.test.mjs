@@ -121,10 +121,16 @@ test("lightweight bridge works without project and does not fall back on unsuppo
   const config = path.join(options.root, "remote.json");
   await fs.writeFile(config, JSON.stringify({ enabled: true, origin: "https://my-wiki.cloud", token: "fake" }));
   const bridge = path.resolve("my-wiki-skill/scripts/my-wiki.mjs");
-  const env = { ...process.env, MY_WIKI_REMOTE_CONFIG_PATH: config };
+  const fakeProject = path.join(options.root, "project");
+  await fs.mkdir(path.join(fakeProject, "scripts"), { recursive: true });
+  await fs.writeFile(path.join(fakeProject, ".my-wiki-project.json"), JSON.stringify({ name: "my-wiki", kind: "agent-project" }));
+  await fs.writeFile(path.join(fakeProject, "scripts", "my-wiki.mjs"), 'console.log("local-only")');
+  const env = { ...process.env, MY_WIKI_REMOTE_CONFIG_PATH: config, MY_WIKI_HOME: fakeProject };
+  const local = await promisify(execFile)(process.execPath, [bridge, "--local", "where"], { cwd: options.root, env });
+  assert.equal(local.stdout.trim(), "local-only");
   const { stdout } = await promisify(execFile)(process.execPath, [bridge, "where"], { cwd: options.root, env });
   assert.equal(JSON.parse(stdout).mode, "remote");
-  await assert.rejects(promisify(execFile)(process.execPath, [bridge, "init", "should-not-exist"], { cwd: options.root, env }), (error) => /No local fallback/.test(error.stderr));
+  await assert.rejects(promisify(execFile)(process.execPath, [bridge, "remote", "init", "should-not-exist"], { cwd: options.root, env }), (error) => /No local fallback/.test(error.stderr));
   await assert.rejects(fs.stat(path.join(options.root, "should-not-exist")), { code: "ENOENT" });
   assert.throws(() => remoteOrigin("http://my-wiki.cloud"));
   assert.throws(() => remoteOrigin("https://someone:secret@my-wiki.cloud"));
