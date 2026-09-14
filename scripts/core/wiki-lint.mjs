@@ -109,6 +109,8 @@ const report = {
   missingType: missingType.map((node) => node.path)
 };
 
-report.okfIssues = (await auditOkfWiki(scan.vault)).issues;
+const okf = await auditOkfWiki(scan.vault);
+report.okfIssues = okf.issues;
+report.markdownWarnings = okf.markdownWarnings;
 
 console.log(JSON.stringify(report, null, 2));

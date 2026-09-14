@@ -12,7 +12,7 @@ import { exportUniverse } from "../scripts/core/export-universe.mjs";
 import { importUniverse } from "../scripts/core/import-universe.mjs";
 import { auditOkfWiki } from "../scripts/core/okf-lib.mjs";
 import { extractUniverseArchive } from "../scripts/core/universe-package-lib.mjs";
-import { parseFrontmatter } from "../scripts/core/wiki-lib.mjs";
+import { parseFrontmatter, upsertFrontmatterValues } from "../scripts/core/wiki-lib.mjs";
 
 const run = promisify(execFile);
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -155,6 +155,12 @@ test(".mywiki is an audited OKF v0.2 package and imports into the native layout"
     shouldMirrorImages: false
   });
   const sourcePath = path.relative(sourceVault, captured.path).replace(/\\/g, "/");
+  const assetBase = path.basename(sourcePath, ".md") + "--version-two";
+  const asset = `references/assets/${assetBase}/figure.png`;
+  await fs.mkdir(path.dirname(path.join(sourceVault, asset)), { recursive: true });
+  await fs.writeFile(path.join(sourceVault, asset), "versioned figure");
+  const reference = upsertFrontmatterValues(await fs.readFile(captured.path, "utf8"), { document_asset_base: assetBase });
+  await fs.writeFile(captured.path, reference + `\n![Figure](../assets/${assetBase}/figure.png)\n`);
   await fs.writeFile(path.join(sourceVault, "concepts", "Portable Schema.md"), `---
 type: Concept
 title: Portable Schema
@@ -177,7 +183,15 @@ The package keeps evidence next to its Concept.[^portable-evidence]
 [^portable-evidence]: [Portable evidence](/${sourcePath})
 `, "utf8");
 
-  const exported = await exportUniverse({ vault: sourceVault, universeName: "Test", output: packageFile });
+  const progress = [];
+  const exported = await exportUniverse({ vault: sourceVault, universeName: "Test", output: packageFile, onProgress: (value) => progress.push(value) });
+  assert.deepEqual([...new Set(progress.map((item) => item.phase))], ["scanning", "collecting", "hashing", "packing", "verifying", "auditing", "complete"]);
+  for (const phase of ["collecting", "hashing", "packing", "verifying"]) {
+    const updates = progress.filter((item) => item.phase === phase);
+    assert.ok(updates.every((item, index) => index === 0 || item.current >= updates[index - 1].current));
+    assert.equal(updates.at(-1).current, updates.at(-1).total);
+  }
+  assert.equal(progress.at(-1).percent, 100);
   assert.equal(exported.okf.valid, true);
   await extractUniverseArchive(packageFile, unpacked);
   const manifest = JSON.parse(await fs.readFile(path.join(unpacked, "manifest.json"), "utf8"));
@@ -187,12 +201,25 @@ The package keeps evidence next to its Concept.[^portable-evidence]
   );
   await fs.access(path.join(unpacked, "concepts", "Portable Schema.md"));
   await fs.access(path.join(unpacked, sourcePath));
+  assert.equal(await fs.readFile(path.join(unpacked, asset), "utf8"), "versioned figure");
   const preview = await importUniverse({ vault: targetVault, packageFile, apply: false });
   assert.equal(preview.mode, "dry-run");
   const imported = await importUniverse({ vault: targetVault, packageFile, apply: true });
   assert.equal(imported.applied, true);
   await fs.access(path.join(targetVault, "concepts", "Portable Schema.md"));
   await fs.access(path.join(targetVault, sourcePath));
+  assert.equal(await fs.readFile(path.join(targetVault, asset), "utf8"), "versioned figure");
+  const collisionVault = path.join(root, "collision");
+  await fs.mkdir(path.dirname(path.join(collisionVault, sourcePath)), { recursive: true });
+  await fs.writeFile(path.join(collisionVault, sourcePath), "# Different evidence\n");
+  const renamed = await importUniverse({ vault: collisionVault, packageFile, apply: true });
+  assert.equal(renamed.applied, true);
+  const renamedFiles = await fs.readdir(path.dirname(path.join(collisionVault, sourcePath)));
+  const renamedPath = renamedFiles.find((name) => name !== path.basename(sourcePath));
+  const renamedContent = await fs.readFile(path.join(collisionVault, "references/sources", renamedPath), "utf8");
+  const renamedBase = parseFrontmatter(renamedContent).document_asset_base;
+  assert.ok(renamedContent.includes(`../assets/${renamedBase}/figure.png`));
+  assert.equal(await fs.readFile(path.join(collisionVault, "references/assets", renamedBase, "figure.png"), "utf8"), "versioned figure");
   await assert.rejects(fs.access(path.join(targetVault, "wiki")), { code: "ENOENT" });
   await assert.rejects(fs.access(path.join(targetVault, "raw")), { code: "ENOENT" });
 });

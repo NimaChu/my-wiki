@@ -1,6 +1,8 @@
 import { promises as fs } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { referenceAssetBase } from "./vault-layout.mjs";
+import { checkMarkdownFormat } from "./markdown-format.mjs";
 import {
   asArray,
   exists,
@@ -351,6 +353,7 @@ export async function auditOkfDirectory(bundleRoot) {
       ]
     : await walkMarkdown(bundleRoot);
   const issues = [];
+  const markdownWarnings = [];
   let concepts = 0;
   let references = 0;
   for (const file of files) {
@@ -377,6 +380,11 @@ export async function auditOkfDirectory(bundleRoot) {
     const parsed = parseFrontmatterDocument(content);
     for (const error of parsed.errors) issues.push({ path: relative, code: "invalid-frontmatter", message: error });
     const data = parsed.data;
+    if (relative.startsWith("concepts/")) {
+      for (const issue of checkMarkdownFormat(content, { path: relative, sources: data.sources })) {
+        (issue.severity === "error" ? issues : markdownWarnings).push(issue);
+      }
+    }
     if (String(data.type || "").toLowerCase() === "reference") references += 1;
     else concepts += 1;
     if (!String(data.type || "").trim()) issues.push({ path: relative, code: "missing-type" });
@@ -400,7 +408,7 @@ export async function auditOkfDirectory(bundleRoot) {
       if (event?.at !== undefined && !validTimestamp(event.at)) issues.push({ path: relative, code: "invalid-verification-time" });
     }
   }
-  return { okfVersion: OKF_VERSION, files: files.length, concepts, references, issues, valid: issues.length === 0 };
+  return { okfVersion: OKF_VERSION, files: files.length, concepts, references, issues, markdownWarnings, valid: issues.length === 0 };
 }
 
 function exportedConceptContent(node, scan, rawDestinationById) {
@@ -507,8 +515,9 @@ export async function exportOkfBundle(vault, { galaxy = "", output = "" } = {}) 
       originalDestination = `references/originals/${path.basename(sourcePath)}`;
       if (await copyIfPresent(sourcePath, path.join(bundleRoot, originalDestination))) originals += 1;
     }
-    const assetSource = path.join(vault, "references", "assets", path.basename(source.id));
-    const assetDestination = path.join(bundleRoot, "references", "assets", path.basename(source.id));
+    const base = referenceAssetBase(original, source.id);
+    const assetSource = path.join(vault, "references", "assets", base);
+    const assetDestination = path.join(bundleRoot, "references", "assets", base);
     if (await copyIfPresent(assetSource, assetDestination)) assetDirectories += 1;
     const referenceContent = exportedReferenceContent(source, scan, conceptDestinationById, originalDestination)
       .replace(/\.\.\/assets\//g, "../assets/")

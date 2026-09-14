@@ -39,7 +39,11 @@ export async function walkFiles(root) {
   return files;
 }
 
-export async function writeUniverseArchive(output, entries) {
+export async function writeUniverseArchive(output, entries, { onProgress = () => {} } = {}) {
+  const sizes = await Promise.all(entries.map(async (entry) => entry.buffer ? entry.buffer.length : (await fs.stat(entry.file)).size));
+  const total = sizes.reduce((sum, size) => sum + size, 0);
+  let current = 0;
+  onProgress({ current, total });
   await fs.mkdir(path.dirname(output), { recursive: true });
   const target = createWriteStream(output);
   const gzip = createGzip({ level: 6 });
@@ -49,7 +53,7 @@ export async function writeUniverseArchive(output, entries) {
   for (const entry of entries) {
     index += 1;
     const archivePath = validateArchivePath(entry.path);
-    const size = entry.buffer ? entry.buffer.length : (await fs.stat(entry.file)).size;
+    const size = sizes[index - 1];
     const pax = Buffer.from(paxRecord("path", archivePath), "utf8");
     await writeChunk(gzip, tarHeader(`PaxHeaders/${index}`, pax.length, "x"));
     await writeChunk(gzip, pax);
@@ -58,8 +62,14 @@ export async function writeUniverseArchive(output, entries) {
 
     if (entry.buffer) {
       await writeChunk(gzip, entry.buffer);
+      current += entry.buffer.length;
+      onProgress({ current, total });
     } else {
-      for await (const chunk of createReadStream(entry.file)) await writeChunk(gzip, chunk);
+      for await (const chunk of createReadStream(entry.file)) {
+        await writeChunk(gzip, chunk);
+        current += chunk.length;
+        onProgress({ current, total });
+      }
     }
     await writePadding(gzip, size);
   }
@@ -69,7 +79,7 @@ export async function writeUniverseArchive(output, entries) {
   await Promise.all([finished(gzip), finished(target)]);
 }
 
-export async function extractUniverseArchive(packagePath, destination) {
+export async function extractUniverseArchive(packagePath, destination, { onProgress = () => {} } = {}) {
   await fs.mkdir(destination, { recursive: true });
   const stream = createReadStream(packagePath).pipe(createGunzip());
   const reader = new ChunkReader(stream[Symbol.asyncIterator]());
@@ -109,6 +119,7 @@ export async function extractUniverseArchive(packagePath, destination) {
     await fs.mkdir(path.dirname(target), { recursive: true });
     await fs.writeFile(target, data);
     extracted.push({ path: archivePath, file: target, bytes: data.length });
+    onProgress({ current: extracted.length, path: archivePath });
   }
 
   return extracted;

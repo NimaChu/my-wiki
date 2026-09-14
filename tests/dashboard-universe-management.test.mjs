@@ -163,6 +163,31 @@ function concept({ title, universes, source = "", body, relationHint = "" }) {
   return `---\ntype: Concept\ntitle: ${title}\ndescription: Test concept.\nstatus: stable\ntags:\n  - test\nuniverses:\n${universes.map((name) => `  - ${name}`).join("\n")}\n${sources}${relation}generated:\n  by: process:test\n  at: 2026-08-28T00:00:00.000Z\n---\n\n# ${title}\n\n${body}\n`;
 }
 
+test("Chinese galaxy names export with a valid downloadable filename", async (context) => {
+  const { vault, dashboard } = await fixture(context);
+  const server = http.createServer(createDashboardApi({ dashboardRoot: dashboard, port: 0, agentRunner: { info: async () => ({}) } }));
+  context.after(() => { server.closeAllConnections(); server.close(); });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = server.address().port;
+  const { body: { token } } = await request(port, "GET", "/api/v1/session");
+  await request(port, "POST", "/api/v1/universes/rename", token, { name: "Galaxy A", newName: "人工智能" });
+  const started = await request(port, "POST", "/api/v1/universes/export", token, { universe: "人工智能" });
+  assert.equal(started.status, 202);
+  let job = started.body;
+  for (let attempt = 0; attempt < 100 && !["complete", "failed"].includes(job.status); attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    job = (await request(port, "GET", `/api/v1/jobs/${job.id}`, token)).body;
+  }
+  assert.equal(job.status, "complete", job.error);
+  assert.deepEqual(job.meta.progress, { phase: "complete", current: 1, total: 1, percent: 100 });
+  const response = await fetch(`http://127.0.0.1:${port}${job.downloadUrl}`, { headers: { "x-my-wiki-token": token } });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-disposition"), /filename\*=UTF-8''%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD/);
+  const downloaded = Buffer.from(await response.arrayBuffer());
+  assert.equal(downloaded.length, Number(response.headers.get("content-length")));
+  assert.deepEqual(downloaded, await readFile(job.result.output));
+});
+
 function reference({ title, slug, galaxy }) {
   return `---\ntype: Reference\ntitle: ${title}\ndescription: Test evidence.\nstatus: stable\nworkflow_status: processed\nsuggested_universe: ${galaxy}\nsnapshot_path: references/originals/${slug}.txt\nimage_index_path: references/assets/${slug}/index.json\ngenerated:\n  by: process:test\n  at: 2026-08-28T00:00:00.000Z\n---\n\n# ${title}\n\nEvidence body.\n`;
 }

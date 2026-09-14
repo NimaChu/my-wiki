@@ -36,7 +36,7 @@ const graphExcludedIds = new Set([
 ]);
 
 function isGraphExcluded(id) {
-  return graphExcludedIds.has(id) || id === "README" || id.endsWith("/README");
+  return graphExcludedIds.has(id) || id === "README" || (id.endsWith("/README") && !id.startsWith("references/sources/"));
 }
 
 async function exists(target) {

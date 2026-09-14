@@ -1,8 +1,10 @@
 import { lazy, Suspense, type CSSProperties, type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bot, BookOpen, Check, CirclePause, Copy, Download, Globe2, HardDriveDownload, History, Layers3, Maximize2, MessageSquarePlus, Minimize2, MoveDiagonal2, NotebookPen, PawPrint, SendHorizontal, Trash2, X } from "lucide-react";
-import { AgentAnswer, AgentInfo, AgentPreferences, Job, localApi, PetAppearance, UniverseSummary, waitForJob } from "./api";
+import { Bot, BookOpen, Check, ChevronDown, CirclePause, Copy, Download, Globe2, HardDriveDownload, History, Layers3, Maximize2, MessageSquarePlus, Minimize2, MoveDiagonal2, NotebookPen, PawPrint, SendHorizontal, Trash2, X } from "lucide-react";
+import { AgentAnswer, AgentInfo, AgentPreferences, AnswerStream, Job, localApi, PetAppearance, UniverseSummary, waitForAnswer, waitForJob } from "./api";
 import { shouldSubmitVikiComposer } from "./viki-composer.js";
+import { vikiModelSelection } from "./viki-models.js";
+import { stripDanglingSourceFootnotes } from "./answer-markdown.js";
 import { promoteVaultMarkdownImages } from "./viki-markdown.js";
 import { conversationExportBundle, conversationFilename, conversationNoteBundle, conversationToMarkdown } from "./viki-conversation.js";
 
@@ -20,12 +22,14 @@ type ChatMessage = {
   sources?: AgentAnswer["sources"];
   images?: AgentAnswer["images"];
   contextExcluded?: boolean;
+  contextReceipt?: AgentAnswer["contextReceipt"];
 };
 type VikiConversation = {
   id: string;
   title: string;
   createdAt: string;
   updatedAt: string;
+  pendingJobId?: string;
   messages: ChatMessage[];
 };
 type VikiChatState = { activeId: string; conversations: VikiConversation[] };
@@ -37,7 +41,6 @@ const EDGE_GAP = 16;
 const PANEL_GAP = 10;
 const DEFAULT_PANEL_SIZE = { width: 640, height: 480 };
 const MIN_PANEL_SIZE = { width: 480, height: 360 };
-const COMPACT_HEADER_WIDTH = 680;
 const POSITION_KEY = "my-wiki-viki-position";
 const PROVIDER_KEY = "my-wiki-viki-provider";
 const MODEL_KEY = "my-wiki-viki-models-v1";
@@ -63,18 +66,24 @@ const copy = {
       "Organizing evidence into a clear answer",
       "Still working carefully on the details"
     ],
-    unavailable: "Connect a signed-in Codex, OpenCode, Qoder, or Claude CLI to use Viki.",
+    unavailable: "No available Viki execution provider.",
     sources: "Evidence",
     ready: "Ready",
     busy: "Working",
+    backgroundBusy: "Another conversation is answering. Wait for it to finish.",
     pause: "Pause current answer",
     paused: "Answer paused. You can continue with another question.",
+    incomplete: "Incomplete answer.",
+    failureReason: "Failure reason",
+    phases: { starting: "Starting agent", thinking: "Thinking", reading: "Reading evidence", searching: "Searching", generating: "Writing the answer", retrying: "Trying the fallback model" } as Record<string, string>,
     resize: "Resize Viki",
     enterFullscreen: "Open full screen",
     exitFullscreen: "Exit full screen",
-    agentCli: "Agent CLI",
+    agentCli: "Execution",
     model: "Model",
     savedModel: "Saved model",
+    chooseModel: "Select a model",
+    noModels: "No available models",
     agentSettings: "Agent and model",
     cliDefault: "CLI default",
     currentCli: "Current answer",
@@ -116,18 +125,24 @@ const copy = {
       "正在组织证据与回答结构",
       "仍在认真处理其中的细节"
     ],
-    unavailable: "请先安装并登录 Codex、OpenCode、Qoder 或 Claude CLI，再使用 Viki。",
+    unavailable: "暂无可用的 Viki 执行方式。",
     sources: "参考证据",
     ready: "已就绪",
     busy: "工作中",
+    backgroundBusy: "另一会话正在回答，请等待完成。",
     pause: "暂停当前回答",
     paused: "本轮回答已暂停，可以继续提问。",
+    incomplete: "回答未完成。",
+    failureReason: "失败原因",
+    phases: { starting: "正在启动 Agent", thinking: "正在思考", reading: "正在阅读证据", searching: "正在搜索", generating: "正在生成回答", retrying: "正在尝试备用模型" } as Record<string, string>,
     resize: "调整 Viki 窗口大小",
     enterFullscreen: "进入全屏",
     exitFullscreen: "退出全屏",
-    agentCli: "Agent CLI",
+    agentCli: "执行方式",
     model: "模型",
     savedModel: "已保存模型",
+    chooseModel: "选择模型",
+    noModels: "暂无可用模型",
     agentSettings: "Agent 与模型",
     cliDefault: "CLI 默认",
     currentCli: "本轮",
@@ -231,10 +246,15 @@ function GalaxyScopePicker({
   );
 }
 
-export function Viki({ language }: { language: Language }) {
+export function Viki({ language, onOpenDocument, standalone = false }: { language: Language; onOpenDocument: (path: string) => void; standalone?: boolean }) {
   const l = copy[language];
-  const [open, setOpen] = useState(false);
-  const [fullscreen, setFullscreen] = useState(false);
+  const [windowOpen, setOpen] = useState(false);
+  const [windowFullscreen, setFullscreen] = useState(false);
+  const open = standalone || windowOpen;
+  const fullscreen = standalone || windowFullscreen;
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const sidebarToggleRef = useRef<HTMLButtonElement>(null);
   const [agent, setAgent] = useState<AgentInfo | null>(null);
   const [pets, setPets] = useState<PetAppearance[]>([]);
   const [petId, setPetId] = useState("");
@@ -245,16 +265,18 @@ export function Viki({ language }: { language: Language }) {
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const [exportMenuConversationId, setExportMenuConversationId] = useState<string | null>(null);
   const [chatState, setChatState] = useState<VikiChatState>(() => initialChatState());
-  const [question, setQuestion] = useState("");
+  const [questions, setQuestions] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState<(AnswerStream & { conversationId: string }) | null>(null);
   const [activeRequest, setActiveRequestState] = useState<ActiveRequest | null>(null);
   const [webSearch, setWebSearch] = useState(() => initialWebSearch());
   const [galaxies, setGalaxies] = useState<UniverseSummary[]>([]);
+  const previousVisibleGalaxies = useRef<string[] | null>(null);
   const [selectedGalaxies, setSelectedGalaxies] = useState<string[]>([]);
   const [galaxyMenuOpen, setGalaxyMenuOpen] = useState(false);
   const [thinkingStep, setThinkingStep] = useState(0);
   const [copiedAnswer, setCopiedAnswer] = useState("");
-  const [error, setError] = useState("");
+  const [conversationErrors, setConversationErrors] = useState<Record<string, string>>({});
   const [openedImage, setOpenedImage] = useState<OpenedImage | null>(null);
   const [viewport, setViewport] = useState(() => currentViewport());
   const [position, setPositionState] = useState<VikiPosition>(() => initialPosition());
@@ -264,6 +286,8 @@ export function Viki({ language }: { language: Language }) {
   const [dragDirection, setDragDirection] = useState<"left" | "right">("right");
   const [hovered, setHovered] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const followAnswerRef = useRef(true);
+  const answerSubscriptionRef = useRef<AbortController | null>(null);
   const petPickerRef = useRef<HTMLDivElement>(null);
   const sessionPickerRef = useRef<HTMLDivElement>(null);
   const agentPickerRef = useRef<HTMLDivElement>(null);
@@ -288,6 +312,16 @@ export function Viki({ language }: { language: Language }) {
 
   const conversation = chatState.conversations.find((item) => item.id === chatState.activeId) || chatState.conversations[0];
   const messages = conversation?.messages || [];
+  const visibleDraft = draft?.conversationId === conversation?.id ? draft : null;
+  const visibleRequest = activeRequest?.conversationId === conversation?.id ? activeRequest : null;
+  const requestConversationId = activeRequest?.conversationId || (agent?.busy ? String(agent.activeJob?.meta?.conversationId || "") : "");
+  const serviceBusy = busy || agent?.busy === true;
+  const conversationBusy = serviceBusy && requestConversationId === conversation?.id;
+  const canPause = conversationBusy && !!visibleRequest?.jobId;
+  const question = questions[conversation?.id] || "";
+  const error = conversationErrors[conversation?.id] || "";
+  const setQuestion = (value: string) => setQuestions((current) => ({ ...current, [conversation.id]: value }));
+  const setError = (value: string, conversationId = conversation.id) => setConversationErrors((current) => ({ ...current, [conversationId]: value }));
 
   const setActiveRequest = (value: ActiveRequest | null) => {
     activeRequestRef.current = value;
@@ -306,21 +340,22 @@ export function Viki({ language }: { language: Language }) {
 
   useEffect(() => {
     Promise.all([
-      localApi.agent(),
+      localApi.vikiAgent(),
       localApi.agentPreferences().catch(() => null)
-    ]).then(([nextAgent, remotePreferences]) => {
+    ]).then(async ([nextAgent, remotePreferences]) => {
       setAgent(nextAgent);
       const saved = mergedVikiPreferences(remotePreferences);
       const nextProvider = selectInitialProvider(nextAgent, saved.provider);
       setProvider(nextProvider);
-      setModel(selectInitialModel(nextAgent, nextProvider, saved.models));
+      setModel(selectInitialModel(nextProvider, saved.models));
       const preferredProvider = saved.provider || nextProvider;
       cacheVikiPreferences(preferredProvider, saved.models);
-      void localApi.saveAgentPreferences({
+      if (!remotePreferences?.viki.provider) void localApi.saveAgentPreferences({
         viki: { provider: preferredProvider, models: saved.models }
       }).catch(() => {});
       setBusy(nextAgent.busy);
-      const active = nextAgent.activeJob;
+      const pending = chatState.conversations.find((item) => item.pendingJobId);
+      const active = nextAgent.activeJob || (pending?.pendingJobId ? await localApi.job(pending.pendingJobId).catch(() => null) : null);
       const conversationId = String(active?.meta?.conversationId || "");
       if (active && resumedJobRef.current !== active.id) {
         resumedJobRef.current = active.id;
@@ -338,7 +373,7 @@ export function Viki({ language }: { language: Language }) {
         } else {
           void waitForJob(active)
             .catch(() => undefined)
-            .finally(() => localApi.agent().then((latest) => {
+            .finally(() => localApi.vikiAgent().then((latest) => {
               setAgent(latest);
               setBusy(latest.busy);
             }).catch(() => setBusy(false)));
@@ -363,6 +398,7 @@ export function Viki({ language }: { language: Language }) {
   }, [l.unavailable]);
 
   useEffect(() => {
+    if (standalone) return;
     localApi.pets().then(({ pets: nextPets }) => {
       setPets(nextPets);
       setPetId(selectInitialPet(nextPets));
@@ -370,16 +406,45 @@ export function Viki({ language }: { language: Language }) {
       setPets([]);
       setPetId("");
     });
-  }, []);
+  }, [standalone]);
 
   useEffect(() => {
-    localApi.universes().then(({ universes }) => {
-      setGalaxies(universes);
-      setSelectedGalaxies(universes.filter((item) => !item.hidden).map((item) => item.name));
-    }).catch(() => {
-      setGalaxies([]);
-      setSelectedGalaxies([]);
-    });
+    let cancelled = false;
+    let revision = 0;
+    const refresh = () => {
+      const request = ++revision;
+      void localApi.universes().then(({ universes }) => {
+        if (cancelled || request !== revision) return;
+        const visible = universes.filter((item) => !item.hidden);
+        const names = visible.map((item) => item.name);
+        const previous = previousVisibleGalaxies.current;
+        previousVisibleGalaxies.current = names;
+        setGalaxies(visible);
+        setSelectedGalaxies((current) => !previous || (current.length === previous.length && current.every((name) => previous.includes(name)))
+          ? names : current.filter((name) => names.includes(name)));
+      }).catch(() => {});
+    };
+    refresh();
+    window.addEventListener("my-wiki:graph-updated", refresh);
+    window.addEventListener("focus", refresh);
+    return () => { cancelled = true; window.removeEventListener("my-wiki:graph-updated", refresh); window.removeEventListener("focus", refresh); };
+  }, [open]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => { void localApi.vikiAgent().then((next) => { if (!cancelled) setAgent(next); }).catch(() => {}); };
+    const applyPreferences = (event: Event) => {
+      const preferences = (event as CustomEvent<AgentPreferences>).detail;
+      if (!preferences?.viki) return;
+      const next = preferences.viki;
+      setProvider(next.provider);
+      setModel(next.models[next.provider] || "");
+      cacheVikiPreferences(next.provider, next.models);
+      refresh();
+    };
+    window.addEventListener("my-wiki:providers-updated", refresh);
+    window.addEventListener("my-wiki:agent-preferences-updated", applyPreferences);
+    return () => { cancelled = true; window.removeEventListener("my-wiki:providers-updated", refresh); window.removeEventListener("my-wiki:agent-preferences-updated", applyPreferences); };
   }, []);
 
   useEffect(() => {
@@ -396,18 +461,35 @@ export function Viki({ language }: { language: Language }) {
   }, [petMenuOpen, sessionMenuOpen, exportMenuConversationId, agentMenuOpen, galaxyMenuOpen]);
 
   useEffect(() => {
+    if (!agentMenuOpen) return;
+    const menu = agentPickerRef.current?.querySelector('[role="menu"]');
+    const selected = menu?.querySelector<HTMLButtonElement>('[aria-checked="true"]') || menu?.querySelector<HTMLButtonElement>('button');
+    selected?.focus({ preventScroll: true });
+    selected?.scrollIntoView({ block: "nearest" });
+  }, [agentMenuOpen]);
+
+  useEffect(() => {
     persistChatState(chatState);
   }, [chatState]);
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ block: "end" });
-  }, [messages, busy, open]);
+  }, [messages, conversationBusy, open]);
+
+  useEffect(() => {
+    if (open && followAnswerRef.current) endRef.current?.scrollIntoView({ block: "end" });
+  }, [visibleDraft, open]);
+
+  useEffect(() => () => {
+    requestVersionRef.current += 1;
+    answerSubscriptionRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     if (!fullscreen) return;
     const previousOverflow = document.body.style.overflow;
     const exitOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !openedImage) setFullscreen(false);
+      if (!standalone && event.key === "Escape" && !openedImage && !document.body.classList.contains("has-markdown-workspace") && !document.body.classList.contains("has-document-preview")) setFullscreen(false);
     };
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", exitOnEscape);
@@ -415,16 +497,40 @@ export function Viki({ language }: { language: Language }) {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", exitOnEscape);
     };
-  }, [fullscreen, openedImage]);
+  }, [fullscreen, openedImage, standalone]);
+
+  useEffect(() => {
+    if (!standalone || !sidebarOpen) return;
+    const sidebar = sidebarRef.current;
+    const background = sidebar?.parentElement?.querySelectorAll("header, .viki-conversation, .viki-composer");
+    background?.forEach((element) => element.setAttribute("inert", ""));
+    const controls = () => [...(sidebar?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || [])];
+    controls()[0]?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); setSidebarOpen(false); }
+      if (event.key !== "Tab") return;
+      const buttons = controls();
+      const first = buttons[0];
+      const last = buttons[buttons.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    sidebar?.addEventListener("keydown", onKeyDown);
+    return () => {
+      background?.forEach((element) => element.removeAttribute("inert"));
+      sidebar?.removeEventListener("keydown", onKeyDown);
+      sidebarToggleRef.current?.focus({ preventScroll: true });
+    };
+  }, [standalone, sidebarOpen]);
 
   useEffect(() => {
     setThinkingStep(0);
-    if (!busy) return;
+    if (!conversationBusy) return;
     const timer = window.setInterval(() => {
       setThinkingStep((current) => (current + 1) % copy[language].thinking.length);
     }, 4200);
     return () => window.clearInterval(timer);
-  }, [busy, language]);
+  }, [conversationBusy, conversation?.id, language]);
 
   useEffect(() => {
     const onResize = () => {
@@ -443,28 +549,55 @@ export function Viki({ language }: { language: Language }) {
 
   const history = useMemo(() => messages.filter((message) => !message.contextExcluded).slice(-8).map((message) => ({
     role: message.role,
-    content: message.content
+    content: message.content,
+    contextReceipt: message.contextReceipt
   })), [messages]);
 
   const consumeAnswer = async (initialJob: Job, request: ActiveRequest) => {
     const requestVersion = ++requestVersionRef.current;
+    answerSubscriptionRef.current?.abort();
+    const subscription = new AbortController();
+    answerSubscriptionRef.current = subscription;
+    setChatState((current) => ({ ...current, conversations: current.conversations.map((item) =>
+      item.id === request.conversationId ? { ...item, pendingJobId: initialJob.id } : item) }));
+    let latest = initialJob.stream || { text: "", phase: "starting", revision: 0 };
+    let renderTimer: ReturnType<typeof setTimeout> | undefined;
+    const update = (state: AnswerStream) => {
+      latest = state;
+      if (renderTimer !== undefined) return;
+      renderTimer = setTimeout(() => {
+        renderTimer = undefined;
+        if (requestVersionRef.current === requestVersion) setDraft({ ...latest, conversationId: request.conversationId });
+      }, 50);
+    };
+    update(latest);
     setBusy(true);
     try {
-      const complete = await waitForJob(initialJob);
+      const complete = await waitForAnswer(initialJob, update, subscription.signal);
       if (requestVersionRef.current !== requestVersion) return;
-      const answer = complete.result as AgentAnswer;
-      appendConversationMessage(request.conversationId, {
-        id: complete.id,
-        role: "assistant",
-        content: answer.answerMarkdown,
-        sources: answer.sources,
-        images: answer.images
-      });
-      setAgent(await localApi.agent());
+      if (complete.status === "complete") {
+        const answer = complete.result as AgentAnswer;
+        appendConversationMessage(request.conversationId, {
+          id: complete.id, role: "assistant", content: answer.answerMarkdown,
+          sources: answer.sources, images: answer.images, contextReceipt: answer.contextReceipt
+        });
+      } else {
+        const partial = complete.stream?.text || latest.text;
+        appendConversationMessage(request.conversationId, {
+          id: complete.id, role: "assistant", contextExcluded: true,
+          content: [partial, complete.status === "cancelled" ? l.paused : l.incomplete,
+            complete.status === "failed" && complete.error ? `${l.failureReason}: ${complete.error}` : ""].filter(Boolean).join("\n\n")
+        });
+        if (complete.status === "failed") setError(`${complete.error} ${l.retry}`, request.conversationId);
+      }
+      const nextAgent = await localApi.vikiAgent().catch(() => null);
+      if (nextAgent && requestVersionRef.current === requestVersion) setAgent(nextAgent);
     } catch (nextError) {
-      if (requestVersionRef.current === requestVersion) setError(`${errorMessage(nextError)} ${l.retry}`);
+      if (requestVersionRef.current === requestVersion) setError(`${errorMessage(nextError)} ${l.retry}`, request.conversationId);
     } finally {
+      clearTimeout(renderTimer);
       if (requestVersionRef.current === requestVersion) {
+        setDraft(null);
         setBusy(false);
         setActiveRequest(null);
       }
@@ -473,10 +606,10 @@ export function Viki({ language }: { language: Language }) {
 
   const ask = async () => {
     const value = question.trim();
-    if (!value || !provider || selectedGalaxies.length === 0 || busy || activeRequestRef.current || agent?.busy || agent?.available !== true || !conversation) return;
+    if (!value || !provider || !modelSelection.selected || !agent?.providers.some((item) => item.provider === provider) || selectedGalaxies.length === 0 || busy || activeRequestRef.current || agent?.busy || agent?.available !== true || !conversation) return;
     const conversationId = conversation.id;
     const requestProvider = provider;
-    const requestModel = model;
+    const requestModel = modelSelection.selected;
     const requestWebSearch = webSearch;
     const requestGalaxies = [...selectedGalaxies];
     const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content: value };
@@ -484,40 +617,32 @@ export function Viki({ language }: { language: Language }) {
     setQuestion("");
     setError("");
     setBusy(true);
+    // Bind the submitting state before the server assigns a job ID.
+    const pendingRequest = { jobId: "", conversationId, provider: requestProvider, model: requestModel, webSearch: requestWebSearch, galaxies: requestGalaxies };
+    setActiveRequest(pendingRequest);
     try {
       const initialJob = await localApi.ask(value, history, language, requestProvider, requestModel, conversationId, requestWebSearch, requestGalaxies);
-      const request = { jobId: initialJob.id, conversationId, provider: requestProvider, model: requestModel, webSearch: requestWebSearch, galaxies: requestGalaxies };
+      const request = { ...pendingRequest, jobId: initialJob.id };
       setActiveRequest(request);
       await consumeAnswer(initialJob, request);
     } catch (nextError) {
       setBusy(false);
       setActiveRequest(null);
-      setError(`${errorMessage(nextError)} ${l.retry}`);
+      setError(`${errorMessage(nextError)} ${l.retry}`, conversationId);
+      window.dispatchEvent(new Event("my-wiki:graph-updated"));
     }
   };
 
   const pauseAnswer = async () => {
     const request = activeRequestRef.current;
-    if (!request) return;
-    setError("");
+    if (!request?.jobId || request.conversationId !== conversation.id) return;
+    setError("", request.conversationId);
     try {
-      const paused = await localApi.cancelQuery(request.jobId);
-      if (paused.cancelled) {
-        requestVersionRef.current += 1;
-        appendConversationMessage(request.conversationId, {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: l.paused,
-          contextExcluded: true
-        });
-        setActiveRequest(null);
-      }
-      const nextAgent = await localApi.agent();
-      setAgent(nextAgent);
-      setBusy(paused.cancelled ? nextAgent.busy : true);
+      await localApi.cancelQuery(request.jobId);
+      // The terminal event (or polling recovery) owns the single final message.
     } catch (nextError) {
-      setError(`${errorMessage(nextError)} ${l.retry}`);
-      const nextAgent = await localApi.agent().catch(() => null);
+      setError(`${errorMessage(nextError)} ${l.retry}`, request.conversationId);
+      const nextAgent = await localApi.vikiAgent().catch(() => null);
       if (nextAgent) {
         setAgent(nextAgent);
         setBusy(nextAgent.busy);
@@ -525,17 +650,12 @@ export function Viki({ language }: { language: Language }) {
     }
   };
 
-  const changeProvider = (nextProvider: string) => {
-    setProvider(nextProvider);
-    setModel(selectInitialModel(agent, nextProvider));
-    setError("");
-    persistProvider(nextProvider);
-  };
-
   const changeModel = (nextModel: string) => {
     setModel(nextModel);
     setError("");
     persistModel(provider, nextModel);
+    setAgentMenuOpen(false);
+    agentPickerRef.current?.querySelector<HTMLButtonElement>(".viki-agent-toggle")?.focus();
   };
 
   const appendConversationMessage = (conversationId: string, message: ChatMessage, firstQuestion = "") => {
@@ -546,13 +666,15 @@ export function Viki({ language }: { language: Language }) {
             ...item,
             title: item.title || conversationTitle(firstQuestion),
             updatedAt: new Date().toISOString(),
-            messages: [...item.messages, message].slice(-MAX_MESSAGES_PER_CONVERSATION)
+            pendingJobId: item.pendingJobId === message.id ? undefined : item.pendingJobId,
+            messages: [...item.messages.filter((existing) => existing.id !== message.id), message].slice(-MAX_MESSAGES_PER_CONVERSATION)
           }
         : item)
     }));
   };
 
   const newConversation = () => {
+    setSidebarOpen(false);
     if (conversation && conversation.messages.length === 0) {
       setQuestion("");
       setError("");
@@ -564,14 +686,13 @@ export function Viki({ language }: { language: Language }) {
       activeId: next.id,
       conversations: [next, ...current.conversations].slice(0, MAX_CONVERSATIONS)
     }));
-    setQuestion("");
-    setError("");
     setSessionMenuOpen(false);
   };
 
   const openConversation = (conversationId: string) => {
+    setSidebarOpen(false);
+    followAnswerRef.current = true;
     setChatState((current) => ({ ...current, activeId: conversationId }));
-    setError("");
     setSessionMenuOpen(false);
   };
 
@@ -721,18 +842,19 @@ export function Viki({ language }: { language: Language }) {
   const panelDirections = vikiPanelDirections(position, viewport);
   const panelOffset = vikiPanelOffset(position, viewport, panelSize);
   const resizeCorner = `${panelDirections.yDirection === 1 ? "bottom" : "top"}-${panelDirections.xDirection === 1 ? "right" : "left"}`;
-  const providerLabel = agent?.providers.find((item) => item.provider === provider)?.label || agent?.label || "";
+  const providerLabel = agent?.providers.find((item) => item.provider === provider)?.label || provider || l.agentSettings;
   const selectedProvider = agent?.providers.find((item) => item.provider === provider);
-  const modelLabel = agentModelLabel(agent, provider, model, l.cliDefault);
-  const currentSelection = activeRequest
-    ? agentSelectionLabel(agent, activeRequest.provider, activeRequest.model, l.cliDefault)
+  const modelSelection = vikiModelSelection(selectedProvider, model);
+  const modelLabel = modelSelection.label;
+  const currentSelection = visibleRequest
+    ? agentSelectionLabel(agent, visibleRequest.provider, visibleRequest.model, l.cliDefault)
     : "";
   const nextSelection = agentSelectionLabel(agent, provider, model, l.cliDefault);
   const galaxyScopeLabel = selectedGalaxies.length === galaxies.length ? l.allGalaxies : selectedGalaxies.join(", ");
   const pet = pets.find((item) => item.id === petId) || pets[0];
   const petState: PetAnimationState = dragging
     ? dragDirection === "left" ? "running-left" : "running-right"
-    : busy || agent?.busy ? "working"
+    : conversationBusy ? "working"
       : error ? "failed"
         : agent?.available === false ? "waiting"
           : hovered ? "waving" : "idle";
@@ -741,19 +863,22 @@ export function Viki({ language }: { language: Language }) {
 
   return (
     <aside
-      className={`viki ${open ? "is-open" : ""} ${fullscreen ? "is-fullscreen" : ""} ${dragging ? "is-dragging" : ""} ${resizing ? "is-resizing" : ""}`}
+      className={`viki ${open ? "is-open" : ""} ${fullscreen ? "is-fullscreen" : ""} ${standalone ? "is-standalone" : ""} ${dragging ? "is-dragging" : ""} ${resizing ? "is-resizing" : ""}`}
       aria-live="polite"
       style={fullscreen ? undefined : { left: position.x, top: position.y }}
     >
       {open ? (
         <section
-          className={`viki-panel has-resize-${resizeCorner} ${fullscreen ? "is-fullscreen" : panelSize.width <= COMPACT_HEADER_WIDTH ? "is-compact-header" : ""}`}
+          className={`viki-panel has-resize-${resizeCorner} ${fullscreen ? "is-fullscreen" : ""}`}
           aria-label="Viki"
           style={fullscreen ? undefined : { left: panelOffset.x, top: panelOffset.y, width: panelSize.width, height: panelSize.height }}
         >
-          <nav className="viki-fullscreen-sidebar" aria-label={l.history}>
+          {standalone && sidebarOpen ? <div className="viki-sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-hidden="true" /> : null}
+          <nav className={`viki-fullscreen-sidebar ${sidebarOpen ? "is-expanded" : ""}`} aria-label={l.history}
+            ref={sidebarRef} role={standalone ? "dialog" : undefined} aria-modal={standalone && sidebarOpen ? true : undefined}>
             <div className="viki-fullscreen-sidebar-header">
               <strong>Viki</strong>
+              {standalone ? <button type="button" aria-label={language === "zh" ? "关闭会话历史" : "Close history"} onClick={() => setSidebarOpen(false)}><X size={20} /></button> : null}
               <button type="button" aria-label={l.newConversation} title={l.newConversation} onClick={newConversation}>
                 <MessageSquarePlus size={16} aria-hidden="true" />
               </button>
@@ -786,9 +911,9 @@ export function Viki({ language }: { language: Language }) {
                             <button type="button" role="menuitem" onClick={() => void exportConversationLocally(item).catch((nextError) => setError(`${errorMessage(nextError)} ${l.retry}`))}>
                               <HardDriveDownload size={15} />{l.exportLocal}
                             </button>
-                            <button type="button" role="menuitem" onClick={() => void exportConversationToNote(item).catch((nextError) => setError(`${errorMessage(nextError)} ${l.retry}`))}>
+                            {!standalone ? <button type="button" role="menuitem" onClick={() => void exportConversationToNote(item).catch((nextError) => setError(`${errorMessage(nextError)} ${l.retry}`))}>
                               <NotebookPen size={15} />{l.exportNote}
-                            </button>
+                            </button> : null}
                           </div>
                         ) : null}
                       </div>
@@ -809,6 +934,7 @@ export function Viki({ language }: { language: Language }) {
           </nav>
           <header>
             <div className="viki-identity">
+              {standalone ? <button type="button" ref={sidebarToggleRef} aria-label={l.history} aria-expanded={sidebarOpen} onClick={() => setSidebarOpen((value) => !value)}><History size={20} /></button> : null}
               <strong>Viki</strong>
               {!fullscreen && pets.length ? (
                 <div className="viki-pet-picker" ref={petPickerRef}>
@@ -847,6 +973,7 @@ export function Viki({ language }: { language: Language }) {
               ) : null}
             </div>
             <div className="viki-status">
+              {standalone ? <button type="button" aria-label={l.newConversation} onClick={newConversation}><MessageSquarePlus size={20} /></button> : null}
               <div className="viki-header-actions is-leading">
                 {!fullscreen ? <button
                   className="viki-icon-tooltip"
@@ -925,70 +1052,12 @@ export function Viki({ language }: { language: Language }) {
                   </div>
                 ) : null}
                 </div> : null}
-                {!fullscreen ? <button
-                  className={`viki-web-toggle viki-icon-tooltip ${webSearch ? "is-active" : ""}`}
-                  type="button"
-                  aria-label={`${l.webSearch}: ${webSearch ? l.webSearchOn : l.webSearchOff}`}
-                  data-tooltip={`${l.webSearch}: ${webSearch ? l.webSearchOn : l.webSearchOff}`}
-                  aria-pressed={webSearch}
-                  onClick={() => {
-                    const next = !webSearch;
-                    setWebSearch(next);
-                    persistWebSearch(next);
-                  }}
-                >
-                  <Globe2 size={16} aria-hidden="true" />
-                </button> : null}
               </div>
               <div className="viki-header-selections">
-                {!fullscreen ? <GalaxyScopePicker
-                  galaxies={galaxies}
-                  selected={selectedGalaxies}
-                  open={galaxyMenuOpen}
-                  onOpenChange={setGalaxyMenuOpen}
-                  onChange={setSelectedGalaxies}
-                  containerRef={galaxyPickerRef}
-                  labels={{ scope: l.galaxyScope, all: l.allGalaxies, selected: l.selectedGalaxies, count: l.galaxyCount }}
-                /> : null}
-                {!fullscreen && agent?.providers.length ? (
-                  <div className="viki-agent-picker" ref={agentPickerRef}>
-                  <button
-                    className="viki-agent-toggle"
-                    type="button"
-                    aria-label={l.agentSettings}
-                    title={l.agentSettings}
-                    aria-haspopup="dialog"
-                    aria-expanded={agentMenuOpen}
-                    onClick={() => setAgentMenuOpen((value) => !value)}
-                  >
-                    <span>{compactAgentSelection(providerLabel, modelLabel)}</span>
-                  </button>
-                  {agentMenuOpen ? (
-                    <div className="viki-agent-menu" role="dialog" aria-label={l.agentSettings}>
-                      <label>
-                        <span>{l.agentCli}</span>
-                        <select value={provider} onChange={(event) => changeProvider(event.target.value)}>
-                          {agent.providers.map((item) => <option key={item.provider} value={item.provider}>{item.label}</option>)}
-                        </select>
-                      </label>
-                      {selectedProvider ? (
-                        <label>
-                          <span>{l.model}</span>
-                          <select value={model} onChange={(event) => changeModel(event.target.value)}>
-                            <option value="">{selectedProvider.defaultModel ? `${l.cliDefault} · ${selectedProvider.defaultModel}` : l.cliDefault}</option>
-                            {model && !(selectedProvider.models || []).some((item) => item.id === model) ? <option value={model}>{model} · {l.savedModel}</option> : null}
-                            {(selectedProvider.models || []).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                          </select>
-                        </label>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  </div>
-                ) : null}
-                <span className={busy || agent?.busy ? "is-busy" : ""}>{busy || agent?.busy ? l.busy : l.ready}</span>
+                <span className={conversationBusy ? "is-busy" : ""}>{conversationBusy ? l.busy : l.ready}</span>
               </div>
               <div className="viki-header-actions is-trailing">
-                <button
+                {!standalone ? <button
                   className="viki-icon-tooltip"
                   type="button"
                   aria-label={fullscreen ? l.exitFullscreen : l.enterFullscreen}
@@ -997,8 +1066,8 @@ export function Viki({ language }: { language: Language }) {
                   onClick={() => setFullscreen((value) => !value)}
                 >
                   {fullscreen ? <Minimize2 size={17} aria-hidden="true" /> : <Maximize2 size={17} aria-hidden="true" />}
-                </button>
-                <button
+                </button> : null}
+                {!standalone ? <button
                   className="viki-icon-tooltip"
                   type="button"
                   aria-label={l.close}
@@ -1006,15 +1075,18 @@ export function Viki({ language }: { language: Language }) {
                   onClick={closeViki}
                 >
                   <X size={17} aria-hidden="true" />
-                </button>
+                </button> : null}
               </div>
             </div>
           </header>
 
-          <div className="viki-conversation">
+          <div className="viki-conversation" onScroll={(event) => {
+            const element = event.currentTarget;
+            followAnswerRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100;
+          }}>
             {messages.length === 0 ? (
               <div className="viki-welcome">
-                <span className="viki-avatar large"><VikiPet pet={pet} state={petState} size={62} fallbackSize={27} /></span>
+                {!standalone ? <span className="viki-avatar large"><VikiPet pet={pet} state={petState} size={62} fallbackSize={27} /></span> : null}
                 <p>{agent?.available === false ? agent.message || l.unavailable : l.welcome}</p>
                 {providerLabel ? <small>{providerLabel} · {modelLabel}</small> : null}
               </div>
@@ -1022,12 +1094,12 @@ export function Viki({ language }: { language: Language }) {
             {messages.map((message) => (
               <article key={message.id} className={`viki-message is-${message.role}`}>
                 <div className="viki-message-body">
-                  <ChatMarkdown
+                  {message.contextExcluded ? <Suspense fallback={<p>{message.content}</p>}><VikiMarkdown content={message.content} pending /></Suspense> : <ChatMarkdown
                     content={message.content}
                     images={message.images}
                     onOpenImage={setOpenedImage}
                     imageDetailLabel={l.imageDetail}
-                  />
+                  />}
                   {message.role === "assistant" ? (
                     <button
                       className="viki-copy-answer"
@@ -1047,12 +1119,19 @@ export function Viki({ language }: { language: Language }) {
                       <a href={source.path} target="_blank" rel="noreferrer" key={source.path}>
                         <strong>{source.title}</strong><span>{source.path}</span>
                       </a>
-                    ) : <div key={source.path}><strong>{source.title}</strong><span>{source.path}</span></div>)}
+                    ) : <button type="button" key={source.path} onClick={() => onOpenDocument(source.path)}><strong>{source.title}</strong><span>{source.path}</span></button>)}
                   </details>
                 ) : null}
               </article>
             ))}
-            {busy ? (
+            {visibleDraft?.text ? (
+              <article className="viki-message is-assistant is-streaming" aria-busy="true">
+                <div className="viki-message-body">
+                  <Suspense fallback={<p>{visibleDraft.text}</p>}><VikiMarkdown content={visibleDraft.text} pending /></Suspense>
+                </div>
+              </article>
+            ) : null}
+            {conversationBusy ? (
               <div className="viki-thinking" role="status" aria-live="polite" aria-busy="true">
                 <div className="viki-thinking-orbit" aria-hidden="true">
                   <span className="viki-thinking-core" />
@@ -1061,10 +1140,10 @@ export function Viki({ language }: { language: Language }) {
                   <span className="viki-thinking-node is-three" />
                 </div>
                 <div className="viki-thinking-copy">
-                  <strong key={`${language}-${thinkingStep}`}>{l.thinking[thinkingStep]}</strong>
-                  {currentSelection ? <span>{currentSelection}{activeRequest?.webSearch ? ` · ${l.webSearchOn}` : ""}{activeRequest?.galaxies.length ? ` · ${activeRequest.galaxies.join(", ")}` : ""}</span> : null}
+                  <strong>{["opencode", "deepseek-api"].includes(visibleRequest?.provider || "") && visibleDraft ? (visibleDraft.phase === "starting" && visibleRequest?.provider === "deepseek-api" ? l.busy : l.phases[visibleDraft.phase]) || l.busy : l.thinking[thinkingStep]}</strong>
+                  {currentSelection ? <span>{currentSelection}{visibleRequest?.webSearch ? ` · ${l.webSearchOn}` : ""}{visibleRequest?.galaxies.length ? ` · ${visibleRequest.galaxies.join(", ")}` : ""}</span> : null}
                 </div>
-                {activeRequest && (provider !== activeRequest.provider || model !== activeRequest.model || webSearch !== activeRequest.webSearch || !sameSelection(selectedGalaxies, activeRequest.galaxies)) ? (
+                {activeRequest && (provider !== activeRequest.provider || modelSelection.selected !== activeRequest.model || webSearch !== activeRequest.webSearch || !sameSelection(selectedGalaxies, activeRequest.galaxies)) ? (
                   <small>{l.nextCli}: {nextSelection}{webSearch ? ` · ${l.webSearchOn}` : ""} · {galaxyScopeLabel}</small>
                 ) : null}
                 <i className="viki-thinking-scan" aria-hidden="true" />
@@ -1076,12 +1155,13 @@ export function Viki({ language }: { language: Language }) {
 
           <div className="viki-composer">
             <textarea
+              aria-label={l.placeholder}
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
               onCompositionStart={() => { composingRef.current = true; }}
               onCompositionEnd={() => { composingRef.current = false; }}
               onKeyDown={(event) => {
-                if (shouldSubmitVikiComposer({
+                if (!standalone && shouldSubmitVikiComposer({
                   key: event.key,
                   shiftKey: event.shiftKey,
                   isComposing: composingRef.current || event.nativeEvent.isComposing,
@@ -1093,9 +1173,9 @@ export function Viki({ language }: { language: Language }) {
               }}
               placeholder={l.placeholder}
               rows={2}
-              disabled={busy || agent?.busy || !provider || agent?.available !== true}
+              disabled={conversationBusy || !agent?.providers.some((item) => item.provider === provider) || agent?.available !== true}
             />
-            {fullscreen ? <div className="viki-composer-toolbar">
+            <div className="viki-composer-toolbar">
               <div className="viki-composer-toolbar-left">
                 <GalaxyScopePicker
                   galaxies={galaxies}
@@ -1108,10 +1188,11 @@ export function Viki({ language }: { language: Language }) {
                   full
                 />
                 <button
-                  className={`viki-composer-web-toggle ${webSearch ? "is-active" : ""}`}
+                  className={`viki-composer-web-toggle viki-icon-tooltip ${webSearch ? "is-active" : ""}`}
                   type="button"
                   aria-label={`${l.webSearch}: ${webSearch ? l.webSearchOn : l.webSearchOff}`}
                   title={`${l.webSearch}: ${webSearch ? l.webSearchOn : l.webSearchOff}`}
+                  data-tooltip={`${l.webSearch}: ${webSearch ? l.webSearchOn : l.webSearchOff}`}
                   aria-pressed={webSearch}
                   onClick={() => {
                     const next = !webSearch;
@@ -1123,52 +1204,56 @@ export function Viki({ language }: { language: Language }) {
                 </button>
               </div>
               <div className="viki-composer-toolbar-right">
-                {agent?.providers.length ? (
+                {agent ? (
                   <div className="viki-agent-picker is-full" ref={agentPickerRef}>
                     <button
                       className="viki-agent-toggle"
                       type="button"
-                      aria-label={l.agentSettings}
-                      title={agentSelectionLabel(agent, provider, model, l.cliDefault)}
-                      aria-haspopup="dialog"
+                      aria-label={l.model}
+                      title={modelLabel || l.model}
+                      aria-haspopup="menu"
                       aria-expanded={agentMenuOpen}
+                      disabled={!selectedProvider || modelSelection.models.length === 0}
+                      onKeyDown={(event) => {
+                        if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setAgentMenuOpen(true); }
+                      }}
                       onClick={() => setAgentMenuOpen((value) => !value)}
                     >
-                      <span>{agentSelectionLabel(agent, provider, model, l.cliDefault)}</span>
+                      <span>{modelLabel || l.chooseModel}</span><ChevronDown size={13} aria-hidden="true" />
                     </button>
                     {agentMenuOpen ? (
-                      <div className="viki-agent-menu" role="dialog" aria-label={l.agentSettings}>
-                        <label>
-                          <span>{l.agentCli}</span>
-                          <select value={provider} onChange={(event) => changeProvider(event.target.value)}>
-                            {agent.providers.map((item) => <option key={item.provider} value={item.provider}>{item.label}</option>)}
-                          </select>
-                        </label>
-                        {selectedProvider ? (
-                          <label>
-                            <span>{l.model}</span>
-                            <select value={model} onChange={(event) => changeModel(event.target.value)}>
-                              <option value="">{selectedProvider.defaultModel ? `${l.cliDefault} · ${selectedProvider.defaultModel}` : l.cliDefault}</option>
-                              {model && !(selectedProvider.models || []).some((item) => item.id === model) ? <option value={model}>{model} · {l.savedModel}</option> : null}
-                              {(selectedProvider.models || []).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                            </select>
-                          </label>
-                        ) : null}
+                      <div className="viki-agent-menu" role="menu" aria-label={l.model}
+                        onWheel={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape" || event.key === "Tab") {
+                            setAgentMenuOpen(false);
+                            if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); agentPickerRef.current?.querySelector<HTMLButtonElement>(".viki-agent-toggle")?.focus(); }
+                            return;
+                          }
+                          const options = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="menuitemradio"]')];
+                          const index = options.indexOf(document.activeElement as HTMLButtonElement);
+                          const next = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1 : event.key === "ArrowDown" ? (index + 1) % options.length : event.key === "ArrowUp" ? (index - 1 + options.length) % options.length : -1;
+                          if (next >= 0) { event.preventDefault(); options[next]?.focus(); }
+                        }}>
+                        {modelSelection.models.map((item) => <button type="button" role="menuitemradio" key={item.id}
+                          aria-checked={item.id === modelSelection.selected} tabIndex={item.id === modelSelection.selected ? 0 : -1}
+                          onClick={() => changeModel(item.id)}><span>{item.label}</span>{item.id === modelSelection.selected ? <Check size={15} aria-hidden="true" /> : null}</button>)}
+                        {!modelSelection.models.length ? <span className="viki-models-empty">{l.noModels}</span> : null}
                       </div>
                     ) : null}
                   </div>
                 ) : null}
               </div>
-            </div> : null}
+            </div>
             <button
-              className={busy && activeRequest ? "is-pause" : ""}
+              className={conversationBusy ? "is-pause" : ""}
               type="button"
-              aria-label={busy && activeRequest ? l.pause : l.send}
-              title={busy && activeRequest ? l.pause : l.send}
-              disabled={busy ? !activeRequest : !question.trim() || !provider || selectedGalaxies.length === 0 || agent?.busy || agent?.available !== true}
-              onClick={() => busy && activeRequest ? void pauseAnswer() : void ask()}
+              aria-label={conversationBusy ? l.pause : l.send}
+              title={conversationBusy ? l.pause : serviceBusy ? l.backgroundBusy : l.send}
+              disabled={conversationBusy ? !canPause : serviceBusy || !question.trim() || !modelSelection.selected || !agent?.providers.some((item) => item.provider === provider) || selectedGalaxies.length === 0 || agent?.available !== true}
+              onClick={() => canPause ? void pauseAnswer() : void ask()}
             >
-              {busy && activeRequest ? <CirclePause size={19} /> : <SendHorizontal size={18} />}
+              {conversationBusy ? <CirclePause size={19} /> : <SendHorizontal size={18} />}
             </button>
           </div>
           {!fullscreen ? <button
@@ -1199,6 +1284,11 @@ export function Viki({ language }: { language: Language }) {
         onPointerEnter={() => setHovered(true)}
         onPointerLeave={() => setHovered(false)}
         onClick={toggleOpen}
+        onDoubleClick={() => {
+          if (suppressClickRef.current) return;
+          setOpen(true);
+          setFullscreen(true);
+        }}
       >
         <VikiPet
           pet={pet}
@@ -1369,7 +1459,8 @@ function initialChatState(): VikiChatState {
           const messages = Array.isArray(item.messages)
             ? item.messages.slice(-MAX_MESSAGES_PER_CONVERSATION).flatMap(normalizeStoredMessage)
             : [];
-          return [{ id, title: String(item.title || "").trim().slice(0, 80), createdAt, updatedAt, messages }];
+          const pendingJobId = /^[a-f0-9-]{36}$/i.test(item.pendingJobId || "") ? item.pendingJobId : undefined;
+          return [{ id, title: String(item.title || "").trim().slice(0, 80), createdAt, updatedAt, messages, pendingJobId }];
         })
       : [];
     if (conversations.length === 0) return { activeId: fallback.id, conversations: [fallback] };
@@ -1410,7 +1501,9 @@ function normalizeStoredMessage(item: any): ChatMessage[] {
     content,
     sources,
     images,
-    contextExcluded: Boolean(item.contextExcluded)
+    contextExcluded: Boolean(item.contextExcluded),
+    contextReceipt: typeof item.contextReceipt?.question === "string" && typeof item.contextReceipt?.signature === "string"
+      ? { question: item.contextReceipt.question, signature: item.contextReceipt.signature } : undefined
   }];
 }
 
@@ -1482,6 +1575,7 @@ function formatConversationTime(value: string, language: Language) {
 }
 
 function agentModelLabel(agent: AgentInfo | null, provider: string, model: string, defaultLabel: string) {
+  if (provider === "deepseek-api") defaultLabel = defaultLabel.includes("默认") ? "默认模型" : "Default model";
   const providerInfo = agent?.providers.find((item) => item.provider === provider);
   if (!model) return providerInfo?.defaultModel ? `${defaultLabel} · ${providerInfo.defaultModel}` : defaultLabel;
   return providerInfo?.models?.find((item) => item.id === model)?.label || model;
@@ -1490,12 +1584,6 @@ function agentModelLabel(agent: AgentInfo | null, provider: string, model: strin
 function agentSelectionLabel(agent: AgentInfo | null, provider: string, model: string, defaultLabel: string) {
   const providerLabel = agent?.providers.find((item) => item.provider === provider)?.label || provider;
   return providerLabel ? `${providerLabel} · ${agentModelLabel(agent, provider, model, defaultLabel)}` : "";
-}
-
-function compactAgentSelection(providerLabel: string, modelLabel: string) {
-  const provider = String(providerLabel || "").replace(/\s+CN$/i, "").trim();
-  const model = String(modelLabel || "").replace(/^CLI (?:default|默认)\s*·?\s*/i, "").trim();
-  return [provider, model].filter(Boolean).join(" · ");
 }
 
 function sameSelection(left: string[], right: string[]) {
@@ -1585,7 +1673,7 @@ function persistPanelSize(size: VikiPanelSize) {
 
 function selectInitialProvider(agent: AgentInfo, preferred = readStoredProvider()) {
   const available = new Set(agent.providers.map((item) => item.provider));
-  if (preferred && available.has(preferred)) return preferred;
+  if (preferred) return preferred;
   if (agent.defaultProvider && available.has(agent.defaultProvider)) return agent.defaultProvider;
   if (available.has("opencode")) return "opencode";
   return agent.providers[0]?.provider || "";
@@ -1599,18 +1687,7 @@ function readStoredProvider() {
   }
 }
 
-function persistProvider(provider: string) {
-  try {
-    window.localStorage.setItem(PROVIDER_KEY, provider);
-  } catch {
-    // Provider persistence is optional.
-  }
-  void localApi.saveAgentPreferences({ viki: { provider, models: readStoredModels() } }).catch(() => {});
-}
-
-function selectInitialModel(agent: AgentInfo | null, provider: string, models = readStoredModels()) {
-  const providerInfo = agent?.providers.find((item) => item.provider === provider);
-  if (!providerInfo) return "";
+function selectInitialModel(provider: string, models = readStoredModels()) {
   return models[provider] || "";
 }
 
@@ -1637,10 +1714,11 @@ function persistModel(provider: string, model: string) {
   } catch {
     // Model persistence is optional.
   }
-  void localApi.saveAgentPreferences({ viki: { provider, models: stored } }).catch(() => {});
+  void localApi.saveAgentPreferences({ viki: { models: { [provider]: model } } }).catch(() => {});
 }
 
 function mergedVikiPreferences(remote: AgentPreferences | null) {
+  if (remote?.viki.provider) return remote.viki;
   const localProvider = readStoredProvider();
   const localModels = readStoredModels();
   return {
@@ -1762,7 +1840,7 @@ function ChatMarkdown({
   onOpenImage: (image: OpenedImage) => void;
   imageDetailLabel: string;
 }) {
-  const promoted = promoteVaultMarkdownImages(content, images);
+  const promoted = promoteVaultMarkdownImages(stripDanglingSourceFootnotes(content), images);
   const blocks = markdownBlocks(promoted.content);
   const imagesByBlock = new Map<number, AgentAnswer["images"]>();
   const lastBlock = Math.max(0, blocks.length - 1);

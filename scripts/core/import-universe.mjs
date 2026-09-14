@@ -2,6 +2,7 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { referenceAssetBase } from "./vault-layout.mjs";
 import { pathToFileURL } from "node:url";
 import {
   appendLog,
@@ -142,6 +143,16 @@ try {
     const oldBase = path.posix.basename(oldRaw);
     const newBase = path.posix.basename(newRaw);
     assetPathMap.set(`references/assets/${oldBase}`, `references/assets/${newBase}`);
+  }
+  for (const plan of rawPlans.filter((item) => item.action === "write")) {
+    const fm = parseFrontmatter(plan.content);
+    if (!fm.document_asset_base) continue;
+    const oldBase = referenceAssetBase(fm, plan.source);
+    const sourceBase = path.posix.basename(plan.source, ".md");
+    const targetBase = path.posix.basename(plan.target, ".md");
+    const newBase = sourceBase === targetBase ? oldBase : `${targetBase}--${oldBase}`;
+    assetPathMap.set(`references/assets/${oldBase}`, `references/assets/${newBase}`);
+    plan.content = upsertFrontmatterValues(plan.content, { document_asset_base: newBase });
   }
 
   const rawPlanBySource = new Map(rawPlans.map((plan) => [plan.source, plan]));
@@ -361,7 +372,10 @@ function rewritePackagePaths(content, rawPathMap, assetPathMap, snapshotPathMap 
     }),
     ...snapshotPathMap
   ].filter(([from, to]) => from !== to).sort((a, b) => b[0].length - a[0].length);
-  return replacements.reduce((updated, [from, to]) => updated.split(from).join(to), content);
+  if (!replacements.length) return content;
+  const mapping = new Map(replacements);
+  const pattern = new RegExp([...mapping.keys()].map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "g");
+  return content.replace(pattern, (match) => mapping.get(match));
 }
 
 function remapPrefix(value, mappings) {

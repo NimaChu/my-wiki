@@ -112,6 +112,35 @@ test("OpenCode resolved config supplies the CLI default model and provider", () 
   });
 });
 
+test("slow provider discovery leaves the event loop responsive and shares concurrent probes", async (t) => {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-async-discovery-"));
+  t.after(() => fs.rm(temporary, { recursive: true, force: true }));
+  const command = path.join(temporary, "slow-agent.cjs");
+  const calls = path.join(temporary, "calls.txt");
+  await fs.writeFile(command, `require("node:fs").appendFileSync(${JSON.stringify(calls)}, "probe\\n"); setTimeout(() => process.exit(0), 300);`);
+  const runner = createLocalAgentRunner({ env: {
+    ...process.env,
+    PATH: temporary,
+    MY_WIKI_AGENT_PROVIDER: "opencode",
+    MY_WIKI_AGENT_COMMAND: command,
+    MY_WIKI_OPENCODE_MODEL: "test/model",
+    MY_WIKI_OPENCODE_PROVIDER: "test"
+  } });
+  const first = runner.info();
+  const second = runner.info();
+  const winner = await Promise.race([
+    first.then(() => "discovery"),
+    new Promise((resolve) => setTimeout(() => resolve("responsive"), 30))
+  ]);
+  const [a, b] = await Promise.all([first, second]);
+  assert.equal(winner, "responsive", "slow CLI probes must not stall other HTTP requests");
+  assert.strictEqual(a, b);
+  assert.equal(a.available, true);
+  assert.equal(a.providers.find((item) => item.provider === "opencode").defaultModel, "test/model");
+  assert.equal(await fs.readFile(calls, "utf8"), "probe\n");
+  assert.strictEqual(await runner.info(), a);
+});
+
 test("OpenCode discovery refreshes when its config file changes", async () => {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-opencode-refresh-test-"));
   const command = path.join(temporary, "opencode-refresh-test.cjs");

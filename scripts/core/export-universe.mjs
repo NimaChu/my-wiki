@@ -2,6 +2,7 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { referenceAssetBase } from "./vault-layout.mjs";
 import { pathToFileURL } from "node:url";
 import {
   appendLog,
@@ -38,7 +39,9 @@ function positional() {
   return values;
 }
 
-export async function exportUniverse({ vault = vaultPath(), universeName, output: requestedOutput = "" }) {
+export async function exportUniverse({ vault = vaultPath(), universeName, output: requestedOutput = "", onProgress = () => {} }) {
+const progress = (phase, current = 0, total = 0) => onProgress({ phase, current, total, percent: total > 0 ? Math.round(current / total * 100) : null });
+progress("scanning");
 const requestedUniverse = normalizeUniverseName(universeName);
 if (!requestedUniverse) throw new Error("A universe name is required");
 const scan = await scanVault(vault);
@@ -74,6 +77,7 @@ const sources = [];
 const assetDirectories = new Set();
 const snapshotPaths = new Set();
 const missingSnapshots = [];
+progress("collecting", 0, rawNodes.length);
 for (const node of rawNodes) {
   const frontmatter = parseFrontmatter(node.content);
   packageEntries.set(node.path, { path: node.path, buffer: Buffer.from(node.content, "utf8"), kind: "reference" });
@@ -91,10 +95,11 @@ for (const node of rawNodes) {
     snapshots: sourceSnapshots
   });
 
-  const base = path.basename(node.id);
+  const base = referenceAssetBase(frontmatter, node.id);
   assetDirectories.add(`references/assets/${base}`);
   const imageIndex = String(frontmatter.image_index_path || "").replace(/\\/g, "/");
   if (imageIndex.startsWith("references/assets/")) assetDirectories.add(path.posix.dirname(imageIndex));
+  progress("collecting", sources.length, rawNodes.length);
 }
 
 for (const snapshotPath of snapshotPaths) {
@@ -134,12 +139,14 @@ packageEntries.set("log.md", { path: "log.md", buffer: Buffer.from(log, "utf8"),
 
 const files = [];
 let totalBytes = 0;
+progress("hashing", 0, packageEntries.size);
 for (const entry of packageEntries.values()) {
   const details = entry.buffer
     ? { bytes: entry.buffer.length, sha256: hashBuffer(entry.buffer) }
     : await hashFile(entry.file);
   totalBytes += details.bytes;
   files.push({ path: entry.path, kind: entry.kind, ...details });
+  progress("hashing", files.length, packageEntries.size);
 }
 files.sort((a, b) => a.path.localeCompare(b.path));
 sources.sort((a, b) => a.path.localeCompare(b.path));
@@ -171,11 +178,13 @@ const output = path.resolve(requestedOutput || path.join(vault, ".my-wiki", "exp
 await writeUniverseArchive(output, [
   { path: "manifest.json", buffer: manifestBuffer },
   ...[...packageEntries.values()].sort((a, b) => a.path.localeCompare(b.path))
-]);
+], { onProgress: ({ current, total }) => progress("packing", current, total) });
 const auditRoot = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-okf-package-"));
 let audit;
 try {
-  await extractUniverseArchive(output, auditRoot);
+  progress("verifying", 0, packageEntries.size + 1);
+  await extractUniverseArchive(output, auditRoot, { onProgress: ({ current }) => progress("verifying", current, packageEntries.size + 1) });
+  progress("auditing");
   audit = await auditOkfDirectory(auditRoot);
 } finally {
   await fs.rm(auditRoot, { recursive: true, force: true });
@@ -187,6 +196,7 @@ if (!audit.valid) {
 const archive = await hashFile(output);
 await appendLog(`EXPORT_UNIVERSE universe="${universe}" concepts="${wikiNodes.length}" references="${rawNodes.length}" assets="${manifest.contents.assets}" originals="${manifest.contents.originals}" output="${path.relative(vault, output).replace(/\\/g, "/")}"`, vault);
 
+progress("complete", 1, 1);
 return {
   vault,
   universe,

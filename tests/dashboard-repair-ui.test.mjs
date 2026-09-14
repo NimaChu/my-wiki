@@ -15,17 +15,20 @@ test("needs-followup queue items expose the repair Agent action", async () => {
   assert.match(main, /localApi\.repair\(node\.path, normalizedSettings\.repair\)/);
   assert.match(main, /setPendingPaths\(\(current\) => new Set\(current\)\.add\(node\.path\)\)/);
   assert.match(main, /pendingPaths\.has\(node\.path\).*LoaderCircle/);
-  assert.match(main, /localApi\.captureJobs\(\)/);
+  assert.match(main, /localApi\.inbox\(\)/);
+  assert.match(main, /maintenanceStageLabel/);
+  assert.match(api, /\/api\/v1\/maintenance-queue/);
   assert.doesNotMatch(main, /item\.jobId && item\.snapshotPath/);
-  assert.match(main, /\["queued", "running", "failed"\]/);
+  assert.match(main, /item\.stage === "extract" && item\.jobStatus !== "failed"/);
   assert.match(main, /missing-visual-evidence:/);
   assert.match(main, /localizedVisualGap\(node\.visualGapPages, language\)/);
   assert.match(graph, /visualGapPages: visualGapPages\(frontmatter, content\)/);
-  assert.match(main, /<Settings2 size=\{15\}/);
+  assert.doesNotMatch(main, /queue-settings-button|queue-agent-settings/);
   assert.match(main, /my-wiki-queue-repair-provider/);
   assert.match(main, /my-wiki-queue-distill-provider/);
   assert.match(main, /localApi\.agentPreferences\(\)/);
-  assert.match(main, /localApi\.saveAgentPreferences\(\{ queue: queueAgentSettings \}\)/);
+  assert.doesNotMatch(main, /localApi\.saveAgentPreferences/);
+  assert.match(main, /my-wiki:agent-preferences-updated/);
   assert.match(main, /if \(selection\.provider\) return selection/);
   assert.match(api, /\/api\/v1\/agent\/preferences/);
   assert.match(main, /<Wrench size=\{14\}/);
@@ -40,4 +43,22 @@ test("needs-followup queue items expose the repair Agent action", async () => {
   assert.match(service, /reconcileRepairedRaw/);
   assert.match(service, /requestUrl\.pathname === "\/api\/v1\/capture-jobs"/);
   assert.match(service, /readDashboardGraph\(dashboardRoot, vault\)/);
+});
+
+test("Settings own execution tools while Viki only selects the model", async () => {
+  const [settings, viki, options] = await Promise.all([
+    readFile(new URL("../assets/dashboard/src/SettingsMenu.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../assets/dashboard/src/Viki.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../assets/dashboard/src/VikiExecutionOptions.tsx", import.meta.url), "utf8")
+  ]);
+  assert.match(settings, /\["repair", "distill", "viki"\]/);
+  assert.match(settings, /kind === "viki" \? localApi\.vikiAgent\(\) : localApi\.agent\(\)/);
+  assert.match(settings, /viki: \{ provider \}/);
+  assert.match(settings, /queue: \{ \[kind\]: \{ provider, model \} \}/);
+  assert.match(settings, /my-wiki:agent-preferences-updated/);
+  assert.doesNotMatch(viki, /<VikiExecutionOptions|<select[^>]+value=\{provider\}/);
+  assert.doesNotMatch(viki, /<AgentModelOptions/);
+  assert.match(viki, /role="menuitemradio"[\s\S]*changeModel\(item\.id\)/);
+  assert.match(viki, /saveAgentPreferences\(\{ viki: \{ models:/);
+  assert.match(options, /<option value="api">API<\/option><option value="cli">CLI<\/option>/);
 });

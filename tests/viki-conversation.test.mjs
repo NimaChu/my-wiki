@@ -116,12 +116,12 @@ test("Viki header icon buttons expose immediate localized tooltips", async () =>
   assert.match(styles, /\.viki-panel\s*\{[\s\S]*?overflow: visible/);
   assert.doesNotMatch(component, /<div className="viki-identity">\s*<span className="viki-avatar">/);
   assert.match(styles, /\.viki-pet\s*\{[\s\S]*?overflow: hidden/);
-  assert.match(component, /<div className="viki-identity">\s*<strong>Viki<\/strong>/);
+  assert.match(component, /<div className="viki-identity">[\s\S]*?<strong>Viki<\/strong>/);
   assert.doesNotMatch(component, /conversation\?\.title \|\| l\.companion/);
   assert.match(component, /className="viki-agent-toggle"/);
   assert.match(component, /className="viki-agent-menu"/);
   assert.match(component, /fullscreen \? <Minimize2/);
-  assert.match(component, /className="viki-fullscreen-sidebar"/);
+  assert.match(component, /className=\{`viki-fullscreen-sidebar/);
   assert.match(component, /className="viki-composer-toolbar"/);
   assert.match(component, /GalaxyScopePicker/);
   assert.match(component, /galaxies: string\[\]/);
@@ -139,17 +139,34 @@ test("Viki full screen uses composer controls and per-conversation sidebar actio
   assert.match(component, /!fullscreen \? <div className="viki-export-picker">/);
   assert.match(component, /className="viki-session-actions"[\s\S]*exportConversationLocally\(item\)[\s\S]*exportConversationToNote\(item\)[\s\S]*className="viki-session-delete"/);
   assert.match(styles, /\.viki-composer-toolbar-left,[\s\S]*\.viki-composer-toolbar-right/);
-  assert.match(styles, /\.viki-panel\.is-fullscreen \.viki-composer > button\s*\{[\s\S]*grid-row: 2/);
+  assert.match(styles, /\.viki-composer > button\s*\{[\s\S]*grid-row: 2/);
   assert.match(styles, /\.viki-composer-toolbar \.viki-agent-picker\s*\{[\s\S]*width: max-content;[\s\S]*max-width: min\(420px, 44vw\)/);
 });
 
 test("Viki compact controls keep the requested order and open the pet menu to the right", async () => {
   const component = await readFile(new URL("../assets/dashboard/src/Viki.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../assets/dashboard/src/styles.css", import.meta.url), "utf8");
-  const status = component.slice(component.indexOf('<div className="viki-status">'), component.indexOf('<span className={busy'));
+  const status = component.slice(component.indexOf('<div className="viki-status">'), component.indexOf('<div className="viki-header-selections">'));
   assert.ok(status.indexOf("aria-label={l.newConversation}") < status.indexOf('className="viki-session-picker"'));
-  assert.ok(status.indexOf("viki-web-toggle") < status.indexOf("<GalaxyScopePicker"));
+  assert.doesNotMatch(status, /viki-web-toggle|GalaxyScopePicker|viki-agent-picker/);
+  assert.doesNotMatch(component, /fullscreen \? <div className="viki-composer-toolbar"/);
+  const composer = component.slice(component.indexOf('<div className="viki-composer">'));
+  assert.ok(composer.indexOf("<GalaxyScopePicker") < composer.indexOf("viki-composer-web-toggle"));
+  assert.ok(composer.indexOf("viki-composer-web-toggle") < composer.indexOf("viki-agent-picker"));
   assert.match(styles, /\.viki-pet-menu\s*\{[\s\S]*top: 0;[\s\S]*left: calc\(100% \+ 8px\)/);
+});
+
+test("Viki model menu selects actual models directly with keyboard and scroll support", async () => {
+  const component = await readFile(new URL("../assets/dashboard/src/Viki.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../assets/dashboard/src/styles.css", import.meta.url), "utf8");
+  assert.doesNotMatch(component, /<AgentModelOptions|<select/);
+  assert.match(component, /className="viki-agent-menu" role="menu"/);
+  assert.match(component, /role="menuitemradio"/);
+  assert.match(component, /aria-checked=\{item\.id === modelSelection\.selected\}/);
+  assert.match(component, /const requestModel = modelSelection\.selected/);
+  assert.match(component, /event\.key === "Escape"[\s\S]*event\.stopPropagation\(\)/);
+  assert.match(component, /event\.key === "ArrowDown"/);
+  assert.match(styles, /\.viki-agent-menu\s*\{[^}]*overflow-y: auto;[^}]*overscroll-behavior: contain;/);
 });
 
 test("Viki restores Agent selections without discarding temporarily undiscovered models", async () => {
@@ -172,4 +189,40 @@ test("Viki renders assistant Markdown with GFM tables", async () => {
   assert.match(renderer, /table: \(\{ children \}\) => <div className="viki-table-scroll">/);
   assert.doesNotMatch(component, /block\.replace\(\/\\n\/g, " "\)/);
   assert.match(styles, /\.viki-table-scroll table\s*\{[\s\S]*border-collapse: collapse/);
+});
+
+test("Viki binds thinking, pause and errors to the selected conversation, including submission", async () => {
+  const component = await readFile(new URL("../assets/dashboard/src/Viki.tsx", import.meta.url), "utf8");
+  assert.match(component, /const visibleRequest = activeRequest\?\.conversationId === conversation\?\.id/);
+  assert.match(component, /const conversationBusy = serviceBusy && requestConversationId === conversation\?\.id/);
+  assert.ok(component.indexOf("setActiveRequest(pendingRequest)") < component.indexOf("await localApi.ask("));
+  assert.match(component, /\{conversationBusy \? \(\s*<div className="viki-thinking"/);
+  assert.match(component, /aria-label=\{conversationBusy \? l\.pause : l\.send\}/);
+  assert.match(component, /request\.conversationId !== conversation\.id\) return/);
+  assert.match(component, /setError\(`\$\{complete\.error\} \$\{l\.retry\}`, request\.conversationId\)/);
+  assert.match(component, /conversationErrors\[conversation\?\.id\]/);
+  assert.doesNotMatch(component, /\{busy \? \(\s*<div className="viki-thinking"/);
+});
+
+test("background answers do not scroll another conversation or replace its composer draft", async () => {
+  const component = await readFile(new URL("../assets/dashboard/src/Viki.tsx", import.meta.url), "utf8");
+  assert.match(component, /const question = questions\[conversation\?\.id\]/);
+  assert.match(component, /\}, \[visibleDraft, open\]\)/);
+  assert.match(component, /\}, \[messages, conversationBusy, open\]\)/);
+  assert.match(component, /disabled=\{conversationBusy \|\| !agent\?\.providers/);
+  assert.match(component, /title=\{conversationBusy \? l\.pause : serviceBusy \? l\.backgroundBusy : l\.send\}/);
+});
+
+test("Viki messages shrink with the panel and scroll wide content inside its own block", async () => {
+  const styles = await readFile(new URL("../assets/dashboard/src/styles.css", import.meta.url), "utf8");
+  for (const selector of ["viki-panel", "viki-message"]) {
+    assert.match(styles, new RegExp(`\\.${selector}\\s*\\{[^}]*grid-template-columns: minmax\\(0, 1fr\\)`));
+  }
+  for (const selector of ["viki-conversation", "viki-message-body", "viki-table-scroll", "viki-markdown-block"]) {
+    assert.match(styles, new RegExp(`\\.${selector}\\s*\\{[^}]*min-width: 0`));
+  }
+  assert.match(styles, /\.viki-message-body\s*\{[^}]*overflow-wrap: anywhere/);
+  assert.doesNotMatch(styles, /\.viki-table-scroll table\s*\{[^}]*min-width: max-content/);
+  assert.match(styles, /\.viki-table-scroll\s*\{[^}]*overflow-x: auto/);
+  assert.match(styles, /\.viki-message-body pre\s*\{[^}]*overflow-x: auto/);
 });

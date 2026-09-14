@@ -47,6 +47,15 @@ test("public hosts show GitHub-only login before any vault response", async (con
   assert.equal(login.status, 200);
   assert.match(login.body, /使用 GitHub 登录/);
   assert.doesNotMatch(login.body, /private application/);
+  assert.match(login.body, /viewport-fit=cover/);
+  assert.match(login.body, /prefers-color-scheme:dark/);
+  assert.match(login.body, /min-height:52px/);
+  assert.doesNotMatch(login.body, /maximum-scale|user-scalable=no/);
+  assert.equal(login.headers["cache-control"], "no-store");
+  const mobileHeaders = { host: "my-wiki.cloud", "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Mobile" };
+  assert.match((await request(port, "/", mobileHeaders)).body, /使用 GitHub 登录/);
+  assert.equal((await request(port, "/api/v1/graph", mobileHeaders)).status, 401);
+  assert.doesNotMatch((await request(port, "/assets/app.js", mobileHeaders)).body, /private application/);
 
   const api = await request(port, "/api/v1/vault", { host: "my-wiki.cloud" });
   assert.equal(api.status, 401);
@@ -74,6 +83,7 @@ test("public hosts show GitHub-only login before any vault response", async (con
 
   const local = await request(port, "/", { host: "127.0.0.1" });
   assert.equal(local.body, "private application");
+  assert.equal((await auth.context({ headers: { host: "127.0.0.1" } })).canManageProviders, true);
 
   const verifier = "v".repeat(43);
   const params = new URLSearchParams({ redirect_uri: "http://127.0.0.1:54321/callback", state: "c".repeat(43),
@@ -107,8 +117,18 @@ test("public hosts show GitHub-only login before any vault response", async (con
   assert.match(browserWithCliToken.body, /使用 GitHub 登录/);
 
   const ownerCookie = callback.headers["set-cookie"][0].split(";")[0];
+  const browserStart = await request(port, "/auth/github", mobileHeaders);
+  const browserState = new URL(browserStart.headers.location).searchParams.get("state");
+  const browserCallback = await request(port, `/auth/github/callback?state=${browserState}&code=test`, {
+    ...mobileHeaders, cookie: browserStart.headers["set-cookie"][0].split(";")[0]
+  });
+  assert.equal(browserCallback.status, 302);
+  assert.equal(browserCallback.headers.location, "/");
+  const authorizedMobile = await request(port, "/", { ...mobileHeaders, cookie: browserCallback.headers["set-cookie"][0].split(";")[0] });
+  assert.equal(authorizedMobile.body, "private application");
   const session = await request(port, "/api/v1/session", { host: "my-wiki.cloud", cookie: ownerCookie });
   assert.equal(JSON.parse(session.body).canManageAccess, true);
+  assert.equal(JSON.parse(session.body).canManageProviders, true);
   const ownerHeaders = { host: "my-wiki.cloud", cookie: ownerCookie, "x-my-wiki-token": JSON.parse(session.body).token, "content-type": "application/json" };
   const initial = await request(port, "/api/v1/access/allowlist", ownerHeaders);
   assert.deepEqual(JSON.parse(initial.body).accounts, [{ login: "NimaChu", owner: true }]);
@@ -116,6 +136,9 @@ test("public hosts show GitHub-only login before any vault response", async (con
   assert.equal(added.status, 200);
   const guestHeaders = { ...ownerHeaders, cookie: `my_wiki_session=${untrustedToken}` };
   assert.equal((await auth.context({ headers: guestHeaders })).canManageAccess, false);
+  assert.equal((await auth.context({ headers: guestHeaders })).canManageProviders, false);
+  assert.equal((await request(port, "/api/v1/settings/api", guestHeaders)).status, 403);
+  assert.equal((await request(port, "/api/v1/settings/api", guestHeaders, "PUT", JSON.stringify({ apiKey: "must-not-save" }))).status, 403);
   assert.equal((await request(port, "/api/v1/access/allowlist", guestHeaders)).status, 403);
   assert.equal((await request(port, "/api/v1/access/allowlist", guestHeaders, "POST", JSON.stringify({ login: "intruder" }))).status, 403);
   auth.remote.bind("guest-state", auth.remote.begin(params));

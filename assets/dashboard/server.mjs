@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { createDashboardApi } from "../../scripts/core/dashboard-api.mjs";
 import { createPublicAccess } from "../../scripts/core/public-access.mjs";
 import { resolveVaultPath } from "../../scripts/core/vault-config.mjs";
+import { listOriginalsDrive } from "../../scripts/core/originals-drive.mjs";
+import { prepareLibraryPreviews } from "../../scripts/core/original-preview.mjs";
 
 await configureNetworkProxy();
 
@@ -65,6 +67,11 @@ const server = http.createServer(async (req, res) => {
 await fs.writeFile(pidFile, String(process.pid), "utf8");
 server.listen(port, host, () => {
   console.log(`My Wiki local service: http://${host}:${port}/`);
+  if (personalVault) {
+    void listOriginalsDrive(personalVault).catch(() => {});
+    void prepareLibraryPreviews(personalVault, root).catch(() => {});
+    setInterval(() => void prepareLibraryPreviews(personalVault, root).catch(() => {}), 60000).unref();
+  }
 });
 
 async function shutdown() {

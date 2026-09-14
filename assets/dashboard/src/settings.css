@@ -1,0 +1,20 @@
+.settings-control { position: relative; flex: none; color: var(--text); }
+.settings-control summary { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; background: var(--surface-soft); list-style: none; }
+.settings-control summary::-webkit-details-marker { display: none; }
+.settings-control summary:hover { background: var(--hover); }
+.settings-control summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.settings-menu { position: absolute; top: calc(100% + 8px); right: 0; width: 260px; max-width: calc(100vw - 24px); z-index: 270; padding: 8px; background: var(--surface-raised); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 30px #0002; }
+.settings-appearance { padding: 6px 4px 12px; border-bottom: 1px solid var(--line); margin-bottom: 6px; font-size: 12px; }
+.settings-theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin-top: 8px; }
+.settings-theme-options button { display: grid; justify-items: center; align-content: center; gap: 6px; min-height: 54px; padding: 5px; border: 1px solid transparent; border-radius: 5px; color: var(--text-muted); background: var(--surface-soft); font: inherit; cursor: pointer; }
+.settings-theme-options button[aria-pressed="true"] { border-color: var(--accent); color: var(--text); background: var(--selected); }
+.settings-theme-options button:hover, .settings-menu-command:hover { background: var(--hover); }
+.settings-menu-command { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 38px; padding: 9px; text-align: left; font: inherit; font-size: 13px; border: 0; border-radius: 5px; background: transparent; color: var(--text); cursor: pointer; }
+.api-settings-form { display: grid; gap: 18px; padding: 24px; }
+.agent-settings-fields { display: grid; gap: 18px; padding: 0; margin: 0; min-width: 0; border: 0; }
+.api-settings-provider { display: flex; justify-content: space-between; gap: 12px; }
+.api-settings-provider span { color: var(--text-muted); font-size: 12px; }
+.api-settings-form label { display: grid; gap: 7px; font-size: 13px; }
+.api-settings-form input, .api-settings-form select { box-sizing: border-box; width: 100%; min-width: 0; height: 38px; border: 1px solid var(--line); border-radius: 5px; padding: 8px; font: inherit; background: var(--surface-soft); color: var(--text); }
+.api-settings-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.api-settings-actions button { display: inline-flex; align-items: center; gap: 6px; }

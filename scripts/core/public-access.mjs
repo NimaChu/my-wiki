@@ -27,7 +27,7 @@ export async function createPublicAccess({ personalVault }) {
 
   async function context(req) {
     const host = normalizeHost(req.headers.host);
-    if (!publicHosts.has(host)) return { vault: personalVault, canManageAccess: enabled };
+    if (!publicHosts.has(host)) return { vault: personalVault, canManageAccess: enabled, canManageProviders: true };
     if (!enabled) throw authError(503, "Public GitHub authentication is not configured");
     const token = requestCookies(req)[SESSION_COOKIE];
     if (!token) throw authError(401, "GitHub authentication is required");
@@ -36,7 +36,7 @@ export async function createPublicAccess({ personalVault }) {
     const login = String(payload.login || "").trim();
     if (!login) throw authError(401, "GitHub session is incomplete");
     if (!allowlist.allowed(login)) throw authError(403, "This GitHub account is not authorized to access My Wiki");
-    return { vault: personalVault, login, canManageAccess: login.toLowerCase() === adminLogin };
+    return { vault: personalVault, login, canManageAccess: login.toLowerCase() === adminLogin, canManageProviders: login.toLowerCase() === adminLogin };
   }
 
   return {
@@ -172,8 +172,22 @@ function requestCookies(req) {
 function cookieHeader(name, value, maxAge) { return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`; }
 
 function sendLoginPage(res, error = "", status = 200, head = false) {
-  const message = error ? `<p class="error">${escapeHtml(error)}</p>` : "";
-  const body = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录 My Wiki</title><style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#111516;color:#eef1ed;font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}.panel{width:min(420px,calc(100vw - 32px));border:1px solid #303638;border-radius:8px;background:#1a1f20;padding:36px}.brand{display:flex;align-items:center;gap:12px;margin-bottom:30px}.mark{display:grid;place-items:center;width:42px;height:42px;border-radius:7px;background:#eef1ed;color:#121617;font-weight:800}.brand strong{font-size:21px}.brand span{display:block;margin-top:3px;color:#98a09d;font-size:13px}h1{margin:0 0 10px;font-size:25px;letter-spacing:0}p{color:#aeb5b2;line-height:1.6}.github{display:flex;justify-content:center;align-items:center;width:100%;min-height:46px;margin-top:26px;border:1px solid #444b4d;border-radius:7px;background:#f1f3ef;color:#121617;text-decoration:none;font-weight:700}.github:hover{background:#fff}.error{border-left:3px solid #d97865;padding-left:10px;color:#e7a596;font-size:13px}.privacy{margin:22px 0 0;color:#737c79;font-size:12px;text-align:center}</style></head><body><main class="panel"><div class="brand"><div class="mark">M</div><div><strong>My Wiki</strong><span>你的私有知识宇宙</span></div></div><h1>登录 My Wiki</h1><p>使用已授权的 GitHub 账号继续。</p>${message}<a class="github" href="/auth/github">使用 GitHub 登录</a><p class="privacy">GitHub 只用于确认访问权限。</p></main></body></html>`;
+  const message = error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : "";
+  const body = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark"><title>登录 My Wiki</title>
+<style>
+*{box-sizing:border-box;letter-spacing:0}
+:root{color-scheme:light dark;--bg:#f7f8f9;--surface:#fff;--ink:#202526;--muted:#586360;--line:#dce1df;--button:#202526;--button-text:#fff;--error:#a63624}
+@media(prefers-color-scheme:dark){:root{--bg:#111516;--surface:#1a1f20;--ink:#eef1ed;--muted:#aeb5b2;--line:#303638;--button:#f1f3ef;--button-text:#121617;--error:#e7a596}}
+body{margin:0;min-height:100vh;min-height:100dvh;display:grid;place-items:center;background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;padding:max(24px,env(safe-area-inset-top)) max(20px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left))}
+.panel{width:min(420px,100%);border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:36px;overflow-wrap:anywhere}
+.brand{display:flex;align-items:center;gap:12px;margin-bottom:36px}.mark{display:grid;place-items:center;width:44px;height:44px;flex:none;border-radius:7px;background:var(--ink);color:var(--bg);font-weight:800;font-size:20px}.brand strong{font-size:21px}.brand span{display:block;margin-top:3px;color:var(--muted);font-size:13px}
+h1{margin:0 0 12px;font-size:26px;line-height:1.3}p{color:var(--muted);line-height:1.6;font-size:16px}
+.github{display:flex;justify-content:center;align-items:center;width:100%;min-height:52px;margin-top:28px;border:1px solid var(--line);border-radius:7px;background:var(--button);color:var(--button-text);text-decoration:none;font-weight:650;touch-action:manipulation;padding:12px}
+.github:hover{filter:brightness(.94)}.github:focus-visible{outline:3px solid #668ee8;outline-offset:4px}.error{border-left:3px solid var(--error);padding-left:12px;color:var(--error);font-size:14px}.privacy{margin:24px 0 0;color:var(--muted);font-size:13px;text-align:center}
+@media(max-width:600px){.panel{border:0;background:transparent;padding:16px 4px}.brand{margin-bottom:44px}}
+</style></head><body><main class="panel"><div class="brand"><div class="mark" aria-hidden="true">M</div><div><strong>My Wiki</strong><span>你的私有知识宇宙</span></div></div><h1>验证账号后继续</h1><p>使用已授权的 GitHub 账号登录。</p>${message}<a class="github" href="/auth/github">使用 GitHub 登录</a><p class="privacy">GitHub 只用于确认访问权限。</p></main></body></html>`;
   res.writeHead(status, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-length": Buffer.byteLength(body) });
   res.end(head ? "" : body);
 }

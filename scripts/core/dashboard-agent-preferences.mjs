@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 const PROVIDERS = new Set(["opencode", "qoder", "codex", "claude"]);
+const ANSWER_PROVIDERS = new Set([...PROVIDERS, "deepseek-api"]);
 const pendingWrites = new Map();
 
 export function emptyDashboardAgentPreferences() {
@@ -41,8 +42,9 @@ async function writeDashboardAgentPreferences(vault, patch) {
   const current = await readDashboardAgentPreferences(vault);
   const next = normalizeDashboardAgentPreferences({
     ...current,
-    ...(patch?.viki ? { viki: patch.viki } : {}),
-    ...(patch?.queue ? { queue: patch.queue } : {})
+    ...(patch?.viki ? { viki: { ...current.viki, ...patch.viki,
+      models: { ...current.viki.models, ...patch.viki.models } } } : {}),
+    ...(patch?.queue ? { queue: { ...current.queue, ...patch.queue } } : {})
   });
   const file = preferencesFile(vault);
   await fs.mkdir(path.dirname(file), { recursive: true });
@@ -59,9 +61,9 @@ export function normalizeDashboardAgentPreferences(value) {
   return {
     version: 1,
     viki: {
-      provider: normalizeProvider(viki.provider),
+      provider: normalizeProvider(viki.provider, ANSWER_PROVIDERS),
       models: Object.fromEntries(Object.entries(models).flatMap(([provider, model]) => {
-        const normalizedProvider = normalizeProvider(provider);
+        const normalizedProvider = normalizeProvider(provider, ANSWER_PROVIDERS);
         const normalizedModel = normalizeModel(model);
         return normalizedProvider && normalizedModel ? [[normalizedProvider, normalizedModel]] : [];
       }))
@@ -80,9 +82,9 @@ function normalizeSelection(value) {
   };
 }
 
-function normalizeProvider(value) {
+function normalizeProvider(value, allowed = PROVIDERS) {
   const provider = String(value || "").trim().toLowerCase();
-  return PROVIDERS.has(provider) ? provider : "";
+  return allowed.has(provider) ? provider : "";
 }
 
 function normalizeModel(value) {

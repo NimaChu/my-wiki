@@ -15,6 +15,7 @@ import { checkMarkdownFormulas, formulaGateFollowupReasons, shouldGateExtractedF
 import { unicodeReplacementFollowupReasons, unicodeReplacementNote, unicodeReplacementReport } from "./content-integrity.mjs";
 import { finalizeExtractionReport, persistExtractionArtifacts } from "./extraction-standard.mjs";
 import { normalizeReferenceNode } from "./okf-lib.mjs";
+import { createOfflineHtml, inlineHtmlImageAssets } from "./html-original.mjs";
 
 const DEFAULT_FETCH_BYTES = 100 * 1024 * 1024;
 
@@ -78,7 +79,7 @@ export async function captureSource({
   }
   const capturedContent = content.trim() || contentFromSnapshot(snapshot, sourceType, url);
   const inferredTitle = inferTitleFromSource
-    ? inferCapturedTitle({
+    ? snapshot?.sourceTitle ?? inferCapturedTitle({
       html: /html/i.test(snapshot?.contentType || "") ? snapshot.buffer?.toString("utf8") : "",
       markdown: capturedContent,
       sourceUrl: url
@@ -89,7 +90,8 @@ export async function captureSource({
     ? await availableReferenceTarget(rawDir, date, slugify(resolvedTitle))
     : provisionalTarget;
   const rawBase = path.basename(target, ".md");
-  const embedded = await materializeEmbeddedAssets({ vault, notePath: target, rawBase, markdown: capturedContent, assets: embeddedAssets });
+  const snapshotAssets = /html/i.test(snapshot?.contentType || "") ? inlineHtmlImageAssets(snapshot.buffer.toString("utf8")) : [];
+  const embedded = await materializeEmbeddedAssets({ vault, notePath: target, rawBase, markdown: capturedContent, assets: [...embeddedAssets, ...snapshotAssets] });
   const mirroredContent = shouldMirrorImages
     ? await mirrorMarkdownImages({ vault, notePath: target, noteSlug: rawBase, markdown: embedded.markdown, fetchMaxBytes, validateUrl })
     : { markdown: embedded.markdown, copied: 0, failures: [], replaced: [] };
@@ -357,13 +359,20 @@ async function saveSnapshot({ vault, rawBase, url, snapshotFile, snapshotReferen
   }
   if (!shouldSnapshot || !/^https?:\/\//i.test(url)) return null;
   try {
-    const { buffer, contentType } = await fetchBuffer(url, fetchMaxBytes, validateUrl);
+    let { buffer, contentType } = await fetchBuffer(url, fetchMaxBytes, validateUrl);
+    let sourceTitle;
+    if (/html/i.test(contentType)) {
+      const html = buffer.toString("utf8");
+      sourceTitle = inferCapturedTitle({ html, markdown: capturedHtmlToMarkdown(html, { sourceUrl: url }), sourceUrl: url });
+      buffer = (await createOfflineHtml(html, { sourceUrl: url, title: sourceTitle })).buffer;
+    }
     const target = path.join(snapshotsDir, `${rawBase}${extensionForResponse(url, contentType)}`);
     await fs.writeFile(target, buffer);
     return {
       path: path.relative(vault, target).replace(/\\/g, "/"),
       buffer,
       contentType,
+      sourceTitle,
       method: "direct-fetch"
     };
   } catch (error) {

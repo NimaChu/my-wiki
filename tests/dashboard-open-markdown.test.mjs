@@ -650,6 +650,7 @@ test("Dashboard recovers a persisted capture job after a service restart", async
   let finishExtraction;
   let receivedInput;
   const extractionGate = new Promise((resolve) => { finishExtraction = resolve; });
+  context.after(() => finishExtraction());
   const server = http.createServer(createDashboardApi({
     dashboardRoot: fixture.dashboard,
     port: 0,
@@ -1134,7 +1135,7 @@ test("Maintenance normalizes escaped Wiki metadata and rejects residual malforme
   assert.deepEqual(completed.body.result.createdWiki, []);
   assert.equal(completed.body.result.frontmatterMetadataIssues.length, 1);
   assert.equal(completed.body.result.frontmatterMetadataIssues[0].reason, "boundary-backslash");
-  assert.match(completed.body.result.summary, /postflight rejected malformed Wiki frontmatter/);
+  assert.match(completed.body.result.summary, /postflight rejected malformed Concept metadata or Markdown citations/);
   assert.match(await readFile(sourceFile, "utf8"), /^workflow_status: "inbox"$|^workflow_status: inbox$/m);
 
   const normalized = await readFile(normalizedWikiFile, "utf8");
@@ -1609,8 +1610,8 @@ test("Viki limits vault evidence to the selected knowledge galaxies", async (con
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   assert.equal(completed.body.status, "complete");
-  assert.deepEqual(completed.body.result.sources, []);
-  assert.match(completed.body.result.answerMarkdown, /selected knowledge galaxies \(AI\) do not contain enough evidence/i);
+  assert.equal(completed.body.result.sources[0].path, "concepts/math.md");
+  assert.equal(completed.body.result.answerMarkdown, "Leaked out-of-scope answer.");
   assert.notEqual(runOptions.vault, fixture.vault);
   assert.deepEqual(scopedConceptFiles, ["note.md"]);
   assert.match(runOptions.prompt, /Knowledge galaxy scope: only AI/);
@@ -1638,6 +1639,78 @@ test("Viki limits vault evidence to the selected knowledge galaxies", async (con
   }
   assert.equal(completed.body.status, "complete");
   assert.deepEqual(scopedConceptFiles, ["note.md"]);
+});
+
+test("Viki excludes hidden galaxies, permits web-only evidence and enforces selected local scope", async (context) => {
+  const fixture = await createFixture(context);
+  await writeFile(fixture.wikiFile, "---\ntitle: AI\ntype: Concept\nuniverses: [AI]\n---\n# AI\n");
+  await writeFile(path.join(fixture.vault, "concepts/flexsim.md"), "---\ntitle: FlexSim\ntype: Concept\nuniverses: [FlexSim]\n---\n# FlexSim\nDashboard statistics\n");
+  let runOptions, files, canonicalDirectory;
+  let answer = { answerMarkdown: "Web finding[^source-orphan].", sources: [{ path: "https://example.com/news", title: "Public evidence", type: "web" }], images: [] };
+  const server = http.createServer(createDashboardApi({ dashboardRoot: fixture.dashboard, port: 0,
+    vikiApiRunner: { info: async () => ({ available: true, provider: "deepseek-api", providers: [{ provider: "deepseek-api", label: "DeepSeek", models: [] }] }), run: async () => { throw new Error("Hidden galaxy must be rejected before execution"); } },
+    agentRunner: {
+    info: async () => ({ available: true, provider: "opencode", providers: [{ provider: "opencode", label: "OpenCode", models: [] }] }),
+    run: async (options) => {
+      runOptions = options;
+      files = await readdir(path.join(options.vault, "concepts"));
+      canonicalDirectory = await realpath(options.vault);
+      return answer;
+    }
+  } }));
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => { server.closeAllConnections(); server.close(); });
+  const port = server.address().port;
+  const session = await request(port, "GET", "/api/v1/session");
+  const headers = { "x-my-wiki-token": session.body.token, "content-type": "application/json" };
+  await request(port, "POST", "/api/v1/universes/visibility", { headers, body: JSON.stringify({ name: "FlexSim", hidden: true }) });
+  const ask = async (options) => {
+    const queued = await request(port, "POST", "/api/v1/agent/ask", { headers,
+      body: JSON.stringify({ question: "Explain", provider: "opencode", language: "en", ...options }) });
+    assert.equal(queued.status, 202);
+    let result;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      result = (await request(port, "GET", `/api/v1/jobs/${queued.body.id}`, { headers })).body;
+      if (["complete", "failed"].includes(result.status)) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(result.status, "complete", result.error);
+    assert.equal(runOptions.vault, canonicalDirectory);
+    assert.ok(runOptions.prompt.includes(canonicalDirectory));
+    return result;
+  };
+  const web = await ask({ galaxies: ["AI"], webSearch: true });
+  assert.equal(web.result.answerMarkdown, "Web finding.");
+  assert.equal(web.result.sources[0].type, "web");
+  assert.deepEqual(files, ["note.md"]);
+  assert.match(runOptions.prompt, /restriction applies to LOCAL knowledge only/);
+  assert.doesNotMatch(runOptions.prompt, /say that the selected galaxy scope lacks evidence instead/);
+  assert.equal(runOptions.allowWeb, true);
+
+  const offline = await ask({ galaxies: ["AI"], webSearch: false });
+  assert.equal(offline.result.sources[0].type, "web");
+  assert.equal(runOptions.allowWeb, false);
+  assert.doesNotMatch(runOptions.prompt, /say that the selected galaxy scope lacks evidence instead/);
+
+  answer = { answerMarkdown: "Dashboard statistics.", sources: [{ path: "concepts/flexsim.md", title: "FlexSim" }], images: [] };
+  for (const provider of ["opencode", "deepseek-api"]) {
+    const blocked = await request(port, "POST", "/api/v1/agent/ask", { headers, body: JSON.stringify({ question: "Explain", provider, galaxies: ["AI", "FlexSim"] }) });
+    assert.equal(blocked.status, 400);
+    assert.match(blocked.body.error, /galaxy is hidden: FlexSim/);
+  }
+  await request(port, "POST", "/api/v1/universes/visibility", { headers, body: JSON.stringify({ name: "FlexSim", hidden: false }) });
+  const selected = await ask({ galaxies: ["FlexSim"], webSearch: false });
+  assert.equal(selected.result.answerMarkdown, "Dashboard statistics.");
+  assert.deepEqual(files, ["flexsim.md"]);
+  assert.deepEqual(selected.meta.galaxies, ["FlexSim"]);
+
+  const unselected = await ask({ galaxies: ["AI"], webSearch: true });
+  assert.equal(unselected.result.answerMarkdown, "Dashboard statistics.");
+  assert.deepEqual(files, ["note.md"]);
+  answer = { answerMarkdown: "No evidence.", sources: [], images: [] };
+  const missing = await ask({ galaxies: ["AI"], webSearch: true });
+  assert.equal(missing.result.answerMarkdown, "No evidence.");
+  assert.doesNotMatch(missing.result.answerMarkdown, /Expand the galaxy/);
 });
 
 test("Viki preserves image block placement and rejects invalid answer images", async (context) => {

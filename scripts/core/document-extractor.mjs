@@ -9,6 +9,8 @@ import { standardizeExtractionResult } from "./extraction-standard.mjs";
 import { extractPdfWithMineru } from "./mineru-extractor.mjs";
 import { extractPdfMarkdown } from "./pdf-text.mjs";
 import { assessPdfPage, qualityWarnings, summarizePdfQuality } from "./pdf-quality.mjs";
+import { capturedHtmlToMarkdown } from "./capture-service.mjs";
+import { inspectHtmlCapture, inlineHtmlImageAssets } from "./html-original.mjs";
 
 const TEXT_EXTENSIONS = new Set([".md", ".markdown", ".txt", ".csv", ".json", ".xml", ".html", ".htm", ".yaml", ".yml"]);
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"]);
@@ -58,7 +60,20 @@ export async function extractLocalDocument({
   try {
     reportProgress(onProgress, { phase: "analyzing", percent: 2, message: "Inspecting document structure." });
     let extracted;
-    if (TEXT_EXTENSIONS.has(extension)) extracted = extractPlainText(await fs.readFile(file, "utf8"));
+    if ([".html", ".htm"].includes(extension)) {
+      const html = await fs.readFile(file, "utf8");
+      inspectHtmlCapture(html);
+      const assets = inlineHtmlImageAssets(html);
+      let markdown = capturedHtmlToMarkdown(html);
+      // Keep embedded bytes out of text metrics and extraction reports.
+      for (const asset of assets) {
+        const reference = `my-wiki-inline/${asset.name}`;
+        markdown = markdown.replaceAll(asset.reference, reference);
+        asset.reference = reference;
+      }
+      extracted = { ...extractPlainText(markdown, "html-markdown"), assets };
+    }
+    else if (TEXT_EXTENSIONS.has(extension)) extracted = extractPlainText(await fs.readFile(file, "utf8"));
     else if (extension === ".pdf") extracted = await extractPdfWithOcrFallback({
       file,
       filename,

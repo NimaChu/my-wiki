@@ -70,3 +70,26 @@ test("concurrent Viki and queue preference writes preserve both sections", async
   assert.equal(restored.viki.models.codex, "gpt-5.6-luna");
   assert.equal(restored.queue.repair.model, "powerful");
 });
+
+test("independent settings and model patches preserve other selections", async (context) => {
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), "my-wiki-agent-preferences-partial-"));
+  context.after(() => fs.rm(vault, { recursive: true, force: true }));
+  await updateDashboardAgentPreferences(vault, {
+    viki: { provider: "opencode", models: { opencode: "old-model", codex: "saved-codex" } },
+    queue: { repair: { provider: "qoder", model: "powerful" } }
+  });
+  await Promise.all([
+    updateDashboardAgentPreferences(vault, { viki: { provider: "deepseek-api" } }),
+    updateDashboardAgentPreferences(vault, { viki: { models: { opencode: "new-model" } } }),
+    updateDashboardAgentPreferences(vault, { queue: { distill: { provider: "opencode", model: "distill-model" } } }),
+    updateDashboardAgentPreferences(vault, { queue: { repair: { provider: "codex", model: "repair-model" } } })
+  ]);
+  let restored = await readDashboardAgentPreferences(vault);
+  assert.deepEqual(restored.viki, { provider: "deepseek-api", models: { opencode: "new-model", codex: "saved-codex" } });
+  assert.deepEqual(restored.queue.repair, { provider: "codex", model: "repair-model" });
+  assert.deepEqual(restored.queue.distill, { provider: "opencode", model: "distill-model" });
+  await updateDashboardAgentPreferences(vault, { viki: { models: { opencode: "" } } });
+  restored = await readDashboardAgentPreferences(vault);
+  assert.deepEqual(restored.viki, { provider: "deepseek-api", models: { codex: "saved-codex" } });
+  assert.equal(restored.queue.repair.model, "repair-model");
+});

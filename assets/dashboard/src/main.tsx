@@ -9,7 +9,6 @@ import {
   LoaderCircle,
   PanelLeft,
   Save,
-  Settings2,
   Sparkles,
   Trash2,
   Wrench,
@@ -24,13 +23,18 @@ import {
   shouldUseDegreeCenteredUniverseLayout
 } from "./layout-mode.js";
 import { Viki } from "./Viki";
+import { MobileViki, useMobileChat } from "./MobileViki";
 import { WorkspaceActions } from "./WorkspaceActions";
+import { SettingsMenu } from "./SettingsMenu";
+import { maintenanceStageLabel } from "./maintenance-status";
 import { markdownDocumentStats, markdownOutline, type MarkdownOutlineItem } from "./markdown-workspace";
+import type { DocumentLink } from "./markdown-rendering";
 import { visibleGalaxyStats } from "./overview-stats.js";
 import "./styles.css";
+import "./mobile-chat.css";
 
-const richMarkdownModule = import("./RichMarkdown");
-const RichMarkdown = lazy(() => richMarkdownModule);
+const RichMarkdown = lazy(() => import("./RichMarkdown"));
+const DocumentPreview = lazy(() => import("./DocumentPreview"));
 const MarkdownLiveEditor = lazy(() => import("./MarkdownLiveEditor"));
 
 type WikiNode = {
@@ -443,6 +447,11 @@ function localizedType(value: string, language: Language) {
 }
 
 function App() {
+  const mobile = useMobileChat();
+  return mobile ? <MobileViki language={detectInitialLanguage()} /> : <DashboardApp />;
+}
+
+function DashboardApp() {
   const [language, setLanguage] = useState<Language>(detectInitialLanguage);
   const [graph, setGraph] = useState<WikiGraph | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -462,6 +471,7 @@ function App() {
   const [rightPanelWidth, setRightPanelWidth] = useState(560);
   const [isResizingPanel, setIsResizingPanel] = useState(false);
   const [markdownPath, setMarkdownPath] = useState<string | null>(null);
+  const [readingFromViki, setReadingFromViki] = useState(false);
   const hasLoadedGraph = useRef(false);
   const t = useMemo(() => translatorFor(language), [language]);
   const i18n = useMemo(() => ({ language, t }), [language, t]);
@@ -730,14 +740,22 @@ function App() {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
+  const openVikiDocument = (path: string) => { setReadingFromViki(true); setMarkdownPath(path); };
+  const closeMarkdown = () => { setMarkdownPath(null); setReadingFromViki(false); };
+  const markdownReader = markdownPath && (readingFromViki
+    ? <Suspense fallback={null}><DocumentPreview source={{ kind: "note", path: markdownPath }} zh={language === "zh"} onClose={closeMarkdown} /></Suspense>
+    : <MarkdownWorkspace path={markdownPath} onClose={closeMarkdown} />);
+
   if (loadError) {
     return (
       <>
         <main className="empty-state">
           <h1>{t("graphUnavailable")}</h1>
           <p>{loadError}</p>
+          <button onClick={() => window.location.reload()}>{language === "zh" ? "重新加载" : "Retry"}</button>
         </main>
-        <Viki language={language} />
+        <Viki language={language} onOpenDocument={openVikiDocument} />
+        <I18nContext.Provider value={i18n}>{markdownReader}</I18nContext.Provider>
       </>
     );
   }
@@ -748,7 +766,8 @@ function App() {
         <main className="empty-state">
           <h1>{t("loadingGraph")}</h1>
         </main>
-        <Viki language={language} />
+        <Viki language={language} onOpenDocument={openVikiDocument} />
+        <I18nContext.Provider value={i18n}>{markdownReader}</I18nContext.Provider>
       </>
     );
   }
@@ -781,6 +800,7 @@ function App() {
             </span>
           </label>
           <WorkspaceActions language={language} />
+          <SettingsMenu language={language} />
           <div className="language-control">
             <div className="language-switch" role="group" aria-label={t("language")}>
               <button
@@ -866,16 +886,16 @@ function App() {
           onBackToKnowledge={backToKnowledge}
         />
       </aside>
-      <Viki language={language} />
+      <Viki language={language} onOpenDocument={openVikiDocument} />
       </main>
-      {markdownPath && <MarkdownWorkspace path={markdownPath} onClose={() => setMarkdownPath(null)} />}
+      {markdownReader}
       </>
     </I18nContext.Provider>
   );
 }
 
 function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => void }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const [document, setDocument] = useState<MarkdownDocument | null>(null);
   const [draft, setDraft] = useState("");
   const [savedBody, setSavedBody] = useState("");
@@ -890,13 +910,17 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
   const [uploadingImage, setUploadingImage] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const liveEditorRef = useRef<HTMLDivElement | null>(null);
+  const [linkedDocument, setLinkedDocument] = useState<DocumentLink | null>(null);
+  const backButtonRef = useRef<HTMLButtonElement | null>(null);
   const dirty = draft !== savedBody;
   const outline = useMemo(() => markdownOutline(draft), [draft]);
   const stats = useMemo(() => markdownDocumentStats(draft), [draft]);
 
   useEffect(() => {
+    const previousFocus = window.document.activeElement as HTMLElement | null;
     window.document.body.classList.add("has-markdown-workspace");
-    return () => window.document.body.classList.remove("has-markdown-workspace");
+    backButtonRef.current?.focus();
+    return () => { window.document.body.classList.remove("has-markdown-workspace"); previousFocus?.focus(); };
   }, []);
 
   useEffect(() => {
@@ -1024,13 +1048,17 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
       return;
     }
     setRenderAll(true);
-    window.setTimeout(() => window.document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" }), 40);
+    window.setTimeout(() => {
+      const target = Array.from(window.document.querySelectorAll<HTMLElement>(".markdown-workspace .document-markdown [data-markdown-heading]")).find(node => node.dataset.markdownHeading === item.id);
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 40);
   };
 
   return (
     <section className="markdown-workspace" role="dialog" aria-modal="true" aria-label={document?.title ?? path}>
+      {linkedDocument ? <Suspense fallback={null}><DocumentPreview source={linkedDocument} zh={language === "zh"} onClose={() => setLinkedDocument(null)} /></Suspense> : null}
       <header className="markdown-workspace-header">
-        <button className="document-icon-button" type="button" onClick={closeWorkspace} title={t("backToGraph")} aria-label={t("backToGraph")}>
+        <button ref={backButtonRef} className="document-icon-button" type="button" onClick={closeWorkspace} title={t("backToGraph")} aria-label={t("backToGraph")}>
           <ArrowLeft size={18} />
         </button>
         <div className="document-breadcrumb">
@@ -1101,6 +1129,7 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
           </aside>
         )}
         <div className="document-workspace-content">
+          {document?.formatIssues?.length ? <div className="warning-box" role="status">{document.formatIssues.map((issue, index) => <p key={index}>{issue.path}:{issue.line}:{issue.column} {issue.code}: {issue.message}</p>)}</div> : null}
           {!document && !loadError && (
             <div className="document-state">
               <LoaderCircle className="spin" size={24} />
@@ -1118,6 +1147,8 @@ function MarkdownWorkspace({ path, onClose }: { path: string; onClose: () => voi
               <Suspense fallback={<div className="document-state"><LoaderCircle className="spin" size={24} /></div>}>
                 <RichMarkdown
                   content={draft}
+                  documentPath={document.path}
+                  onOpenDocument={setLinkedDocument}
                   imageUrls={imageUrls}
                   imageFallback={t("imageUnavailable")}
                   renderingLabel={t("renderingDocument")}
@@ -1407,7 +1438,7 @@ function GraphView({
             focusedGroup ? clamp(baseOpacity * 0.72, 0.12, 0.26) :
             baseOpacity;
           const stroke = isHot
-            ? "rgba(236, 232, 221, 0.82)"
+            ? "var(--graph-hot)"
             : canEnterGroup
               ? crossesUniverse ? "#9aa8ad" : colorForGroup(primaryUniverse(source))
               : undefined;
@@ -1575,7 +1606,6 @@ function NodeInspector({
   const evidenceCount = isWikiNode ? evidenceIdsForWiki(graph, node.id).size - 1 : 0;
 
   if (isWikiNode) {
-    const articleContent = stripLeadingMarkdownTitle(node.content ?? "", node.title);
     return (
       <article className="wiki-page">
         <header className="wiki-page-header">
@@ -1600,7 +1630,7 @@ function NodeInspector({
           {node.tags.map((tag) => <span key={tag}>#{tag}</span>)}
         </section>
 
-        {articleContent ? <MarkdownContent content={articleContent} /> : <p className="muted">{t("noWikiText")}</p>}
+        <ConceptBody key={`${node.id}:${graph.generatedAt}`} node={node} />
 
         {(broken.length > 0 || issues.length > 0) && (
           <section className="warning-box">
@@ -1754,121 +1784,34 @@ function GlobalOverview({
   );
 }
 
-function MarkdownContent({ content }: { content: string }) {
-  const blocks = useMemo(() => markdownBlocks(content), [content]);
-  return <section className="wiki-markdown">{blocks}</section>;
-}
-
-function markdownBlocks(content: string) {
-  const lines = content.replace(/\r\n/g, "\n").split("\n");
-  const blocks: React.ReactNode[] = [];
-  let paragraph: string[] = [];
-  let list: string[] = [];
-  let code: string[] | null = null;
-
-  const flushParagraph = () => {
-    if (paragraph.length === 0) return;
-    const text = paragraph.join(" ");
-    blocks.push(<p key={`p-${blocks.length}`}>{renderInlineMarkdown(text, `p-${blocks.length}`)}</p>);
-    paragraph = [];
-  };
-  const flushList = () => {
-    if (list.length === 0) return;
-    blocks.push(
-      <ul key={`ul-${blocks.length}`}>
-        {list.map((item, index) => <li key={`${item}-${index}`}>{renderInlineMarkdown(item, `li-${blocks.length}-${index}`)}</li>)}
-      </ul>
-    );
-    list = [];
-  };
-  const flushCode = () => {
-    if (!code) return;
-    blocks.push(<pre key={`code-${blocks.length}`}><code>{code.join("\n")}</code></pre>);
-    code = null;
-  };
-
-  for (const rawLine of lines) {
-    const line = rawLine.trimEnd();
-    if (line.startsWith("```")) {
-      if (code) flushCode();
-      else {
-        flushParagraph();
-        flushList();
-        code = [];
-      }
-      continue;
-    }
-    if (code) {
-      code.push(line);
-      continue;
-    }
-    if (!line.trim()) {
-      flushParagraph();
-      flushList();
-      continue;
-    }
-
-    const heading = line.match(/^(#{1,4})\s+(.+)$/);
-    if (heading) {
-      flushParagraph();
-      flushList();
-      const level = heading[1].length;
-      const text = heading[2];
-      if (level === 1) blocks.push(<h2 key={`h-${blocks.length}`}>{renderInlineMarkdown(text, `h-${blocks.length}`)}</h2>);
-      else if (level === 2) blocks.push(<h3 key={`h-${blocks.length}`}>{renderInlineMarkdown(text, `h-${blocks.length}`)}</h3>);
-      else blocks.push(<h4 key={`h-${blocks.length}`}>{renderInlineMarkdown(text, `h-${blocks.length}`)}</h4>);
-      continue;
-    }
-
-    const bullet = line.match(/^\s*[-*]\s+(.+)$/);
-    if (bullet) {
-      flushParagraph();
-      list.push(bullet[1]);
-      continue;
-    }
-
-    paragraph.push(line.trim());
-  }
-
-  flushParagraph();
-  flushList();
-  flushCode();
-  return blocks;
-}
-
-function renderInlineMarkdown(text: string, keyPrefix: string) {
-  const nodes: React.ReactNode[] = [];
-  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\[\[[^\]]+\]\]|\[[^\]]+\]\([^)]+\))/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(text))) {
-    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
-
-    const token = match[0];
-    const key = `${keyPrefix}-${match.index}`;
-    if (token.startsWith("`")) {
-      nodes.push(<code key={key}>{token.slice(1, -1)}</code>);
-    } else if (token.startsWith("**")) {
-      nodes.push(<strong key={key}>{renderInlineMarkdown(token.slice(2, -2), `${key}-strong`)}</strong>);
-    } else if (token.startsWith("[[")) {
-      const body = token.slice(2, -2);
-      const [target, label] = body.split("|");
-      nodes.push(<span className="wiki-link-chip" key={key}>{(label ?? target).trim()}</span>);
-    } else {
-      const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-      if (link) {
-        nodes.push(<a key={key} href={link[2]} target="_blank" rel="noreferrer">{link[1]}</a>);
-      } else {
-        nodes.push(token);
-      }
-    }
-
-    lastIndex = pattern.lastIndex;
-  }
-
-  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
-  return nodes;
+function ConceptBody({ node }: { node: WikiNode }) {
+  const { language, t } = useI18n();
+  const [body, setBody] = useState(node.content);
+  const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const [imageBase, setImageBase] = useState("");
+  const [linkedDocument, setLinkedDocument] = useState<DocumentLink | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void localApi.downloadUrl(`/api/v1/markdown-image?${new URLSearchParams({ note: node.path })}`).then(url => { if (!cancelled) setImageBase(url); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [node.path]);
+  useEffect(() => {
+    if (node.content !== undefined) return;
+    let cancelled = false;
+    setError("");
+    localApi.markdown(node.path).then((document) => { if (!cancelled) setBody(document.body); }).catch((error) => { if (!cancelled) setError(error.message); });
+    return () => { cancelled = true; };
+  }, [node.path, node.content, attempt]);
+  if (error) return <p role="alert">{error} <button onClick={() => setAttempt((value) => value + 1)}>{language === "zh" ? "重试" : "Retry"}</button></p>;
+  if (body === undefined) return <p className="muted" role="status">{language === "zh" ? "正在读取正文…" : "Loading document…"}</p>;
+  const content = stripLeadingMarkdownTitle(body, node.title);
+  return content ? <section className="wiki-markdown">
+    <Suspense fallback={<p className="muted">{t("renderingDocument")}</p>}>
+      <RichMarkdown content={content} documentPath={node.path} onOpenDocument={setLinkedDocument} imageUrls={{}} resolveImageUrl={source => imageBase ? `${imageBase}&src=${encodeURIComponent(source)}` : ""} imageFallback={t("imageUnavailable")} renderingLabel={t("renderingDocument")} renderMoreLabel={t("renderMoreDocument")} />
+    </Suspense>
+    {linkedDocument ? <Suspense fallback={null}><DocumentPreview source={linkedDocument} zh={language === "zh"} onClose={() => setLinkedDocument(null)} /></Suspense> : null}
+  </section> : <p className="muted">{t("noWikiText")}</p>;
 }
 
 function stripLeadingMarkdownTitle(content: string, title: string) {
@@ -1907,13 +1850,28 @@ function Stats({ graph, stats, visibleEdges, items }: { graph?: WikiGraph; stats
 
 function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeById: Map<string, WikiNode>; onSelect: (id: string) => void }) {
   const { language, t } = useI18n();
+  const [queueItems, setQueueItems] = useState<InboxItem[]>([]);
+  const [queueLoaded, setQueueLoaded] = useState(false);
+  const queueVersions = useRef(new Map<string, string>());
+  const captureItems = queueItems.filter((item) => item.stage === "upload" || (item.stage === "extract" && item.jobStatus !== "failed") || !item.path);
+  const queueByPath = new Map(queueItems.filter((item) => item.path).map((item) => [item.path, item]));
+  const queueSignature = queueItems.map((item) => `${item.path}:${item.documentVersion}:${item.stage}:${item.jobStatus}`).join("|");
+  useEffect(() => { window.dispatchEvent(new Event("my-wiki:graph-updated")); }, [queueSignature]);
+  const extractingIds = new Set(captureItems.map((item) => item.path.replace(/\.md$/i, "")));
   const [deletedIds, setDeletedIds] = useState<Set<string>>(() => new Set());
   const ids = [...new Set([...graph.queues.inbox, ...graph.queues.needsFollowup, ...graph.queues.stale])]
-    .filter((id) => id.startsWith("references/sources/") && !deletedIds.has(id));
-  const nodes = ids.map((id) => nodeById.get(id)).filter(Boolean) as WikiNode[];
+    .filter((id) => id.startsWith("references/sources/") && !deletedIds.has(id) && !extractingIds.has(id));
+  const nodes: WikiNode[] = queueLoaded
+    ? queueItems.filter(item => item.path && !captureItems.includes(item)).map(item => {
+        const id = item.path.replace(/\.md$/i, "");
+        const known = nodeById.get(id);
+        return { ...known, id, path: item.path, title: item.title, type: "Reference", status: item.referenceStatus || item.status,
+          tags: known?.tags || [], out: known?.out || [], backlinks: known?.backlinks || [],
+          followupReasons: item.followupReasons || [], visualGapPages: item.visualGapPages || [] };
+      }).filter(node => !deletedIds.has(node.id))
+    : ids.map((id) => nodeById.get(id)).filter(Boolean) as WikiNode[];
   const batchNodes = nodes.slice(0, 500);
   const [agentState, setAgentState] = useState<AgentInfo | null>(null);
-  const [captureItems, setCaptureItems] = useState<InboxItem[]>([]);
   const [activeJobs, setActiveJobs] = useState<Map<string, Job>>(() => new Map());
   const [pendingPaths, setPendingPaths] = useState<Set<string>>(() => new Set());
   const [deletingPath, setDeletingPath] = useState<string | null>(null);
@@ -1922,30 +1880,36 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
   const [repairResult, setRepairResult] = useState<RepairResult | null>(null);
   const [error, setError] = useState("");
   const [errorAction, setErrorAction] = useState<"maintenance" | "repair">("maintenance");
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [queueAgentSettings, setQueueAgentSettings] = useState<QueueAgentSettings>(() => loadQueueAgentSettings());
-  const [preferencesHydrated, setPreferencesHydrated] = useState(false);
-  const preferencesLoadedRef = useRef(false);
 
   useEffect(() => {
+    let revision = 0;
+    let cancelled = false;
     const refresh = async () => {
-      const [agent, captures, preferences] = await Promise.all([
+      const request = ++revision;
+      void localApi.inbox().then(({ items }) => {
+        if (cancelled || request !== revision) return;
+        if (items.some(item => item.path && queueVersions.current.has(item.path) && queueVersions.current.get(item.path) !== (item.documentVersion || ""))) {
+          setResult(null); setRepairResult(null); setError("");
+        }
+        queueVersions.current = new Map(items.filter(item => item.path).map(item => [item.path, item.documentVersion || ""]));
+        setQueueItems(items);
+        setQueueLoaded(true);
+      }).catch(() => {});
+      const [agent, preferences] = await Promise.all([
         localApi.agent(),
-        localApi.captureJobs(),
-        preferencesLoadedRef.current ? Promise.resolve(null) : localApi.agentPreferences().catch(() => null)
+        localApi.agentPreferences().catch(() => null)
       ]);
+      if (cancelled || request !== revision) return;
       setAgentState(agent);
       setActiveJobs(new Map((agent.activeRawJobs || []).flatMap((job) => rawJobPath(job) ? [[rawJobPath(job), job] as const] : [])));
-      setCaptureItems(captures.items.filter((item) => item.jobId && ["queued", "running", "failed"].includes(item.jobStatus || "")));
-      if (!preferencesLoadedRef.current) {
-        preferencesLoadedRef.current = true;
-        setQueueAgentSettings((current) => mergeQueueAgentSettings(current, preferences?.queue));
-        setPreferencesHydrated(true);
-      }
+      setQueueAgentSettings((current) => mergeQueueAgentSettings(current, preferences?.queue));
     };
     void refresh().catch(() => setAgentState(null));
     const timer = window.setInterval(() => void refresh().catch(() => {}), 1500);
-    return () => window.clearInterval(timer);
+    const update = () => { void refresh().catch(() => {}); };
+    window.addEventListener("my-wiki:agent-preferences-updated", update);
+    return () => { cancelled = true; window.clearInterval(timer); window.removeEventListener("my-wiki:agent-preferences-updated", update); };
   }, []);
 
   useEffect(() => {
@@ -1954,10 +1918,8 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
   }, [agentState]);
 
   useEffect(() => {
-    if (!preferencesHydrated) return;
     persistQueueAgentSettings(queueAgentSettings);
-    void localApi.saveAgentPreferences({ queue: queueAgentSettings }).catch(() => {});
-  }, [preferencesHydrated, queueAgentSettings]);
+  }, [queueAgentSettings]);
 
   const processNodes = async (selectedNodes: WikiNode[], confirmBatch = false) => {
     if (selectedNodes.length === 0 || !agentState?.available) return;
@@ -1973,7 +1935,8 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
     const selectedPaths = selectedNodes.map((node) => node.path);
     setPendingPaths((current) => new Set([...current, ...selectedPaths]));
     try {
-      const normalizedSettings = effectiveQueueAgentSettings(agentState, queueAgentSettings);
+      const preferences = await localApi.agentPreferences();
+      const normalizedSettings = effectiveQueueAgentSettings(agentState, mergeQueueAgentSettings(queueAgentSettings, preferences.queue));
       const distillSelection = normalizedSettings.distill;
       const outcome = selectedNodes.length === 1 && selectedNodes[0].status !== "needs-followup"
         ? { jobs: [await localApi.maintain([selectedNodes[0].path], 1, distillSelection)] }
@@ -2014,7 +1977,8 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
     setRepairResult(null);
     setPendingPaths((current) => new Set(current).add(node.path));
     try {
-      const normalizedSettings = effectiveQueueAgentSettings(agentState, queueAgentSettings);
+      const preferences = await localApi.agentPreferences();
+      const normalizedSettings = effectiveQueueAgentSettings(agentState, mergeQueueAgentSettings(queueAgentSettings, preferences.queue));
       const initial = await localApi.repair(node.path, normalizedSettings.repair);
       setActiveJobs((current) => new Map(current).set(node.path, initial));
       setPendingPaths((current) => { const next = new Set(current); next.delete(node.path); return next; });
@@ -2081,16 +2045,6 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
         <div className="queue-heading-actions">
           <button
             type="button"
-            className={`queue-settings-button${settingsOpen ? " active" : ""}`}
-            aria-label={t("queueSettings")}
-            title={t("queueSettings")}
-            disabled={!agentState?.available}
-            onClick={() => setSettingsOpen((current) => !current)}
-          >
-            <Settings2 size={15} />
-          </button>
-          <button
-            type="button"
             className="maintenance-button"
             disabled={batchNodes.length === 0 || Boolean(deletingPath) || deletingBatch || !agentState?.available}
             title={agentState?.available === false ? t("agentUnavailable") : t("processBatch")}
@@ -2111,46 +2065,6 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
           </button>
         </div>
       </div>
-      {settingsOpen && agentState?.available ? (
-        <div className="queue-agent-settings" aria-label={t("queueSettings")}>
-          {(["repair", "distill"] as const).map((kind) => {
-            const selection = queueAgentSettings[kind];
-            const providerInfo = agentState.providers.find((item) => item.provider === selection.provider) || agentState.providers[0];
-            return (
-              <div className="queue-agent-setting" key={kind}>
-                <strong>{t(kind === "repair" ? "repairAgent" : "distillAgent")}</strong>
-                <label>
-                  <span>{t("agentCli")}</span>
-                  <select
-                    value={selection.provider}
-                    onChange={(event) => setQueueAgentSettings((current) => ({
-                      ...current,
-                      [kind]: { provider: event.target.value, model: "" }
-                    }))}
-                  >
-                    {selection.provider && !agentState.providers.some((provider) => provider.provider === selection.provider) ? <option value={selection.provider}>{selection.provider} · {t("savedSelection")}</option> : null}
-                    {agentState.providers.map((provider) => <option value={provider.provider} key={provider.provider}>{provider.label}</option>)}
-                  </select>
-                </label>
-                <label>
-                  <span>{t("agentModel")}</span>
-                  <select
-                    value={selection.model}
-                    onChange={(event) => setQueueAgentSettings((current) => ({
-                      ...current,
-                      [kind]: { ...current[kind], model: event.target.value }
-                    }))}
-                  >
-                    <option value="">{t("cliDefault")}{providerInfo?.defaultModel ? ` · ${providerInfo.defaultModel}` : ""}</option>
-                    {selection.model && !(providerInfo?.models || []).some((model) => model.id === selection.model) ? <option value={selection.model}>{selection.model} · {t("savedSelection")}</option> : null}
-                    {(providerInfo?.models || []).map((model) => <option value={model.id} key={model.id}>{model.label}</option>)}
-                  </select>
-                </label>
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
       {nodes.length === 0 && captureItems.length === 0 ? (
         <p className="muted">{t("noPendingRaw")}</p>
       ) : (
@@ -2159,7 +2073,8 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
             <div className="queue-item queue-item-extracting" key={`capture:${item.jobId}`}>
               <div className="queue-item-main">
                 <strong>{item.title}</strong>
-                <span>{item.jobStatus === "failed" ? item.preview : item.jobStatus === "queued" ? t("queuedTask") : t("extractingTask")}</span>
+                <span>{maintenanceStageLabel(item, language)}</span>
+                {item.jobStatus === "failed" ? <small>{item.preview}</small> : null}
                 {item.progress ? <QueueProgress progress={item.progress} language={language} /> : null}
               </div>
               <div className="queue-item-actions">{item.jobStatus === "failed" ? <AlertTriangle size={14} /> : <LoaderCircle className="spin" size={14} />}</div>
@@ -2169,7 +2084,9 @@ function QueueSummary({ graph, nodeById, onSelect }: { graph: WikiGraph; nodeByI
             <div className="queue-item" key={node.id}>
               <button className="queue-item-main" type="button" onClick={() => onSelect(node.id)}>
                 <strong>{node.title}</strong>
-                <span>{pendingPaths.has(node.path) ? t("queuedTask") : rawTaskLabel(activeJobs.get(node.path), language) || (node.status === "needs-followup" ? localizedStatus(node.status, language) : t("awaitingDistillation"))}</span>
+                <span>{pendingPaths.has(node.path) ? t("queuedTask") : rawTaskLabel(activeJobs.get(node.path), language) || (queueByPath.has(node.path) ? maintenanceStageLabel(queueByPath.get(node.path)!, language) : node.status === "needs-followup" ? localizedStatus(node.status, language) : t("awaitingDistillation"))}</span>
+                {queueByPath.get(node.path)?.jobStatus === "failed" ? <small>{queueByPath.get(node.path)?.preview}</small> : null}
+                {queueByPath.get(node.path)?.progress ? <QueueProgress progress={queueByPath.get(node.path)!.progress!} language={language} /> : null}
                 {node.status === "needs-followup" && node.visualGapPages?.length ? (
                   <small className="queue-item-followup">{localizedVisualGap(node.visualGapPages, language)}</small>
                 ) : node.status === "needs-followup" && node.followupReasons?.length ? (
@@ -2255,14 +2172,8 @@ function loadQueueAgentSettings(remote?: AgentPreferences["queue"]): QueueAgentS
 
 function mergeQueueAgentSettings(local: QueueAgentSettings, remote?: AgentPreferences["queue"]): QueueAgentSettings {
   return {
-    distill: {
-      provider: local.distill.provider || remote?.distill.provider || "",
-      model: local.distill.model || remote?.distill.model || ""
-    },
-    repair: {
-      provider: local.repair.provider || remote?.repair.provider || "",
-      model: local.repair.model || remote?.repair.model || ""
-    }
+    distill: remote?.distill.provider ? remote.distill : local.distill,
+    repair: remote?.repair.provider ? remote.repair : local.repair
   };
 }
 

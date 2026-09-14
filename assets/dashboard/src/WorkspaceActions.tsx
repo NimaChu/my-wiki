@@ -1,26 +1,29 @@
 import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArchiveRestore, BookOpen, Download, Eye, EyeOff, FileArchive, FileUp, FolderUp, Inbox, Link2, LoaderCircle, NotebookPen, Orbit, Pencil, Plus, RotateCcw, ShieldCheck, Trash2, Upload, X } from "lucide-react";
-import { GalaxyTrashEntry, GithubAllowlist, InboxItem, Job, localApi, TaskProgress, UniverseSummary, waitForJob } from "./api";
+import { ArchiveRestore, BookOpen, FileArchive, FileUp, FolderUp, HardDrive, Inbox, Link2, LoaderCircle, NotebookPen, Plus, RotateCcw, Trash2, Upload, X } from "lucide-react";
+import { DriveGalaxy, GalaxyDialogMode, GalaxyTrashEntry, GithubAllowlist, InboxItem, Job, localApi, TaskProgress, UniverseSummary, waitForJob } from "./api";
+import { maintenanceStageLabel } from "./maintenance-status";
 
 const QuickNotes = lazy(() => import("./QuickNotes").then((module) => ({ default: module.QuickNotes })));
+const GalaxyExport = lazy(() => import("./GalaxyExport").then((module) => ({ default: module.GalaxyExport })));
+const OriginalsDrive = lazy(() => import("./OriginalsDrive").then((module) => ({ default: module.OriginalsDrive })));
 
 type Language = "en" | "zh";
-type ActionView = "notes" | "add" | "universes" | "access" | null;
-type AddTab = "link" | "file" | "folder" | "zip" | "inbox";
+type ActionView = "notes" | "drive" | null;
+type AddTab = "link" | "file" | "zip" | "inbox";
+type UploadFile = { file: File; sourcePath: string };
 
 const labels = {
   en: {
     addKnowledge: "Add knowledge",
     quickNotes: "Quick notes",
-    manageUniverses: "Galaxies",
-    addTitle: "Add knowledge to Inbox",
+    addTitle: "Add knowledge",
     addDescription: "Capture evidence now. Your agent can distill and connect it later.",
     link: "Web link",
     file: "File upload",
     folder: "Folder",
     zip: "ZIP bundle",
-    inbox: "Inbox",
+    inbox: "Maintenance queue",
     url: "Webpage URL",
     title: "Title",
     optionalTitle: "Optional title",
@@ -33,7 +36,7 @@ const labels = {
     galaxyNamePlaceholder: "Broad, durable knowledge domain",
     galaxyCreated: "Initial galaxy created",
     emptyGalaxy: "Initial galaxy · no concept planets yet",
-    capture: "Add to Inbox",
+    capture: "Add to maintenance queue",
     chooseFile: "Choose a file",
     chooseFolder: "Choose a folder",
     chooseZip: "Choose a ZIP bundle",
@@ -42,26 +45,14 @@ const labels = {
     zipHint: "Markdown with relative image files",
     selectedFile: "Selected file",
     failedFiles: "Failed files",
-    noInbox: "Inbox is clear",
+    noInbox: "No pending maintenance tasks",
     refresh: "Refresh",
     close: "Close",
     success: "Source captured",
     status: "Status",
     addAnother: "Add another",
-    universeTitle: "Knowledge galaxies",
-    universeDescription: "Create, rename, show, hide, delete, export, or import knowledge galaxies.",
     wikiPages: "{count} concept planets",
     rawSources: "{count} references",
-    export: "Export",
-    exporting: "Exporting",
-    hideGalaxy: "Hide galaxy from the knowledge universe",
-    showGalaxy: "Show galaxy in the knowledge universe",
-    renameGalaxy: "Rename galaxy",
-    renameGalaxyPrompt: "Enter a new name for \"{name}\".",
-    deleteGalaxy: "Delete galaxy",
-    deleteGalaxyPrompt: "This galaxy will first be exported to the vault recycle bin, then its exclusive Concepts and unshared evidence will leave the active vault. Type \"{name}\" to continue.",
-    galaxyMovedToTrash: "Moved to recycle bin",
-    activeGalaxies: "Active galaxies",
     recycleBin: "Recycle bin",
     recycleEmpty: "The recycle bin is empty",
     restoreGalaxy: "Restore galaxy",
@@ -72,7 +63,6 @@ const labels = {
     permanentlyDeleted: "Permanently deleted",
     deletedAt: "Deleted",
     deleteGalaxyMismatch: "The galaxy name did not match. Nothing was deleted.",
-    download: "Download package",
     importPackage: "Import a galaxy package",
     rename: "Galaxy name after import",
     optionalRename: "Keep the package name",
@@ -89,7 +79,7 @@ const labels = {
     queued: "Queued",
     extracting: "Extracting",
     failed: "Failed",
-    pending: "Inbox items",
+    pending: "maintenance tasks",
     source: "Source",
     snapshot: "Original",
     pdfText: "Readable content",
@@ -107,14 +97,13 @@ const labels = {
   zh: {
     addKnowledge: "添加知识",
     quickNotes: "快速笔记",
-    manageUniverses: "知识星系",
-    addTitle: "添加知识到 Inbox",
+    addTitle: "添加知识",
     addDescription: "先保存完整证据，之后再由 Agent 蒸馏并建立关系。",
     link: "网页链接",
     file: "上传文件",
     folder: "文件夹",
     zip: "ZIP 图文包",
-    inbox: "Inbox",
+    inbox: "维护队列",
     url: "网页链接",
     title: "标题",
     optionalTitle: "可选标题",
@@ -127,7 +116,7 @@ const labels = {
     galaxyNamePlaceholder: "建议使用宽泛、长期稳定的知识分类",
     galaxyCreated: "初始星系已创建",
     emptyGalaxy: "初始星系 · 暂无概念星球",
-    capture: "添加到 Inbox",
+    capture: "添加到维护队列",
     chooseFile: "选择文件",
     chooseFolder: "选择文件夹",
     chooseZip: "选择 ZIP 图文包",
@@ -136,26 +125,14 @@ const labels = {
     zipHint: "包含 Markdown 和相对路径引用的图片",
     selectedFile: "已选择",
     failedFiles: "失败文件",
-    noInbox: "Inbox 当前为空",
+    noInbox: "没有待处理的维护任务",
     refresh: "刷新",
     close: "关闭",
     success: "参考资料已保存",
     status: "状态",
     addAnother: "继续添加",
-    universeTitle: "知识星系",
-    universeDescription: "新增、重命名、显示、隐藏、删除、导出或导入知识星系。",
     wikiPages: "{count} 个概念星球",
     rawSources: "{count} 条参考资料",
-    export: "导出",
-    exporting: "正在导出",
-    hideGalaxy: "在知识宇宙中隐藏此星系",
-    showGalaxy: "在知识宇宙中显示此星系",
-    renameGalaxy: "重命名星系",
-    renameGalaxyPrompt: "请输入“{name}”的新名称。",
-    deleteGalaxy: "删除星系",
-    deleteGalaxyPrompt: "系统会先将整个星系导出到知识库回收站，再从活动知识库移除独占 Concept 与未共享证据。请输入“{name}”继续。",
-    galaxyMovedToTrash: "已移入回收站",
-    activeGalaxies: "现有星系",
     recycleBin: "回收站",
     recycleEmpty: "回收站为空",
     restoreGalaxy: "恢复星系",
@@ -166,7 +143,6 @@ const labels = {
     permanentlyDeleted: "已永久删除",
     deletedAt: "删除时间",
     deleteGalaxyMismatch: "输入的星系名称不匹配，未执行删除。",
-    download: "下载知识包",
     importPackage: "导入知识星系包",
     rename: "导入后的星系名",
     optionalRename: "默认沿用知识包名称",
@@ -183,7 +159,7 @@ const labels = {
     queued: "排队中",
     extracting: "正在提取",
     failed: "处理失败",
-    pending: "Inbox 条目",
+    pending: "项维护任务",
     source: "来源",
     snapshot: "原件",
     pdfText: "可读正文",
@@ -203,12 +179,11 @@ const labels = {
 export function WorkspaceActions({ language }: { language: Language }) {
   const [view, setView] = useState<ActionView>(null);
   const [initialNotePath, setInitialNotePath] = useState("");
-  const [canManageAccess, setCanManageAccess] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    localApi.session().then((session) => { if (!cancelled) setCanManageAccess(session.canManageAccess === true); }).catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
+  const [addGalaxy, setAddGalaxy] = useState<string | null>(null);
+  const [exportGalaxy, setExportGalaxy] = useState<DriveGalaxy | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportRunning, setExportRunning] = useState(false);
+  const [galaxyPanel, setGalaxyPanel] = useState<GalaxyDialogMode | null>(null);
   const l = labels[language];
   useEffect(() => {
     const openQuickNote = (event: Event) => {
@@ -224,22 +199,12 @@ export function WorkspaceActions({ language }: { language: Language }) {
         <button
           type="button"
           className="workspace-action primary"
-          aria-label={l.addKnowledge}
-          title={l.addKnowledge}
-          onClick={() => setView("add")}
+          aria-label={language === "zh" ? "文档库" : "Library"}
+          title={language === "zh" ? "文档库" : "Library"}
+          onClick={() => setView("drive")}
         >
-          <Plus size={16} aria-hidden="true" />
-          <span>{l.addKnowledge}</span>
-        </button>
-        <button
-          type="button"
-          className="workspace-action"
-          aria-label={l.manageUniverses}
-          title={l.manageUniverses}
-          onClick={() => setView("universes")}
-        >
-          <Orbit size={16} aria-hidden="true" />
-          <span>{l.manageUniverses}</span>
+          <HardDrive size={16} aria-hidden="true" />
+          <span>{language === "zh" ? "文档库" : "Library"}</span>
         </button>
         <button
           type="button"
@@ -251,17 +216,17 @@ export function WorkspaceActions({ language }: { language: Language }) {
           <NotebookPen size={16} aria-hidden="true" />
           <span>{l.quickNotes}</span>
         </button>
-        {canManageAccess ? <button type="button" className="workspace-action" aria-label={language === "zh" ? "GitHub 访问白名单" : "GitHub access allowlist"} title={language === "zh" ? "GitHub 访问白名单" : "GitHub access allowlist"} onClick={() => setView("access")}><ShieldCheck size={16} aria-hidden="true" /></button> : null}
       </div>
       {view === "notes" ? <Suspense fallback={null}><QuickNotes language={language} initialPath={initialNotePath} onClose={() => setView(null)} /></Suspense> : null}
-      {view === "add" ? <AddKnowledgeDialog language={language} onClose={() => setView(null)} /> : null}
-      {view === "universes" ? <UniverseDialog language={language} onClose={() => setView(null)} /> : null}
-      {view === "access" ? <GithubAccessDialog language={language} onClose={() => setView(null)} /> : null}
+      {view === "drive" ? <Suspense fallback={null}><OriginalsDrive language={language} onClose={() => setView(null)} onAdd={setAddGalaxy} onGalaxies={setGalaxyPanel} onExport={(galaxy) => { if (!exportRunning) setExportGalaxy(galaxy); setExportOpen(true); }} /></Suspense> : null}
+      {exportGalaxy ? <Suspense fallback={null}><GalaxyExport key={exportGalaxy.id} galaxy={exportGalaxy} language={language} open={exportOpen} onOpen={() => setExportOpen(true)} onMinimize={() => setExportOpen(false)} onClose={() => setExportGalaxy(null)} onRunning={setExportRunning} /></Suspense> : null}
+      {galaxyPanel ? <GalaxyDialog language={language} mode={galaxyPanel} onClose={() => { setGalaxyPanel(null); window.dispatchEvent(new Event("my-wiki:drive-updated")); }} onCreated={() => { setGalaxyPanel(null); window.dispatchEvent(new Event("my-wiki:drive-updated")); }} /> : null}
+      {addGalaxy !== null ? <AddKnowledgeDialog language={language} initialGalaxy={addGalaxy} onClose={() => { setAddGalaxy(null); window.dispatchEvent(new Event("my-wiki:drive-updated")); }} /> : null}
     </>
   );
 }
 
-function GithubAccessDialog({ language, onClose }: { language: Language; onClose: () => void }) {
+export function GithubAccessDialog({ language, onClose }: { language: Language; onClose: () => void }) {
   const zh = language === "zh";
   const [data, setData] = useState<GithubAllowlist | null>(null);
   const [login, setLogin] = useState("");
@@ -301,19 +266,19 @@ function GithubAccessDialog({ language, onClose }: { language: Language; onClose
   </Dialog>;
 }
 
-function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose: () => void }) {
+function AddKnowledgeDialog({ language, initialGalaxy = "", onClose }: { language: Language; initialGalaxy?: string; onClose: () => void }) {
   const l = labels[language];
   const [tab, setTab] = useState<AddTab>("link");
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
   const [collection, setCollection] = useState("");
-  const [suggestedUniverse, setSuggestedUniverse] = useState("");
+  const [suggestedUniverse, setSuggestedUniverse] = useState(initialGalaxy);
   const [universes, setUniverses] = useState<UniverseSummary[]>([]);
-  const [showUniverseDialog, setShowUniverseDialog] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
-  const [folderFiles, setFolderFiles] = useState<File[]>([]);
+  const [showCreateGalaxy, setShowCreateGalaxy] = useState(false);
+  const [files, setFiles] = useState<UploadFile[]>([]);
   const [zipFile, setZipFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const [readingFiles, setReadingFiles] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [result, setResult] = useState<Record<string, any> | null>(null);
@@ -323,6 +288,21 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const zipInput = useRef<HTMLInputElement>(null);
+
+  const chooseFiles = (values: UploadFile[], hasFolder: boolean) => {
+    const usable = values.filter((item) => !isIgnoredUploadPath(item.sourcePath));
+    setError("");
+    if (!usable.length) { setError(language === "zh" ? "没有可上传的文件，系统隐藏文件会被忽略。" : "No uploadable files. System files are ignored."); return; }
+    if (hasFolder && !window.confirm(language === "zh" ? `将上传文件夹及子文件夹中的 ${usable.length} 个文件（${formatBytes(usable.reduce((sum, item) => sum + item.file.size, 0))}）。是否继续？` : `Upload all ${usable.length} files (${formatBytes(usable.reduce((sum, item) => sum + item.file.size, 0))}) in the selected folder and its subfolders?`)) return;
+    setFiles(usable);
+  };
+  const dropFiles = async (transfer: DataTransfer) => {
+    if (busy || readingFiles) return;
+    setReadingFiles(true);
+    try { const result = await droppedUploadFiles(transfer); chooseFiles(result.files, result.hasFolder); }
+    catch (e) { setError(errorMessage(e)); }
+    finally { setReadingFiles(false); }
+  };
 
   const loadInbox = async (quiet = false) => {
     if (!quiet) setLoadingInbox(true);
@@ -346,17 +326,15 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
   }, [tab]);
 
   useEffect(() => {
-    if (tab !== "inbox" || !inbox.some((item) => item.jobStatus === "queued" || item.jobStatus === "running")) return;
+    if (tab !== "inbox") return;
     const timer = window.setInterval(() => void loadInbox(true), 1500);
     return () => window.clearInterval(timer);
-  }, [tab, inbox]);
+  }, [tab]);
 
   const submit = async () => {
     setError("");
     if (tab === "link" && !url.trim()) return setError(l.requiredUrl);
-    if (tab === "file" && !file) return setError(l.requiredFile);
-    const uploadableFolderFiles = folderFiles.filter((item) => !isIgnoredFolderFile(item));
-    if (tab === "folder" && uploadableFolderFiles.length === 0) return setError(l.requiredFolder);
+    if (tab === "file" && !files.length) return setError(l.requiredFile);
     if (tab === "zip" && !zipFile) return setError(l.requiredZip);
     setBusy(true);
     setUploadProgress(null);
@@ -364,35 +342,34 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
       let captured: Record<string, any>;
       if (tab === "link") {
         captured = await localApi.captureUrl({ url: url.trim(), title: title.trim(), collection: collection.trim(), suggestedUniverse });
-      } else if (tab === "folder") {
+      } else if (tab === "file" || tab === "zip") {
+        const selected = tab === "zip" ? [{ file: zipFile!, sourcePath: zipFile!.name }] : files;
+        setTab("inbox");
         const items: Job[] = [];
         const failures = [];
-        for (const item of uploadableFolderFiles) {
+        const failedSelection: UploadFile[] = [];
+        const totalBytes = selected.reduce((sum, item) => sum + item.file.size, 0);
+        let completedBytes = 0;
+        for (const item of selected) {
           try {
-            items.push(await localApi.captureFile(item, { collection: collection.trim(), suggestedUniverse, sourcePath: item.webkitRelativePath || item.name }));
+            items.push(await localApi.captureFile(item.file, { title: selected.length === 1 ? title.trim() : "", collection: collection.trim(), suggestedUniverse, sourcePath: item.sourcePath }, (uploaded) => setUploadProgress(Math.round((completedBytes + uploaded) / Math.max(1, totalBytes) * 100))));
           } catch (nextError) {
-            failures.push({ path: item.webkitRelativePath || item.name, error: errorMessage(nextError) });
+            failures.push(`${item.sourcePath}: ${errorMessage(nextError)}`);
+            failedSelection.push(item);
           }
+          completedBytes += item.file.size;
+          setUploadProgress(Math.round(completedBytes / Math.max(1, totalBytes) * 100));
         }
-        if (items.length === 0) throw new Error(failures[0]?.error || l.requiredFolder);
-        setFolderFiles([]);
-        setTab("inbox");
-        await loadInbox();
-        return;
-      } else {
-        const selected = tab === "zip" ? zipFile! : file!;
-        await localApi.captureFile(
-          selected,
-          { title: title.trim(), collection: collection.trim(), suggestedUniverse },
-          (uploaded, total) => setUploadProgress(Math.round(uploaded / total * 100))
-        );
-        setFile(null);
+        setFiles(failedSelection);
+        window.dispatchEvent(new Event("my-wiki:drive-updated"));
+        window.dispatchEvent(new Event("my-wiki:graph-updated"));
+        if (failures.length) { setError(`${items.length} ${l.success}; ${l.failedFiles}: ${failures.join("; ")}`); return; }
         setZipFile(null);
         setTitle("");
         setTab("inbox");
         await loadInbox();
         return;
-      }
+      } else return;
       setResult(captured);
       window.dispatchEvent(new Event("my-wiki:graph-updated"));
     } catch (nextError) {
@@ -408,8 +385,7 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
     setTitle("");
     setCollection("");
     setSuggestedUniverse("");
-    setFile(null);
-    setFolderFiles([]);
+    setFiles([]);
     setZipFile(null);
     setResult(null);
     setError("");
@@ -420,12 +396,11 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
   const followupCount = capturedItems.filter((item) => item.status === "needs-followup").length;
 
   return (
-    <Dialog title={l.addTitle} description={l.addDescription} onClose={onClose}>
+    <Dialog title={l.addTitle} description={l.addDescription} onClose={() => { if (!busy && !readingFiles) onClose(); }}>
       <div className="dialog-tabs" role="tablist">
-        <TabButton active={tab === "link"} onClick={() => setTab("link")} icon={<Link2 size={15} />} label={l.link} />
-        <TabButton active={tab === "file"} onClick={() => setTab("file")} icon={<FileUp size={15} />} label={l.file} />
-        <TabButton active={tab === "folder"} onClick={() => setTab("folder")} icon={<FolderUp size={15} />} label={l.folder} />
-        <TabButton active={tab === "zip"} onClick={() => setTab("zip")} icon={<FileArchive size={15} />} label={l.zip} />
+        <TabButton active={tab === "link"} onClick={() => { if (!busy && !readingFiles) setTab("link"); }} icon={<Link2 size={15} />} label={l.link} />
+        <TabButton active={tab === "file"} onClick={() => { if (!busy && !readingFiles) setTab("file"); }} icon={<FileUp size={15} />} label={l.file} />
+        <TabButton active={tab === "zip"} onClick={() => { if (!busy && !readingFiles) setTab("zip"); }} icon={<FileArchive size={15} />} label={l.zip} />
         <TabButton active={tab === "inbox"} onClick={() => setTab("inbox")} icon={<Inbox size={15} />} label={l.inbox} />
       </div>
 
@@ -435,7 +410,7 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
           <h3>{l.success}</h3>
           <p>{result.count > 1 ? `${Number(result.count)} / ${Number(result.total || result.count)}` : String(representative?.vaultRelative || representative?.path || "")}</p>
           <dl>
-            <div><dt>{l.status}</dt><dd>{followupCount ? `${followupCount} needs-followup` : "inbox"}</dd></div>
+            <div><dt>{l.status}</dt><dd>{followupCount ? (language === "zh" ? "待修复" : "Awaiting repair") : (language === "zh" ? "待蒸馏" : "Awaiting distillation")}</dd></div>
             <div><dt>{l.snapshot}</dt><dd>{String(representative?.snapshot || l.noOriginal)}</dd></div>
             {(representative?.extractionStatus || representative?.textExtraction) ? (
               <div><dt>{l.pdfText}</dt><dd>{(representative.extractionStatus || representative.textExtraction) === "complete" ? `${Number(representative.extractedPages || 0)} ${language === "zh" ? "页" : "pages"} / ${Number(representative.extractedCharacters || 0).toLocaleString()} ${language === "zh" ? "字符" : "characters"}` : String(representative.extractionMessage || l.pdfNeedsOcr)}</dd></div>
@@ -464,7 +439,7 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
                     <dt>{l.status}</dt>
                     <dd className={`inbox-status ${item.jobStatus || item.status}`}>
                       {item.jobStatus === "queued" || item.jobStatus === "running" ? <LoaderCircle className="spin" size={12} /> : null}
-                      {item.jobStatus === "queued" ? l.queued : item.jobStatus === "running" ? l.extracting : item.jobStatus === "failed" ? l.failed : item.status}
+                      {maintenanceStageLabel(item, language)}
                     </dd>
                   </div>
                   <div><dt>{l.source}</dt><dd>{item.sourceType || "-"}</dd></div>
@@ -477,23 +452,17 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
         </div>
       ) : (
         <>
-          <div className="dialog-form">
+          <div className="dialog-form" inert={busy || readingFiles ? true : undefined}>
             {tab === "link" ? (
               <label className="field full"><span>{l.url}</span><input type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://example.com/article" autoFocus /></label>
             ) : tab === "file" ? (
-              <button type="button" className="file-drop" onClick={() => fileInput.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setFile(event.dataTransfer.files?.[0] || null); }}>
-                <Upload size={24} aria-hidden="true" />
-                <strong>{file ? file.name : l.chooseFile}</strong>
-                <span>{file ? `${l.selectedFile}: ${formatBytes(file.size)}` : l.dropHint}</span>
-                <input ref={fileInput} type="file" hidden onChange={(event) => setFile(event.target.files?.[0] || null)} />
-              </button>
-            ) : tab === "folder" ? (
-              <button type="button" className="file-drop" onClick={() => folderInput.current?.click()}>
-                <FolderUp size={24} aria-hidden="true" />
-                <strong>{folderFiles.length ? `${folderFiles.length} ${language === "zh" ? "个文件" : "files"}` : l.chooseFolder}</strong>
-                <span>{folderFiles.length ? formatBytes(folderFiles.reduce((sum, item) => sum + item.size, 0)) : l.folderHint}</span>
-                <input ref={folderInput} type="file" multiple hidden {...({ webkitdirectory: "", directory: "" } as any)} onChange={(event) => setFolderFiles(Array.from(event.target.files || []).filter((item) => !isIgnoredFolderFile(item)))} />
-              </button>
+              <div className="unified-upload full" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void dropFiles(event.dataTransfer); }}>
+                <button type="button" className="file-drop" onClick={() => fileInput.current?.click()}><Upload size={24} aria-hidden="true" /><strong>{files.length === 1 ? files[0].file.name : files.length ? `${files.length} ${language === "zh" ? "个文件" : "files"}` : l.chooseFile}</strong><span>{readingFiles ? l.loading : files.length ? formatBytes(files.reduce((sum, item) => sum + item.file.size, 0)) : l.dropHint}</span></button>
+                <div className="upload-selection-actions"><button type="button" onClick={() => fileInput.current?.click()}><FileUp size={15} />{language === "zh" ? "选择文件（可多选）" : "Choose files"}</button><button type="button" onClick={() => folderInput.current?.click()}><FolderUp size={15} />{l.chooseFolder}</button></div>
+                <input ref={fileInput} type="file" multiple hidden onChange={(event) => { const values = Array.from(event.target.files || []); if (values.length) chooseFiles(values.map((file) => ({ file, sourcePath: file.name })), false); event.target.value = ""; }} />
+                <input ref={folderInput} type="file" multiple hidden {...({ webkitdirectory: "", directory: "" } as any)} onChange={(event) => { const values = Array.from(event.target.files || []); if (values.length) chooseFiles(values.map((file) => ({ file, sourcePath: file.webkitRelativePath || file.name })), true); event.target.value = ""; }} />
+                {files.length ? <ul className="upload-file-list">{files.map((item, index) => <li key={`${item.sourcePath}-${index}`}><span title={item.sourcePath}>{item.sourcePath}</span><small>{formatBytes(item.file.size)}</small><button className="icon-button" title={language === "zh" ? "移除选择" : "Remove selection"} aria-label={`${language === "zh" ? "移除选择" : "Remove selection"} ${item.sourcePath}`} onClick={() => setFiles((values) => values.filter((_, i) => i !== index))}><X size={14} /></button></li>)}</ul> : null}
+              </div>
             ) : (
               <button type="button" className="file-drop" onClick={() => zipInput.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const dropped = event.dataTransfer.files?.[0] || null; setZipFile(dropped?.name.toLowerCase().endsWith(".zip") ? dropped : null); }}>
                 <FileArchive size={24} aria-hidden="true" />
@@ -502,63 +471,41 @@ function AddKnowledgeDialog({ language, onClose }: { language: Language; onClose
                 <input ref={zipInput} type="file" accept=".zip,application/zip" hidden onChange={(event) => setZipFile(event.target.files?.[0] || null)} />
               </button>
             )}
-            {tab !== "folder" && tab !== "zip" ? <label className="field"><span>{l.title}</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={l.optionalTitle} /></label> : null}
-            <label className={tab === "folder" || tab === "zip" ? "field full" : "field"}><span>{l.collection}</span><input list="my-wiki-collections" value={collection} onChange={(event) => setCollection(event.target.value)} placeholder={l.optionalCollection} /></label>
+            {tab === "link" || (tab === "file" && files.length <= 1) ? <label className="field"><span>{l.title}</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={l.optionalTitle} /></label> : null}
+            <label className={(tab === "file" && files.length > 1) || tab === "zip" ? "field full" : "field"}><span>{l.collection}</span><input list="my-wiki-collections" value={collection} onChange={(event) => setCollection(event.target.value)} placeholder={l.optionalCollection} /></label>
             <datalist id="my-wiki-collections">{collections.map((item) => <option key={item} value={item} />)}</datalist>
-            <div className="field full"><span>{l.galaxy}</span><div className="field-with-action"><select aria-label={l.galaxy} value={suggestedUniverse} onChange={(event) => setSuggestedUniverse(event.target.value)}><option value="">{l.optionalGalaxy}</option>{universes.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select><button type="button" onClick={() => setShowUniverseDialog(true)}><Plus size={15} />{l.createGalaxy}</button></div></div>
+            <div className="field full"><span>{l.galaxy}</span><div className="field-with-action"><select aria-label={l.galaxy} value={suggestedUniverse} onChange={(event) => setSuggestedUniverse(event.target.value)}><option value="">{l.optionalGalaxy}</option>{universes.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select><button type="button" onClick={() => setShowCreateGalaxy(true)}><Plus size={15} />{l.createGalaxy}</button></div></div>
           </div>
           {error ? <p className="dialog-error">{error}</p> : null}
-          <div className="dialog-footer"><button type="button" onClick={onClose}>{l.close}</button><button className="primary-button" type="button" disabled={busy} onClick={submit}>{busy ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />}{busy && uploadProgress !== null ? `${l.uploading} ${uploadProgress}%` : l.capture}</button></div>
+          <div className="dialog-footer"><button type="button" disabled={busy || readingFiles} onClick={onClose}>{l.close}</button><button className="primary-button" type="button" disabled={busy || readingFiles} onClick={submit}>{busy ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />}{busy && uploadProgress !== null ? `${l.uploading} ${uploadProgress}%` : l.capture}</button></div>
         </>
       )}
       {tab === "inbox" && error ? <p className="dialog-error">{error}</p> : null}
-      {showUniverseDialog ? <UniverseDialog language={language} onClose={() => setShowUniverseDialog(false)} onCreated={(universe) => { setUniverses((current) => [...current.filter((item) => item.name !== universe.name), universe].sort((a, b) => a.name.localeCompare(b.name))); setSuggestedUniverse(universe.name); setShowUniverseDialog(false); }} /> : null}
+      {showCreateGalaxy ? <GalaxyDialog mode="create" language={language} onClose={() => setShowCreateGalaxy(false)} onCreated={(universe) => { setUniverses((current) => [...current.filter((item) => item.name !== universe.name), universe].sort((a, b) => a.name.localeCompare(b.name))); setSuggestedUniverse(universe.name); setShowCreateGalaxy(false); }} /> : null}
     </Dialog>
   );
 }
 
-function UniverseDialog({ language, onClose, onCreated }: { language: Language; onClose: () => void; onCreated?: (universe: UniverseSummary) => void }) {
+function GalaxyDialog({ language, onClose, onCreated, mode }: { language: Language; onClose: () => void; onCreated?: (universe: UniverseSummary) => void; mode: GalaxyDialogMode }) {
   const l = labels[language];
-  const [universes, setUniverses] = useState<UniverseSummary[]>([]);
   const [trashEntries, setTrashEntries] = useState<GalaxyTrashEntry[]>([]);
-  const [showTrash, setShowTrash] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(mode === "trash");
   const [error, setError] = useState("");
   const [newUniverse, setNewUniverse] = useState("");
   const [creatingUniverse, setCreatingUniverse] = useState(false);
   const [createdMessage, setCreatedMessage] = useState("");
-  const [activeExport, setActiveExport] = useState("");
-  const [activeGalaxyAction, setActiveGalaxyAction] = useState("");
   const [activeTrashAction, setActiveTrashAction] = useState("");
-  const [download, setDownload] = useState<{ name: string; url: string } | null>(null);
   const [packageFile, setPackageFile] = useState<File | null>(null);
   const [rename, setRename] = useState("");
   const [previewJob, setPreviewJob] = useState<Job | null>(null);
   const [importState, setImportState] = useState<"idle" | "uploading" | "previewing" | "preview" | "applying" | "complete">("idle");
   const [importProgress, setImportProgress] = useState<number | null>(null);
   const packageInput = useRef<HTMLInputElement>(null);
-
+  const working = creatingUniverse || Boolean(activeTrashAction) || ["uploading", "previewing", "applying"].includes(importState);
   useEffect(() => {
-    Promise.all([localApi.universes(), localApi.galaxyTrash()])
-      .then(([active, trash]) => { setUniverses(active.universes); setTrashEntries(trash.entries); })
-      .catch((nextError) => setError(errorMessage(nextError)))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const exportOne = async (universe: string) => {
-    setError("");
-    setDownload(null);
-    setActiveExport(universe);
-    try {
-      const complete = await waitForJob(await localApi.exportUniverse(universe));
-      setDownload({ name: universe, url: await localApi.downloadUrl(complete.downloadUrl) });
-    } catch (nextError) {
-      setError(errorMessage(nextError));
-    } finally {
-      setActiveExport("");
-    }
-  };
-
+    if (mode !== "trash") return;
+    localApi.galaxyTrash().then((trash) => setTrashEntries(trash.entries)).catch((next) => setError(errorMessage(next))).finally(() => setLoading(false));
+  }, [mode]);
   const createInitialUniverse = async () => {
     setError("");
     setCreatedMessage("");
@@ -566,7 +513,6 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
     try {
       const created = await localApi.createUniverse(newUniverse.trim());
       const summary: UniverseSummary = { name: created.name, wiki: created.wiki, raw: created.raw, declared: true, hidden: false };
-      setUniverses((current) => [...current.filter((item) => item.name !== summary.name), summary].sort((a, b) => b.wiki - a.wiki || a.name.localeCompare(b.name)));
       setNewUniverse("");
       setCreatedMessage(`${l.galaxyCreated}: ${created.name}`);
       window.dispatchEvent(new Event("my-wiki:graph-updated"));
@@ -578,67 +524,15 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
     }
   };
 
-  const refreshUniverses = async () => setUniverses((await localApi.universes()).universes);
+
   const refreshTrash = async () => setTrashEntries((await localApi.galaxyTrash()).entries);
-
-  const toggleUniverse = async (universe: UniverseSummary) => {
-    setError("");
-    setActiveGalaxyAction(universe.name);
-    try {
-      await localApi.setUniverseHidden(universe.name, !universe.hidden);
-      await refreshUniverses();
-      window.dispatchEvent(new Event("my-wiki:graph-updated"));
-    } catch (nextError) {
-      setError(errorMessage(nextError));
-    } finally {
-      setActiveGalaxyAction("");
-    }
-  };
-
-  const renameUniverse = async (universe: UniverseSummary) => {
-    const newName = window.prompt(l.renameGalaxyPrompt.replace("{name}", universe.name), universe.name)?.trim();
-    if (!newName || newName === universe.name) return;
-    setError("");
-    setActiveGalaxyAction(universe.name);
-    try {
-      await localApi.renameUniverse(universe.name, newName);
-      await refreshUniverses();
-      window.dispatchEvent(new Event("my-wiki:graph-updated"));
-    } catch (nextError) {
-      setError(errorMessage(nextError));
-    } finally {
-      setActiveGalaxyAction("");
-    }
-  };
-
-  const deleteUniverse = async (universe: UniverseSummary) => {
-    const confirmation = window.prompt(l.deleteGalaxyPrompt.replace("{name}", universe.name));
-    if (confirmation === null) return;
-    if (confirmation !== universe.name) {
-      setError(l.deleteGalaxyMismatch);
-      return;
-    }
-    setError("");
-    setActiveGalaxyAction(universe.name);
-    try {
-      const deleted = await localApi.deleteUniverse(universe.name, confirmation);
-      await Promise.all([refreshUniverses(), refreshTrash()]);
-      setCreatedMessage(`${l.galaxyMovedToTrash}: ${deleted.trashPackage || deleted.trashReceipt}`);
-      window.dispatchEvent(new Event("my-wiki:graph-updated"));
-    } catch (nextError) {
-      setError(errorMessage(nextError));
-    } finally {
-      setActiveGalaxyAction("");
-    }
-  };
-
   const restoreTrashEntry = async (entry: GalaxyTrashEntry) => {
     if (!window.confirm(l.restoreGalaxyConfirm.replace("{name}", entry.galaxy))) return;
     setError("");
     setActiveTrashAction(entry.id);
     try {
       await localApi.restoreGalaxyTrash(entry.id);
-      await Promise.all([refreshUniverses(), refreshTrash()]);
+      await refreshTrash();
       setCreatedMessage(`${l.galaxyRestored}: ${entry.galaxy}`);
       window.dispatchEvent(new Event("my-wiki:graph-updated"));
     } catch (nextError) {
@@ -668,78 +562,39 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
     }
   };
 
+
+
   const previewImport = async () => {
     if (!packageFile) return setError(l.requiredPackage);
-    setError("");
-    setImportState("uploading");
-    setImportProgress(0);
+    setError(""); setImportState("uploading"); setImportProgress(0);
     try {
-      const initial = await localApi.previewImport(packageFile, rename, (uploaded, total) => {
-        setImportProgress(total > 0 ? Math.round((uploaded / total) * 100) : null);
-      });
-      setImportProgress(null);
-      setImportState("previewing");
+      const initial = await localApi.previewImport(packageFile, rename, (uploaded, total) => setImportProgress(total > 0 ? Math.round(uploaded / total * 100) : null));
+      setImportProgress(null); setImportState("previewing");
       const complete = await waitForJob(initial, setPreviewJob);
-      setPreviewJob(complete);
-      setImportState("preview");
-    } catch (nextError) {
-      setError(errorMessage(nextError));
-      setImportState("idle");
-    } finally {
-      setImportProgress(null);
-    }
+      setPreviewJob(complete); setImportState("preview");
+    } catch (next) { setError(errorMessage(next)); setImportState("idle"); }
+    finally { setImportProgress(null); }
   };
-
   const applyImport = async () => {
     if (!previewJob) return;
-    setError("");
-      setImportState("applying");
-      setImportProgress(null);
+    setError(""); setImportState("applying"); setImportProgress(null);
     try {
       await waitForJob(await localApi.applyImport(previewJob.id, rename));
       setImportState("complete");
-      setUniverses((await localApi.universes()).universes);
-    } catch (nextError) {
-      setError(errorMessage(nextError));
-      setImportState("preview");
-    }
+      window.dispatchEvent(new Event("my-wiki:graph-updated"));
+      window.dispatchEvent(new Event("my-wiki:drive-updated"));
+    } catch (next) { setError(errorMessage(next)); setImportState("preview"); }
   };
-
   const summary = previewJob?.result as any;
-  return (
-    <Dialog title={l.universeTitle} description={l.universeDescription} onClose={onClose} wide>
-      <div className="universe-manager">
-        <section className="universe-list-section">
-          <div className="universe-create">
-            <h3>{l.createInitialGalaxy}</h3>
-            <div className="field-with-action"><input aria-label={l.createInitialGalaxy} value={newUniverse} onChange={(event) => setNewUniverse(event.target.value)} placeholder={l.galaxyNamePlaceholder} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) void createInitialUniverse(); }} /><button className="primary-button" type="button" disabled={creatingUniverse || !newUniverse.trim()} onClick={createInitialUniverse}>{creatingUniverse ? <LoaderCircle className="spin" size={15} /> : <Plus size={15} />}{l.createGalaxy}</button></div>
-            {createdMessage ? <p className="inline-success">{createdMessage}</p> : null}
-          </div>
-          {loading ? <p className="dialog-empty">{l.loading}</p> : null}
-          <div className="universe-list-toolbar">
-            <strong>{showTrash ? l.recycleBin : l.activeGalaxies}</strong>
-            <button type="button" onClick={() => setShowTrash((current) => !current)}>
-              {showTrash ? <Orbit size={15} /> : <ArchiveRestore size={15} />}
-              {showTrash ? l.activeGalaxies : `${l.recycleBin} (${trashEntries.length})`}
-            </button>
-          </div>
-          <div className="universe-list">
-            {!showTrash ? universes.map((universe) => (
-              <article className="universe-row" key={universe.name}>
-                <div><strong>{universe.name}</strong><span>{universe.wiki === 0 ? l.emptyGalaxy : `${template(l.wikiPages, universe.wiki)} · ${template(l.rawSources, universe.raw)}`}</span></div>
-                <div className="universe-row-actions">
-                  <button type="button" className="galaxy-icon-action" disabled={Boolean(activeGalaxyAction)} aria-label={universe.hidden ? l.showGalaxy : l.hideGalaxy} title={universe.hidden ? l.showGalaxy : l.hideGalaxy} onClick={() => void toggleUniverse(universe)}>
-                    {activeGalaxyAction === universe.name ? <LoaderCircle className="spin" size={15} /> : universe.hidden ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
-                  <button type="button" className="galaxy-icon-action" disabled={Boolean(activeGalaxyAction)} aria-label={l.renameGalaxy} title={l.renameGalaxy} onClick={() => void renameUniverse(universe)}><Pencil size={15} /></button>
-                  <button type="button" className="galaxy-icon-action destructive" disabled={Boolean(activeGalaxyAction)} aria-label={l.deleteGalaxy} title={l.deleteGalaxy} onClick={() => void deleteUniverse(universe)}><Trash2 size={15} /></button>
-                  <button type="button" disabled={Boolean(activeExport) || Boolean(activeGalaxyAction) || universe.wiki === 0} onClick={() => exportOne(universe.name)}>
-                    {activeExport === universe.name ? <LoaderCircle className="spin" size={15} /> : <Download size={15} />}
-                    {activeExport === universe.name ? l.exporting : l.export}
-                  </button>
-                </div>
-              </article>
-            )) : trashEntries.map((entry) => (
+  return <Dialog title={mode === "create" ? l.createInitialGalaxy : mode === "import" ? l.importPackage : l.recycleBin} description="" onClose={() => { if (!working) onClose(); }}>
+    <div className="universe-manager universe-manager-single">
+      {mode === "create" ? <section className="universe-list-section"><div className="universe-create">
+        <div className="field-with-action"><input aria-label={l.createInitialGalaxy} value={newUniverse} disabled={creatingUniverse} onChange={(event) => setNewUniverse(event.target.value)} placeholder={l.galaxyNamePlaceholder} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing && !creatingUniverse && newUniverse.trim()) void createInitialUniverse(); }} /><button className="primary-button" type="button" disabled={creatingUniverse || !newUniverse.trim()} onClick={createInitialUniverse}>{creatingUniverse ? <LoaderCircle className="spin" size={15} /> : <Plus size={15} />}{l.createGalaxy}</button></div>
+      </div></section> : null}
+      {mode === "trash" ? <section className="universe-list-section">
+        {loading ? <p className="dialog-empty">{l.loading}</p> : null}
+        <div className="universe-list">
+          {trashEntries.map((entry) => (
               <article className="universe-row recycle-row" key={entry.id}>
                 <div>
                   <strong>{entry.galaxy}</strong>
@@ -755,13 +610,12 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
                   </button>
                 </div>
               </article>
-            ))}
-            {showTrash && trashEntries.length === 0 ? <p className="recycle-empty">{l.recycleEmpty}</p> : null}
-          </div>
-          {download ? <a className="download-ready" href={download.url}><Download size={16} />{l.download}: {download.name}</a> : null}
-        </section>
+          ))}
 
-        <section className="import-section">
+          {!loading && trashEntries.length === 0 ? <p className="recycle-empty">{l.recycleEmpty}</p> : null}
+        </div>
+      </section> : null}
+        {mode === "import" ? <section className="import-section">
           <h3>{l.importPackage}</h3>
           <button type="button" className="file-drop compact" onClick={() => packageInput.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const dropped = event.dataTransfer.files?.[0] || null; setPackageFile(dropped); setPreviewJob(null); setImportState("idle"); setImportProgress(null); }}>
             <FileUp size={21} aria-hidden="true" />
@@ -778,12 +632,12 @@ function UniverseDialog({ language, onClose, onCreated }: { language: Language; 
           <div className="section-command-row">
             {importState === "preview" ? <button className="primary-button" type="button" onClick={applyImport}><Upload size={15} />{l.applyImport}</button> : importState !== "complete" ? <button className="primary-button" type="button" disabled={["uploading", "previewing", "applying"].includes(importState)} onClick={previewImport}>{["uploading", "previewing", "applying"].includes(importState) ? <LoaderCircle className="spin" size={15} /> : <Upload size={15} />}{importState === "applying" ? l.importing : importState === "previewing" ? l.preparingPreview : l.previewImport}</button> : null}
           </div>
-        </section>
-      </div>
-      {error ? <p className="dialog-error">{error}</p> : null}
-      <div className="dialog-footer"><button type="button" onClick={onClose}>{l.close}</button></div>
-    </Dialog>
-  );
+        </section> : null}
+    </div>
+    {createdMessage ? <p className="inline-success">{createdMessage}</p> : null}
+    {error ? <p className="dialog-error">{error}</p> : null}
+    <div className="dialog-footer"><button type="button" disabled={working} onClick={onClose}>{l.close}</button></div>
+  </Dialog>;
 }
 
 function ProgressBar({ progress, language }: { progress: TaskProgress; language: Language }) {
@@ -836,11 +690,15 @@ function ImportSummary({ language, summary }: { language: Language; summary: any
       <div className="import-summary-grid">
         {rows.map(([name, values]) => <div key={name as string}><span>{name as string}</span><b>{values?.write || 0}</b><small>{l.write}</small><b>{values?.deduplicate || 0}</b><small>{l.deduplicate}</small><b className={(values?.conflicts || 0) > 0 ? "has-conflict" : ""}>{values?.conflicts || 0}</b><small>{l.conflicts}</small></div>)}
       </div>
+      {summary.okf?.markdownWarnings?.length ? <div className="warning-box" role="status">
+        <strong>{language === "zh" ? "Markdown 格式待复核" : "Markdown format review"}</strong>
+        {summary.okf.markdownWarnings.map((issue: { path: string; line: number; column: number; code: string; message: string }, index: number) => <p key={index}>{issue.path}:{issue.line}:{issue.column} {issue.code}: {issue.message}</p>)}
+      </div> : null}
     </div>
   );
 }
 
-function Dialog({ title, description, onClose, wide = false, children }: { title: string; description: string; onClose: () => void; wide?: boolean; children: React.ReactNode }) {
+export function Dialog({ title, description, onClose, wide = false, children }: { title: string; description: string; onClose: () => void; wide?: boolean; children: React.ReactNode }) {
   const titleId = useId();
   return createPortal(
     <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
@@ -861,8 +719,8 @@ function errorMessage(value: unknown) {
   return value instanceof Error ? value.message : String(value);
 }
 
-function isIgnoredFolderFile(file: File) {
-  const sourcePath = (file.webkitRelativePath || file.name).replace(/\\/g, "/").replace(/^\.\//, "");
+function isIgnoredUploadPath(value: string) {
+  const sourcePath = value.replace(/\\/g, "/").replace(/^\.\//, "");
   const parts = sourcePath.split("/").filter(Boolean);
   const basename = (parts[parts.length - 1] || "").toLowerCase();
   return parts.some((part) => part.startsWith(".") || ["__macosx", "node_modules"].includes(part.toLowerCase()))
@@ -875,6 +733,29 @@ function formatBytes(bytes: number) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
+}
+
+async function droppedUploadFiles(transfer: DataTransfer): Promise<{ files: UploadFile[]; hasFolder: boolean }> {
+  const entries = Array.from(transfer.items).filter((item) => item.kind === "file").map((item) => item.webkitGetAsEntry?.()).filter((item): item is FileSystemEntry => Boolean(item));
+  if (!entries.length) return { files: Array.from(transfer.files).map((file) => ({ file, sourcePath: file.name })), hasFolder: false };
+  const files: UploadFile[] = [];
+  async function read(entry: FileSystemEntry, parent = "") {
+    const sourcePath = `${parent}${entry.name}`;
+    if (isIgnoredUploadPath(sourcePath)) return;
+    if (entry.isFile) {
+      const file = await new Promise<File>((resolve, reject) => (entry as FileSystemFileEntry).file(resolve, reject));
+      files.push({ file, sourcePath });
+    } else if (entry.isDirectory) {
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      while (true) {
+        const batch = await new Promise<FileSystemEntry[]>((resolve, reject) => reader.readEntries(resolve, reject));
+        if (!batch.length) break;
+        for (const child of batch) await read(child, `${sourcePath}/`);
+      }
+    }
+  }
+  for (const entry of entries) await read(entry);
+  return { files, hasFolder: entries.some((entry) => entry.isDirectory) };
 }
 
 function template(value: string, count: number) {

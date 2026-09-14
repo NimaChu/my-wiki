@@ -1,11 +1,9 @@
-import { Children, memo, startTransition, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
+import { startTransition, useEffect, useId, useMemo, useRef, useState } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import { markdownHeadingId } from "./markdown-workspace";
+import { markdownRenderChunks, rehypeDocumentAnchors, remarkDocumentPage, resolveDocumentLink, type DocumentLink } from "./markdown-rendering";
 import "katex/dist/katex.min.css";
 
 type RichMarkdownProps = {
@@ -15,137 +13,90 @@ type RichMarkdownProps = {
   renderingLabel: string;
   renderMoreLabel: string;
   renderAll?: boolean;
+  resolveImageUrl?: (source: string) => string;
+  documentPath?: string;
+  initialAnchor?: string;
+  onOpenDocument?: (source: DocumentLink) => void;
 };
 
 const INITIAL_RENDER_CHUNKS = 2;
 const RENDER_CHUNK_BATCH = 4;
-const PAGED_DOCUMENT_THRESHOLD = 8;
+const MarkdownTable: Components["table"] = ({ children }) => <div className="document-table-scroll"><table>{children}</table></div>;
+const MarkdownSpan: Components["span"] = ({ node: _node, className, title, children, ...props }) => className?.includes("katex-error")
+  ? <span className="document-formula-error" title={title}><strong>公式语法错误 / Formula syntax error</strong><code>{children}</code>{title ? <small>{title}</small> : null}</span>
+  : <span className={className} title={title} {...props}>{children}</span>;
 
-export default function RichMarkdown({ content, imageUrls, imageFallback, renderingLabel, renderMoreLabel, renderAll = false }: RichMarkdownProps) {
-  const normalized = useMemo(
-    () => content.replace(/\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]/g, (_match, target, label) => label || target),
-    [content]
-  );
-  const chunks = useMemo(() => markdownRenderChunks(normalized), [normalized]);
-  const [renderedChunkCount, setRenderedChunkCount] = useState(() => initialChunkCount(chunks.length));
+export default function RichMarkdown({ content, imageUrls, imageFallback, renderingLabel, renderMoreLabel, renderAll = false, resolveImageUrl, documentPath = "", initialAnchor = "", onOpenDocument }: RichMarkdownProps) {
+  const document = useMemo(() => markdownRenderChunks(content), [content]);
+  const total = document.starts.length;
+  const [renderedChunkCount, setRenderedChunkCount] = useState(() => renderAll || initialAnchor ? total : Math.min(total, INITIAL_RENDER_CHUNKS));
+  const [pendingAnchor, setPendingAnchor] = useState("");
   const progressRef = useRef<HTMLButtonElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const prefix = `markdown-${useId().replace(/[^a-z\d_-]/gi, "")}-`;
+  const anchors = useMemo(() => rehypeDocumentAnchors(prefix), [prefix]);
+  const preparedPage = useMemo(() => remarkDocumentPage(document, renderedChunkCount), [document, renderedChunkCount]);
+  const Anchor = useMemo<NonNullable<Components["a"]>>(() => ({ node: _node, href, children, ...props }) => {
+    const internal = resolveDocumentLink(href || "", documentPath);
+    const local = href?.startsWith("#") || Boolean(internal && onOpenDocument);
+    return <a {...props} href={href} target={local ? undefined : "_blank"} rel={local ? undefined : "noreferrer"} onClick={event => {
+      if (href?.startsWith("#")) {
+        event.preventDefault();
+        setRenderedChunkCount(total);
+        setPendingAnchor(href.slice(1));
+      } else if (internal && onOpenDocument) {
+        event.preventDefault();
+        onOpenDocument(internal);
+      }
+    }}>{children}</a>;
+  }, [documentPath, onOpenDocument, total]);
 
   useEffect(() => {
-    setRenderedChunkCount(renderAll ? chunks.length : initialChunkCount(chunks.length));
-  }, [chunks, renderAll]);
+    setRenderedChunkCount(renderAll || initialAnchor ? total : Math.min(total, INITIAL_RENDER_CHUNKS));
+    setPendingAnchor(initialAnchor ? prefix + initialAnchor : "");
+  }, [document, renderAll, initialAnchor, prefix, total]);
 
-  const renderMore = () => {
-    startTransition(() => {
-      setRenderedChunkCount((current) => Math.min(chunks.length, current + RENDER_CHUNK_BATCH));
-    });
-  };
+  useEffect(() => {
+    if (!pendingAnchor) return;
+    const target = Array.from(rootRef.current?.querySelectorAll<HTMLElement>("[id]") || []).find(node => node.id === pendingAnchor);
+    if (!target) return;
+    target.scrollIntoView({ block: "start" });
+    target.tabIndex = -1;
+    target.focus({ preventScroll: true });
+    setPendingAnchor("");
+  }, [pendingAnchor, renderedChunkCount]);
 
+  const renderMore = () => startTransition(() => setRenderedChunkCount(current => Math.min(total, current + RENDER_CHUNK_BATCH)));
   useEffect(() => {
     const target = progressRef.current;
-    if (!target || renderedChunkCount >= chunks.length || !("IntersectionObserver" in window)) return;
-    const root = target.closest(".markdown-workspace-main");
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) renderMore();
-      },
-      { root, rootMargin: "700px 0px" }
-    );
+    if (!target || renderedChunkCount >= total || !("IntersectionObserver" in window)) return;
+    const root = target.closest(".markdown-workspace-main, .library-preview-content, .side-panel");
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) renderMore();
+    }, { root, rootMargin: "700px 0px" });
     observer.observe(target);
     return () => observer.disconnect();
-  }, [chunks.length, renderedChunkCount]);
+  }, [total, renderedChunkCount]);
 
-  return (
-    <div className="document-markdown">
-      {chunks.slice(0, renderedChunkCount).map((chunk, index) => (
-        <MarkdownChunk
-          key={`${index}-${chunk.slice(0, 48)}`}
-          content={chunk}
-          imageUrls={imageUrls}
-          imageFallback={imageFallback}
-        />
-      ))}
-      {renderedChunkCount < chunks.length ? (
-        <button
-          ref={progressRef}
-          className="document-render-progress"
-          type="button"
-          onClick={renderMore}
-          aria-label={`${renderMoreLabel} ${renderedChunkCount}/${chunks.length}`}
-        >
-          <span className="document-render-progress-dot" aria-hidden="true" />
-          <span aria-live="polite">{renderingLabel} {renderedChunkCount}/{chunks.length}</span>
-          <strong>{renderMoreLabel}</strong>
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-const MarkdownChunk = memo(function MarkdownChunk({ content, imageUrls, imageFallback }: Omit<RichMarkdownProps, "renderingLabel" | "renderMoreLabel" | "renderAll">) {
-  const headingCounts = new Map<string, number>();
-  const heading = (Tag: "h1" | "h2" | "h3" | "h4") => ({ children }: { children?: ReactNode }) => {
-    const base = markdownHeadingId(reactNodeText(children));
-    const occurrence = headingCounts.get(base) || 0;
-    headingCounts.set(base, occurrence + 1);
-    const id = occurrence ? `${base}-${occurrence + 1}` : base;
-    return <Tag id={id}>{children}</Tag>;
-  };
-  return (
+  return <div ref={rootRef} className="document-markdown">
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, remarkMath]}
-      rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeKatex]}
+      remarkPlugins={[preparedPage]}
+      remarkRehypeOptions={{ clobberPrefix: "" }}
+      rehypePlugins={[rehypeRaw, rehypeSanitize, anchors, rehypeKatex]}
       components={{
-        h1: heading("h1"),
-        h2: heading("h2"),
-        h3: heading("h3"),
-        h4: heading("h4"),
-        a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
-        table: ({ children }) => <div className="document-table-scroll"><table>{children}</table></div>,
-        span: ({ className, title, children, ...props }) => {
-          if (className?.includes("katex-error")) {
-            return (
-              <span className="document-formula-error" title={title}>
-                <strong>公式语法错误 / Formula syntax error</strong>
-                <code>{children}</code>
-                {title ? <small>{title}</small> : null}
-              </span>
-            );
-          }
-          return <span className={className} title={title} {...props}>{children}</span>;
-        },
+        a: Anchor,
+        table: MarkdownTable,
+        span: MarkdownSpan,
         img: ({ src, alt }) => {
           if (!src) return null;
-          const resolved = imageUrls[src] ?? (isLocalMarkdownImageSource(src) ? "" : src);
-          if (!resolved) return <span className="document-image-error">{imageFallback}: {alt || src}</span>;
-          return <img src={resolved} alt={alt ?? ""} loading="lazy" />;
+          const local = !src.startsWith("#") && !src.startsWith("//") && !/^[a-z][a-z\d+.-]*:/i.test(src);
+          const resolved = imageUrls[src] ?? (local ? resolveImageUrl?.(src) || "" : src);
+          return resolved ? <img src={resolved} alt={alt ?? ""} loading="lazy" /> : <span className="document-image-error">{imageFallback}: {alt || src}</span>;
         }
       }}
-    >
-      {content}
-    </ReactMarkdown>
-  );
-});
-
-function reactNodeText(value: ReactNode): string {
-  return Children.toArray(value).map((child) => {
-    if (typeof child === "string" || typeof child === "number") return String(child);
-    if (child && typeof child === "object" && "props" in child) {
-      return reactNodeText((child as { props?: { children?: ReactNode } }).props?.children);
-    }
-    return "";
-  }).join("");
-}
-
-function markdownRenderChunks(content: string) {
-  const pageChunks = content.split(/(?=^### Page \d+\s*$)/gm).filter(Boolean);
-  return pageChunks.length >= PAGED_DOCUMENT_THRESHOLD ? pageChunks : [content];
-}
-
-function initialChunkCount(total: number) {
-  return Math.min(total, INITIAL_RENDER_CHUNKS);
-}
-
-function isLocalMarkdownImageSource(source: string) {
-  const value = source.trim();
-  return Boolean(value) && !value.startsWith("#") && !value.startsWith("//") && !/^[a-z][a-z0-9+.-]*:/i.test(value);
+    >{content}</ReactMarkdown>
+    {renderedChunkCount < total ? <button ref={progressRef} className="document-render-progress" type="button" onClick={renderMore} aria-label={`${renderMoreLabel} ${renderedChunkCount}/${total}`}>
+      <span className="document-render-progress-dot" aria-hidden="true" /><span aria-live="polite">{renderingLabel} {renderedChunkCount}/{total}</span><strong>{renderMoreLabel}</strong>
+    </button> : null}
+  </div>;
 }

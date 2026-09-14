@@ -1,0 +1,23 @@
+.galaxy-export-backdrop { position: fixed; inset: 0; z-index: 270; background: #0007; display: grid; place-items: center; padding: 16px; }
+.galaxy-export-dialog { width: min(480px, 100%); max-height: calc(100dvh - 32px); overflow: auto; background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 20px 60px #0004; font-size: 14px; }
+.galaxy-export-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.galaxy-export-dialog h3 { font-size: 16px; margin: 0; }
+.galaxy-export-dialog button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-soft); color: var(--text); padding: 7px 12px; cursor: pointer; }
+.galaxy-export-dialog .icon-button { width: 34px; height: 34px; padding: 7px; }
+.galaxy-export-dialog button:hover { background: var(--hover); }
+.galaxy-export-dialog button.primary-button { background: var(--accent); color: var(--on-accent, #fff); }
+.galaxy-export-body { padding: 20px; overflow-wrap: anywhere; }
+.galaxy-export-body p { line-height: 1.6; }
+.galaxy-export-body small { color: var(--text-muted); }
+.galaxy-export-phase { display: flex; justify-content: space-between; gap: 8px; margin: 20px 0 8px; }
+.galaxy-export-progress { height: 7px; overflow: hidden; border-radius: 4px; background: var(--line); margin-bottom: 8px; }
+.galaxy-export-progress > span { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+.galaxy-export-progress.indeterminate > span { width: 30%; animation: galaxy-export-indeterminate 1.5s linear infinite; }
+@keyframes galaxy-export-indeterminate { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+@media (prefers-reduced-motion: reduce) { .galaxy-export-progress.indeterminate > span { animation: none; width: 100%; opacity: .5; } }
+.galaxy-export-error { color: var(--danger, #d76767); }
+.galaxy-export-dialog footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--line); }
+.galaxy-export-tray { position: fixed; z-index: 260; bottom: 20px; right: 20px; max-width: min(320px, calc(100vw - 40px)); display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-raised); color: var(--text); box-shadow: 0 4px 20px #0003; text-align: left; cursor: pointer; }
+.galaxy-export-tray span { min-width: 0; overflow-wrap: anywhere; }
+.galaxy-export-tray strong, .galaxy-export-tray small { display: block; font-size: 13px; line-height: 20px; }
+.galaxy-export-tray small { color: var(--text-muted); }

@@ -1,3 +1,17 @@
+import { unpackDashboardGraph } from "./graph-transport.js";
+import { readAnswerEvents } from "./answer-events.js";
+
+export type DriveFolder = { id: string; galaxy: string; name: string; parentId: string | null };
+export type DriveOriginal = { path: string; name: string; size: number; modified: string; galaxies: string[]; references: { path: string; title: string }[] };
+export type DriveGalaxy = { id: string; name: string; count: number; wiki: number; raw: number; hidden: boolean };
+export type GalaxyDialogMode = "create" | "import" | "trash";
+export type OriginalsDriveData = {
+  galaxies: DriveGalaxy[];
+  files: DriveOriginal[];
+  folders: DriveFolder[];
+  placements: { galaxy: string; path: string; folderId: string }[];
+};
+
 export type InboxItem = {
   id: string;
   jobId?: string;
@@ -5,6 +19,10 @@ export type InboxItem = {
   path: string;
   title: string;
   status: string;
+  referenceStatus?: string;
+  documentVersion?: string;
+  followupReasons?: string[];
+  visualGapPages?: number[];
   sourceType: string;
   sourceUrl: string;
   snapshotPath: string;
@@ -13,7 +31,10 @@ export type InboxItem = {
   captured: string;
   preview: string;
   progress?: TaskProgress;
+  stage?: "upload" | "extract" | "repair" | "distill";
 };
+
+export type DocumentVersion = { id: string; original: string; filename: string; number: number; createdAt: string; archivedAt: string; restoredFrom: string; reusable: boolean; bytes: number; referenceCount: number };
 
 export type TaskProgress = {
   phase: string;
@@ -42,9 +63,11 @@ export type GalaxyTrashEntry = {
   retainedBackups: number;
 };
 
+export type AnswerStream = { text: string; phase: string; revision: number };
+
 export type Job = {
   id: string;
-  type: "capture-file" | "export" | "import-preview" | "import-apply" | "agent-maintenance" | "agent-repair" | "agent-answer";
+  type: "capture-file" | "document-version" | "export" | "export-originals" | "import-preview" | "import-apply" | "agent-maintenance" | "agent-repair" | "agent-answer";
   meta: Record<string, any>;
   status: "queued" | "running" | "complete" | "failed" | "cancelled";
   createdAt: string;
@@ -52,9 +75,11 @@ export type Job = {
   result: Record<string, any> | null;
   error: string;
   downloadUrl: string;
+  stream?: AnswerStream;
 };
 
 export type AgentProvider = {
+  executionMode?: "api" | "cli";
   provider: string;
   label: string;
   defaultModel: string;
@@ -66,12 +91,16 @@ export type AgentModel = {
   label: string;
 };
 
+export type VikiApiSettings = { provider: string; label: string; configured: boolean; keySource: "environment" | "file" | "none"; model: string; models: AgentModel[]; reasoningEffort: "low" | "high" | "max" };
+
 export type AgentInfo = {
   available: boolean;
   provider: string;
   label: string;
   defaultProvider: string;
   providers: AgentProvider[];
+  answerProviders?: AgentProvider[];
+  answerAvailable?: boolean;
   message: string;
   busy: boolean;
   maintenanceBusy: boolean;
@@ -96,6 +125,8 @@ export type AgentPreferences = {
   queue: { distill: AgentTaskSelection; repair: AgentTaskSelection };
 };
 
+export type AgentPreferencesPatch = { viki?: { provider?: string; models?: Record<string, string> }; queue?: Partial<AgentPreferences["queue"]> };
+
 export type PetAppearance = {
   id: string;
   displayName: string;
@@ -111,6 +142,7 @@ export type PetAppearance = {
 
 export type AgentAnswer = {
   answerMarkdown: string;
+  contextReceipt?: { question: string; signature: string };
   sources: Array<{ path: string; title: string; type?: "vault" | "web" }>;
   images: Array<{ path: string; caption: string; afterBlock: number; type?: "vault" | "web" }>;
 };
@@ -140,6 +172,7 @@ export type MarkdownDocument = {
   title: string;
   body: string;
   version: string;
+  formatIssues?: Array<{ path: string; line: number; column: number; code: string; severity: "error" | "warning"; message: string }>;
 };
 
 export type LocalNoteSummary = {
@@ -149,15 +182,35 @@ export type LocalNoteSummary = {
   bytes: number;
 };
 
-export type DashboardSession = { token: string; vault: string; canManageAccess?: boolean };
+export type DashboardSession = { token: string; vault: string; canManageAccess?: boolean; canManageProviders?: boolean };
 export type GithubAllowlist = { owner: string; accounts: Array<{ login: string; owner: boolean }> };
 
 let session: Promise<DashboardSession> | null = null;
+let graphRequest: Promise<any> | null = null;
+let graphCache: { etag: string; value: any } | null = null;
+let libraryCache: { etag: string; value: OriginalsDriveData } | null = null;
+let libraryRequest: Promise<OriginalsDriveData> | null = null;
+export const cachedLibrary = () => libraryCache?.value;
 const CHUNKED_UPLOAD_THRESHOLD = 1024 * 1024;
+type PreviewResult = { kind: "image"; blob: Blob } | { kind: "text" | "unavailable"; text?: string };
+const previewCache = new Map<string, PreviewResult>();
+const previewBytes = (value: PreviewResult) => value.kind === "image" ? value.blob.size : (value.text?.length || 0) * 2;
+let cachedPreviewBytes = 0;
+let maintenanceRequest: Promise<{ items: InboxItem[] }> | null = null;
+let activePreviews = 0;
+const previewQueue: Array<() => void> = [];
+async function previewSlot<T>(signal: AbortSignal, work: () => Promise<T>): Promise<T> {
+  if (activePreviews >= 3) await new Promise<void>((resolve) => previewQueue.push(resolve));
+  activePreviews++;
+  try {
+    if (signal.aborted) throw new DOMException("Preview cancelled", "AbortError");
+    return await work();
+  } finally { activePreviews--; previewQueue.shift()?.(); }
+}
 
 async function getSession() {
   if (!session) {
-    session = fetch("/api/v1/session", { cache: "no-store" }).then(async (response) => {
+    session = fetch("/api/v1/session", { cache: "no-store", signal: AbortSignal.timeout(20000) }).then(async (response) => {
       if (!response.ok) throw new Error(await responseError(response));
       const contentType = response.headers.get("content-type") || "";
       if (!contentType.includes("application/json")) {
@@ -181,8 +234,8 @@ async function apiFetch(path: string, init: RequestInit = {}) {
     const current = await getSession();
     const headers = new Headers(init.headers);
     headers.set("x-my-wiki-token", current.token);
-    const response = await fetch(path, { ...init, headers, cache: "no-store" });
-    if (response.ok) return response;
+    const response = await fetch(path, { ...init, headers, cache: init.cache || "no-store" });
+    if (response.ok || response.status === 304) return response;
     if (attempt === 0 && await hasInvalidSessionToken(response)) {
       session = null;
       continue;
@@ -212,9 +265,46 @@ async function responseError(response: Response) {
 }
 
 export const localApi = {
+  async originalPreview(path: string, signal: AbortSignal, revision = ""): Promise<PreviewResult> {
+    const key = `${path}:${revision}`;
+    const cached = previewCache.get(key);
+    if (cached) { previewCache.delete(key); previewCache.set(key, cached); return cached; }
+    return previewSlot(signal, async () => {
+      if (previewCache.has(key)) return previewCache.get(key)!;
+      const response = await apiFetch(`/api/v1/drive/preview?${new URLSearchParams({ path })}`, { signal, cache: "no-cache" });
+      const result: PreviewResult = response.headers.get("content-type")?.startsWith("image/") ? { kind: "image", blob: await response.blob() } : await response.json();
+      cachedPreviewBytes -= previewCache.has(key) ? previewBytes(previewCache.get(key)!) : 0;
+      previewCache.set(key, result);
+      cachedPreviewBytes += previewBytes(result);
+      while (previewCache.size > 160 || cachedPreviewBytes > 24 * 1024 * 1024) {
+        const oldest = previewCache.keys().next().value!;
+        cachedPreviewBytes -= previewBytes(previewCache.get(oldest)!);
+        previewCache.delete(oldest);
+      }
+      return result;
+    });
+  },
+  async previewPreparation() {
+    return (await apiFetch("/api/v1/drive/previews")).json() as Promise<{ running: boolean; completed: number; total: number; failed: number }>;
+  },
+  async documentVersions(path = "") {
+    return (await apiFetch(`/api/v1/drive/versions?${new URLSearchParams({ path })}`)).json() as Promise<{ current: DocumentVersion | null; versions: DocumentVersion[] }>;
+  },
+  async restoreDocumentVersion(path: string, id: string) {
+    return (await apiFetch("/api/v1/drive/versions/restore", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, id }) })).json() as Promise<Job>;
+  },
+  async updateDocumentFromUrl(path: string, url: string) {
+    return (await apiFetch("/api/v1/drive/versions/url", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, url }) })).json() as Promise<Job>;
+  },
   async githubAllowlist() {
     const response = await apiFetch("/api/v1/access/allowlist");
     return response.json() as Promise<GithubAllowlist>;
+  },
+  async apiSettings() {
+    return (await apiFetch("/api/v1/settings/api")).json() as Promise<VikiApiSettings>;
+  },
+  async saveApiSettings(patch: { apiKey?: string; removeKey?: boolean; model?: string; reasoningEffort?: string }) {
+    return (await apiFetch("/api/v1/settings/api", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) })).json() as Promise<VikiApiSettings>;
   },
   async updateGithubAccess(login: string, remove = false) {
     const response = await apiFetch("/api/v1/access/allowlist", {
@@ -228,8 +318,14 @@ export const localApi = {
   },
 
   async graph() {
-    const response = await apiFetch("/api/v1/graph");
-    return response.json();
+    if (!graphRequest) graphRequest = (async () => {
+      const response = await apiFetch("/api/v1/graph?view=compact", { headers: graphCache?.etag ? { "if-none-match": graphCache.etag } : {}, signal: AbortSignal.timeout(30000) });
+      if (response.status === 304 && graphCache) return graphCache.value;
+      const value = unpackDashboardGraph(await response.json());
+      graphCache = { etag: response.headers.get("etag") || "", value };
+      return value;
+    })().finally(() => { graphRequest = null; });
+    return graphRequest;
   },
 
   async vault() {
@@ -238,8 +334,8 @@ export const localApi = {
   },
 
   async inbox() {
-    const response = await apiFetch("/api/v1/inbox");
-    return response.json() as Promise<{ items: InboxItem[] }>;
+    if (!maintenanceRequest) maintenanceRequest = apiFetch("/api/v1/maintenance-queue").then((response) => response.json() as Promise<{ items: InboxItem[] }>).finally(() => { maintenanceRequest = null; });
+    return maintenanceRequest;
   },
 
   async captureJobs() {
@@ -270,6 +366,25 @@ export const localApi = {
   async collections() {
     const response = await apiFetch("/api/v1/collections");
     return response.json() as Promise<{ collections: Array<{ name: string; count: number }> }>;
+  },
+
+  async originalsDrive() {
+    if (!libraryRequest) libraryRequest = (async () => {
+      const response = await apiFetch("/api/v1/drive", { headers: libraryCache?.etag ? { "if-none-match": libraryCache.etag } : {}, signal: AbortSignal.timeout(30000) });
+      if (response.status === 304 && libraryCache) return libraryCache.value;
+      const value = await response.json() as OriginalsDriveData;
+      libraryCache = { etag: response.headers.get("etag") || "", value };
+      return value;
+    })().finally(() => { libraryRequest = null; });
+    return libraryRequest;
+  },
+
+  async downloadOriginals(galaxy: string, files: string[]) {
+    return (await apiFetch("/api/v1/drive/downloads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ galaxy, files }) })).json() as Promise<Job>;
+  },
+
+  async updateOriginalsDrive(input: { action: "create" | "rename" | "delete" | "move"; galaxy: string; name?: string; id?: string; parentId?: string | null; files?: string[]; folders?: string[] }) {
+    return (await apiFetch("/api/v1/drive", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) })).json();
   },
 
   async universes() {
@@ -341,12 +456,20 @@ export const localApi = {
     return response.json() as Promise<AgentInfo>;
   },
 
+  async vikiAgent() {
+    const response = await apiFetch("/api/v1/agent");
+    const info = await response.json() as AgentInfo;
+    const providers = info.answerProviders || info.providers;
+    return { ...info, providers, available: info.answerAvailable ?? info.available,
+      defaultProvider: providers.some((item) => item.provider === info.defaultProvider) ? info.defaultProvider : providers[0]?.provider || "" };
+  },
+
   async agentPreferences() {
     const response = await apiFetch("/api/v1/agent/preferences");
     return response.json() as Promise<AgentPreferences>;
   },
 
-  async saveAgentPreferences(preferences: Partial<Pick<AgentPreferences, "viki" | "queue">>) {
+  async saveAgentPreferences(preferences: AgentPreferencesPatch) {
     const response = await apiFetch("/api/v1/agent/preferences", {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -404,7 +527,7 @@ export const localApi = {
 
   async ask(
     question: string,
-    history: Array<{ role: "user" | "assistant"; content: string }>,
+    history: Array<{ role: "user" | "assistant"; content: string; contextReceipt?: AgentAnswer["contextReceipt"] }>,
     language: "en" | "zh",
     provider: string,
     model: string,
@@ -495,10 +618,10 @@ export const localApi = {
 
   async captureFile(
     file: File,
-    input: { title?: string; collection?: string; suggestedUniverse?: string; sourcePath?: string },
+    input: { title?: string; collection?: string; suggestedUniverse?: string; sourcePath?: string; versionPath?: string },
     onProgress?: (uploaded: number, total: number) => void
   ) {
-    if (file.size >= CHUNKED_UPLOAD_THRESHOLD) {
+    if (file.size > 0) {
       let uploadId = "";
       try {
         const created = await apiFetch("/api/v1/inbox/file/uploads", {
@@ -510,6 +633,7 @@ export const localApi = {
             collection: input.collection || "",
             suggestedUniverse: input.suggestedUniverse || "",
             sourcePath: input.sourcePath || "",
+            versionPath: input.versionPath || "",
             size: file.size
           })
         });
@@ -634,9 +758,13 @@ export const localApi = {
     return url.href;
   },
 
-  async markdown(path: string) {
+  async originalMarkdown(path: string, signal?: AbortSignal) {
+    return (await apiFetch(`/api/v1/drive/markdown?${new URLSearchParams({ path })}`, { signal })).json() as Promise<MarkdownDocument>;
+  },
+
+  async markdown(path: string, signal?: AbortSignal) {
     const params = new URLSearchParams({ path });
-    const response = await apiFetch(`/api/v1/markdown?${params}`);
+    const response = await apiFetch(`/api/v1/markdown?${params}`, { signal });
     return response.json() as Promise<MarkdownDocument>;
   },
 
@@ -681,4 +809,53 @@ export async function waitForJob(initial: Job, onUpdate?: (job: Job) => void) {
     throw new Error(current.error || (current.status === "cancelled" ? "My Wiki job was cancelled" : "My Wiki job failed"));
   }
   return current;
+}
+
+export async function waitForAnswer(initial: Job, onUpdate: (state: AnswerStream) => void, signal: AbortSignal) {
+  let job = initial;
+  let state = job.stream || { text: "", phase: "starting", revision: 0 };
+  let failures = 0;
+  while (job.status === "queued" || job.status === "running") {
+    signal.throwIfAborted();
+    if (!job.stream) {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      job = await localApi.job(job.id);
+      continue;
+    }
+    const connection = new AbortController();
+    const abort = () => connection.abort();
+    signal.addEventListener("abort", abort, { once: true });
+    let watchdog: ReturnType<typeof setTimeout>;
+    const activity = () => { clearTimeout(watchdog); watchdog = setTimeout(abort, 45000); };
+    activity();
+    let terminal: Job | undefined;
+    try {
+      const response = await apiFetch(`/api/v1/jobs/${job.id}/events`, { signal: connection.signal });
+      await readAnswerEvents(response, (type, data) => {
+        if (type === "done") { terminal = data as Job; return; }
+        if (type === "snapshot" || type === "reset") state = data as AnswerStream;
+        else if (type === "delta" && data.revision > state.revision) state = { ...state, text: state.text + data.delta, revision: data.revision };
+        else if (type === "status" && data.revision > state.revision) state = { ...state, phase: data.phase, revision: data.revision };
+        onUpdate(state);
+      }, activity);
+    } catch {
+      signal.throwIfAborted();
+      // A proxy/browser disconnect only reconnects this subscriber, not the agent.
+    } finally {
+      clearTimeout(watchdog!);
+      connection.abort();
+      signal.removeEventListener("abort", abort);
+    }
+    if (terminal) return terminal;
+    signal.throwIfAborted();
+    try {
+      job = await localApi.job(job.id);
+      failures = 0;
+      if (job.stream) { state = job.stream; onUpdate(state); }
+    } catch (error) {
+      if (++failures >= 3) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 700));
+  }
+  return job;
 }

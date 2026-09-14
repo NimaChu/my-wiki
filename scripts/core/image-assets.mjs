@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { referenceAssetBase } from "./vault-layout.mjs";
 import { fileURLToPath } from "node:url";
 import {
   appendLog,
@@ -270,7 +271,7 @@ const sourcePath = path.isAbsolute(sourceArg) ? sourceArg : path.join(vault, sou
 const noteContent = await fs.readFile(sourcePath, "utf8");
 const frontmatter = parseFrontmatter(noteContent);
 const baseUrl = arg("--base-url", frontmatter.source_url || "");
-const sourceBase = path.basename(sourcePath, ".md");
+const sourceBase = referenceAssetBase(frontmatter, sourcePath);
 const assetDir = path.join(vault, "references", "assets", sourceBase);
 await fs.mkdir(assetDir, { recursive: true });
 

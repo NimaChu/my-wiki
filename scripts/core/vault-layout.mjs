@@ -31,6 +31,12 @@ export function assetDirectory(vault, source = "") {
   return vaultDirectory(vault, source ? `${ASSETS_DIR}/${source}` : ASSETS_DIR);
 }
 
+export function referenceAssetBase(frontmatter, source) {
+  const base = String(frontmatter?.document_asset_base || path.posix.basename(String(source).replace(/\\/g, "/"), ".md"));
+  if (!base || /[\\/\0]/.test(base) || [".", ".."].includes(base)) throw new Error("Invalid document asset directory");
+  return base;
+}
+
 export function originalDirectory(vault) {
   return vaultDirectory(vault, ORIGINALS_DIR);
 }

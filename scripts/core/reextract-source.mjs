@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { referenceAssetBase } from "./vault-layout.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { extractLocalDocument } from "./document-extractor.mjs";
 import { materializeEmbeddedAssets } from "./capture-service.mjs";
@@ -19,7 +20,8 @@ export async function reextractSources({
   allFollowup = false,
   dependencyRoot = dashboardRoot,
   environment = process.env,
-  agentRunner = null
+  agentRunner = null,
+  onProgress = null
 } = {}) {
   const scan = await scanVault(vault);
   const normalizedSource = normalizeSourceReference(source);
@@ -45,9 +47,10 @@ export async function reextractSources({
       dependencyRoot,
       cacheRoot: path.join(vault, ".my-wiki", "ocr-cache"),
       environment,
-      agentRunner
+      agentRunner,
+      onProgress
     });
-    const rawBase = path.basename(node.file, ".md");
+    const rawBase = referenceAssetBase(node.frontmatter, node.path);
     const materialized = await materializeEmbeddedAssets({
       vault,
       notePath: node.file,
@@ -68,7 +71,7 @@ export async function reextractSources({
       report: finalizeExtractionReport(extracted.extractionReport, { formulaGate, unicodeGate: unicodeReplacementGate }),
       document: extracted.document
     });
-    const updated = applyExtractionToRawNote(node.content, {
+    let updated = applyExtractionToRawNote(node.content, {
       ...extracted,
       content: finalContent,
       assetCount: Math.max(indexedImages.length, materialized.copied),
@@ -77,6 +80,8 @@ export async function reextractSources({
       unicodeReplacementGate,
       extractionArtifacts
     });
+    const imageIndex = path.join(vault, "references", "assets", rawBase, "image-index.json");
+    if (await fs.stat(imageIndex).catch(() => null)) updated = upsertFrontmatterValues(updated, { image_index_path: `references/assets/${rawBase}/image-index.json` });
     await fs.writeFile(node.file, updated, "utf8");
     await appendLog(`REEXTRACT_RAW source="${node.path}" status="${extracted.status}" method="${extracted.method}"`, vault);
     results.push({

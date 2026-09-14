@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { referenceAssetBase } from "./vault-layout.mjs";
 import { exportUniverse } from "./export-universe.mjs";
 import { importUniverse } from "./import-universe.mjs";
 import {
@@ -217,7 +218,7 @@ async function readTrashReceipt(directory) {
 }
 
 function referenceAssetDirectories(node) {
-  const directories = new Set([`references/assets/${path.posix.basename(node.id)}`]);
+  const directories = new Set([`references/assets/${referenceAssetBase(node.frontmatter, node.id)}`]);
   const imageIndex = managedRelative(node.frontmatter.image_index_path, "references/assets/");
   if (imageIndex) directories.add(path.posix.dirname(imageIndex));
   return [...directories];

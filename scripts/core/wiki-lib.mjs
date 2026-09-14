@@ -669,12 +669,12 @@ export function rawLayoutIssues(scan) {
     });
 }
 
-function localAttachmentTarget(value) {
+function localAttachmentTarget(value, { literalPath = false } = {}) {
   const trimmed = String(value || "").trim();
   if (!trimmed || /^(?:https?:|data:|#|\/)/i.test(trimmed)) return "";
   const wrapped = trimmed.startsWith("<") && trimmed.includes(">");
-  const raw = wrapped ? trimmed.slice(1, trimmed.indexOf(">")) : trimmed.match(/^\S+/)?.[0] || trimmed;
-  const withoutAnchor = raw.split("#")[0].split("?")[0];
+  const raw = wrapped ? trimmed.slice(1, trimmed.indexOf(">")) : trimmed;
+  const withoutAnchor = literalPath ? raw : raw.split("#")[0].split("?")[0];
   try {
     return decodeURIComponent(withoutAnchor).replace(/\\/g, "/");
   } catch {
@@ -701,7 +701,7 @@ export async function rawAttachmentIssues(scan, { allLocalImages = false } = {})
     }
 
     for (const reference of references) {
-      const target = localAttachmentTarget(reference.value);
+      const target = localAttachmentTarget(reference.value, { literalPath: reference.rootStyle });
       if (!target) continue;
       const rootStyle = reference.rootStyle || /^(?:references|concepts|templates|_archive)\//.test(target);
       const resolved = rootStyle ? path.join(scan.vault, target) : path.resolve(path.dirname(node.file), target);
