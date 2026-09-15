@@ -49,7 +49,10 @@ async function loadTs(name) {
   const result = await build({ entryPoints: [path.join(root, "assets/dashboard/src", name)], bundle: true, format: "esm", platform: "node", jsx: "automatic", write: false, plugins: [{ name: "test-runtime", setup(builder) {
     builder.onResolve({ filter: /\.css$/ }, () => ({ path: "empty", namespace: "style" }));
     builder.onLoad({ filter: /.*/, namespace: "style" }, () => ({ contents: "export default {};" }));
-    builder.onResolve({ filter: /^[^./]/ }, args => ({ path: args.path.startsWith("node:") ? args.path : pathToFileURL(require.resolve(args.path)).href, external: true }));
+    builder.onResolve({ filter: /^[^./]/ }, args => {
+      if (args.kind === "entry-point") return null;
+      return { path: args.path.startsWith("node:") ? args.path : pathToFileURL(require.resolve(args.path)).href, external: true };
+    });
   } }] });
   const file = path.join(temporary, name + ".mjs");
   await fs.writeFile(file, result.outputFiles[0].text);
