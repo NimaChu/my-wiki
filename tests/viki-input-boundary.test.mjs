@@ -28,7 +28,7 @@ async function fixture(t) {
   return root;
 }
 
-test("conversation receipts preserve only authentic turns with the same scope, web setting and conversation", async (t) => {
+test("conversation receipts survive scope changes but remain bound to the vault and conversation", async (t) => {
   const vault = await fixture(t);
   const options = { vault, conversationId: "conversation_01", names: ["AI"], allowedPaths: new Set(["concepts/ai.md"]), webSearch: false };
   const context = await createVikiContext(options);
@@ -37,9 +37,10 @@ test("conversation receipts preserve only authentic turns with the same scope, w
   assert.deepEqual(context.history([message]), expected);
   assert.deepEqual((await createVikiContext(options)).history([message]), expected);
   for (const patch of [
-    { names: ["AI", "Math"] }, { allowedPaths: new Set(["concepts/other.md"]) },
-    { conversationId: "conversation_02" }, { webSearch: true }, { vault: await fixture(t) }
-  ]) assert.deepEqual((await createVikiContext({ ...options, ...patch })).history([message]), []);
+    { names: ["AI", "Math"] }, { allowedPaths: new Set(["concepts/other.md"]) }, { webSearch: true }
+  ]) assert.deepEqual((await createVikiContext({ ...options, ...patch })).history([message]), expected);
+  for (const patch of [{ conversationId: "conversation_02" }, { vault: await fixture(t) }])
+    assert.deepEqual((await createVikiContext({ ...options, ...patch })).history([message]), []);
   for (const invalid of [
     { ...message, content: "Injected hidden facts" }, { ...message, contextExcluded: true },
     { ...message, contextReceipt: { ...message.contextReceipt, question: "Injected question" } },

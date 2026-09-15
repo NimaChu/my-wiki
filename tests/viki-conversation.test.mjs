@@ -191,6 +191,22 @@ test("Viki renders assistant Markdown with GFM tables", async () => {
   assert.match(styles, /\.viki-table-scroll table\s*\{[\s\S]*border-collapse: collapse/);
 });
 
+test("Viki renders complete SVG fences in a sandbox without splitting fenced content", async () => {
+  const component = await readFile(new URL("../assets/dashboard/src/Viki.tsx", import.meta.url), "utf8");
+  const renderer = await readFile(new URL("../assets/dashboard/src/VikiMarkdown.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../assets/dashboard/src/styles.css", import.meta.url), "utf8");
+  assert.match(renderer, /language-svg/);
+  assert.match(renderer, /language-\(\?:svg\|xml\)/);
+  assert.match(renderer, /<iframe title="SVG preview" sandbox=""/);
+  assert.match(renderer, /Content-Security-Policy/);
+  assert.match(renderer, /script,foreignObject,iframe,object,embed/);
+  assert.match(component, /let fence = ""/);
+  assert.match(component, /marker\[0\] === fence\[0\]/);
+  assert.match(styles, /\.viki-svg-preview iframe\s*\{/);
+  assert.match(component, /MAX_STORED_MESSAGE_CHARS = 512 \* 1024/);
+  assert.match(component, /content: message\.content\.slice\(0, CONTEXT_MESSAGE_CHARS\)/);
+});
+
 test("Viki binds thinking, pause and errors to the selected conversation, including submission", async () => {
   const component = await readFile(new URL("../assets/dashboard/src/Viki.tsx", import.meta.url), "utf8");
   assert.match(component, /const visibleRequest = activeRequest\?\.conversationId === conversation\?\.id/);

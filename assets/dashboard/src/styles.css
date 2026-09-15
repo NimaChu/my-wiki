@@ -3625,6 +3625,33 @@ h3 {
   padding: 0;
 }
 
+.viki-svg-preview {
+  min-width: 0;
+  width: 100%;
+  margin: 10px 0;
+}
+
+.viki-svg-preview iframe {
+  display: block;
+  width: 100%;
+  min-height: 220px;
+  max-height: min(62vh, 640px);
+  border: 1px solid rgba(var(--ui-ink), 0.12);
+  border-radius: 6px;
+  background: var(--tone-121415);
+}
+
+.viki-svg-preview details {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.viki-svg-preview summary {
+  width: max-content;
+  cursor: pointer;
+}
+
 .viki-message-body code {
   border-radius: 4px;
   background: rgba(var(--ui-ink), 0.08);

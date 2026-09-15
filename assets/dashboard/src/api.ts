@@ -63,7 +63,13 @@ export type GalaxyTrashEntry = {
   retainedBackups: number;
 };
 
-export type AnswerStream = { text: string; phase: string; revision: number };
+export type AnswerStream = {
+  text: string;
+  phase: string;
+  revision: number;
+  sources?: AgentAnswer["sources"];
+  images?: AgentAnswer["images"];
+};
 
 export type Job = {
   id: string;
@@ -836,6 +842,7 @@ export async function waitForAnswer(initial: Job, onUpdate: (state: AnswerStream
         if (type === "snapshot" || type === "reset") state = data as AnswerStream;
         else if (type === "delta" && data.revision > state.revision) state = { ...state, text: state.text + data.delta, revision: data.revision };
         else if (type === "status" && data.revision > state.revision) state = { ...state, phase: data.phase, revision: data.revision };
+        else if (type === "metadata" && data.revision > state.revision) state = { ...state, sources: data.sources, images: data.images, revision: data.revision };
         onUpdate(state);
       }, activity);
     } catch {

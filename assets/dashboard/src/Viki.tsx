@@ -50,6 +50,9 @@ const CHAT_STATE_KEY = "my-wiki-viki-chat-state-v1";
 const WEB_SEARCH_KEY = "my-wiki-viki-web-search";
 const MAX_CONVERSATIONS = 30;
 const MAX_MESSAGES_PER_CONVERSATION = 120;
+const MAX_STORED_MESSAGE_CHARS = 512 * 1024;
+const CHAT_STORAGE_CHAR_LIMIT = 2 * 1024 * 1024;
+const CONTEXT_MESSAGE_CHARS = 4000;
 
 const copy = {
   en: {
@@ -549,7 +552,7 @@ export function Viki({ language, onOpenDocument, standalone = false }: { languag
 
   const history = useMemo(() => messages.filter((message) => !message.contextExcluded).slice(-8).map((message) => ({
     role: message.role,
-    content: message.content,
+    content: message.content.slice(0, CONTEXT_MESSAGE_CHARS),
     contextReceipt: message.contextReceipt
   })), [messages]);
 
@@ -1476,7 +1479,7 @@ function initialChatState(): VikiChatState {
 
 function normalizeStoredMessage(item: any): ChatMessage[] {
   const role = item?.role === "user" || item?.role === "assistant" ? item.role : "";
-  const content = String(item?.content || "").trim().slice(0, 12000);
+  const content = String(item?.content || "").trim().slice(0, MAX_STORED_MESSAGE_CHARS);
   if (!role || !content) return [];
   const sources = Array.isArray(item.sources)
     ? item.sources.slice(0, 20).flatMap((source: any) => {
@@ -1538,14 +1541,22 @@ function persistChatState(state: VikiChatState) {
         .filter((item) => item.id !== active?.id)
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     ].slice(0, MAX_CONVERSATIONS);
-    const compact = ordered.map((item) => ({
-      ...item,
-      messages: item.messages.slice(-MAX_MESSAGES_PER_CONVERSATION).map((message) => ({
-        ...message,
-        content: message.content.slice(0, 12000),
-        images: message.images?.map(({ path, caption, afterBlock, type }) => ({ path, caption, afterBlock, type }))
-      }))
-    }));
+    let remaining = CHAT_STORAGE_CHAR_LIMIT;
+    const compact = ordered.flatMap((item) => {
+      const messages: ChatMessage[] = [];
+      for (const message of item.messages.slice(-MAX_MESSAGES_PER_CONVERSATION).reverse()) {
+        if (remaining <= 0) break;
+        const content = message.content.slice(0, Math.min(MAX_STORED_MESSAGE_CHARS, remaining));
+        if (!content) continue;
+        remaining -= content.length;
+        messages.unshift({
+          ...message,
+          content,
+          images: message.images?.map(({ path, caption, afterBlock, type }) => ({ path, caption, afterBlock, type }))
+        });
+      }
+      return messages.length || item.id === state.activeId ? [{ ...item, messages }] : [];
+    });
     window.localStorage.setItem(CHAT_STATE_KEY, JSON.stringify({ activeId: state.activeId, conversations: compact }));
   } catch {
     // Conversation history is helpful but must never block Viki itself.
@@ -1822,7 +1833,23 @@ function clamp(value: number, minimum: number, maximum: number) {
 }
 
 function markdownBlocks(content: string) {
-  return content.replace(/\r\n/g, "\n").split(/\n{2,}/).filter(Boolean);
+  const blocks: string[] = [];
+  let current: string[] = [];
+  let fence = "";
+  const flush = () => {
+    const block = current.join("\n").trim();
+    if (block) blocks.push(block);
+    current = [];
+  };
+  for (const line of content.replace(/\r\n/g, "\n").split("\n")) {
+    const marker = line.match(/^\s*(`{3,}|~{3,})/u)?.[1] || "";
+    if (!fence && marker) fence = marker;
+    else if (fence && marker && marker[0] === fence[0] && marker.length >= fence.length) fence = "";
+    if (!fence && !line.trim()) flush();
+    else current.push(line);
+  }
+  flush();
+  return blocks;
 }
 
 function lastMarkdownBlockIndex(content: string) {

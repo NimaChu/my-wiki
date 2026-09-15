@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import JSZip from "jszip";
 import { fetch as undiciFetch, ProxyAgent } from "undici";
 import { createLocalAgentRunner } from "./agent-service.mjs";
-import { createAnswerStream } from "./answer-stream.mjs";
+import { ANSWER_STREAM_MAX_TEXT, createAnswerStream } from "./answer-stream.mjs";
 import { createVikiApiRunner } from "./viki-api-agent.mjs";
 import { createVikiRetrieval } from "./viki-retrieval.mjs";
 import { createVikiContext } from "./viki-context.mjs";
@@ -1233,7 +1233,7 @@ export function createDashboardApi({
               model,
               vault: scopedWorkspace.vault,
               mode: "query",
-              prompt: answerPrompt(scopedWorkspace.vault, question, history, language, webSearch, galaxyScope),
+              prompt: answerPrompt(scopedWorkspace.vault, question, history, language, webSearch, galaxyScope, requestedProvider === "deepseek-api" ? "markdown" : "structured"),
               schema: answerSchema,
               question, history, retrieval, scopedQuery: true,
               allowWeb: webSearch,
@@ -1249,7 +1249,7 @@ export function createDashboardApi({
                   job.meta.performance.firstTextMs = Date.now() - Date.parse(job.createdAt);
                 }
                 job.answerStream.publish(event.type === "text"
-                  ? { type: "text", text: redactStreamingSecrets(String(event.text || "")).slice(0, 100000) }
+                  ? { type: "text", text: redactStreamingSecrets(String(event.text || "")).slice(0, ANSWER_STREAM_MAX_TEXT) }
                   : event);
               }
             });
@@ -2545,7 +2545,7 @@ Fix the reported OCR or Markdown defects in the Capture body. For KaTeX array wa
 After editing, reread every changed formula and check for the same defect pattern elsewhere in this Raw. The Dashboard service will run the deterministic gate after you return. Return only JSON matching the supplied schema. repairedIssues and remainingIssues should use concise page-and-line descriptions.`;
 }
 
-function answerPrompt(vault, question, history, language, allowWeb = false, galaxyScope = { all: true, names: [], conceptPaths: [] }) {
+function answerPrompt(vault, question, history, language, allowWeb = false, galaxyScope = { all: true, names: [], conceptPaths: [] }, outputMode = "structured") {
   const conversation = history.length > 0
     ? history.map((item) => `${item.role === "user" ? "User" : "Viki"}: ${item.content}`).join("\n\n")
     : "(no earlier conversation)";
@@ -2569,9 +2569,13 @@ ${conversation}
 Current question:
 ${question}
 
-Do not copy source-internal footnote markers such as [^source-abc123] into answerMarkdown. Put the corresponding document paths in the structured sources list instead.
+${outputMode === "markdown"
+    ? "Do not copy source-internal footnote markers such as [^source-abc123] or internal document paths into the answer; the application records inspected evidence separately."
+    : "Do not copy source-internal footnote markers such as [^source-abc123] into answerMarkdown. Put the corresponding document paths in the structured sources list instead."}
 
-Respond in ${language === "zh" ? "Chinese" : "English"}. Return only JSON matching the supplied schema. answerMarkdown should be a clear, concise Markdown answer and must not contain Markdown or HTML image tags. sources must contain the most useful evidence. For vault evidence, use type "vault" and a vault-relative concepts/ or references/sources/ Markdown path. ${allowWeb ? "For web evidence, use type \"web\" and put the exact public http(s) URL in path." : "Do not return web sources."} images should contain zero to three genuinely useful images; do not add decorative images or invent paths. For a vault image, set type "vault" and use an existing local path under references/assets/ or an image file under references/originals/. ${allowWeb ? "When web access found a directly relevant public image, set type \"web\" and use its exact public http(s) image URL; prefer stable original media URLs from the cited source, and do not return webpage URLs, thumbnails, tracking URLs, data URLs, or images whose reuse is unclear." : "Do not return web images."} For each image, set afterBlock to the zero-based answerMarkdown block index after which the image best supports the surrounding explanation. Markdown blocks are separated by blank lines; place each image immediately after the claim or section it illustrates rather than collecting images at the end.`;
+${outputMode === "markdown"
+    ? `Respond in ${language === "zh" ? "Chinese" : "English"} as clear, concise Markdown. Do not wrap the answer in JSON or include a sources/images metadata object. The application records evidence and images separately from the answer body. Do not copy internal source paths, source-footnote markers, tool syntax, or image tags into the answer. When the user asks you to create an SVG, put one complete SVG document in a fenced Markdown code block labelled svg so the application can render its safe preview.`
+    : `Respond in ${language === "zh" ? "Chinese" : "English"}. Return only JSON matching the supplied schema. answerMarkdown should be a clear, concise Markdown answer and must not contain Markdown or HTML image tags. When the user asks you to create an SVG, put one complete SVG document in a fenced Markdown code block labelled svg inside answerMarkdown so the application can render its safe preview. sources must contain the most useful evidence. For vault evidence, use type "vault" and a vault-relative concepts/ or references/sources/ Markdown path. ${allowWeb ? "For web evidence, use type \"web\" and put the exact public http(s) URL in path." : "Do not return web sources."} images should contain zero to three genuinely useful images; do not add decorative images or invent paths. For a vault image, set type "vault" and use an existing local path under references/assets/ or an image file under references/originals/. ${allowWeb ? "When web access found a directly relevant public image, set type \"web\" and use its exact public http(s) image URL; prefer stable original media URLs from the cited source, and do not return webpage URLs, thumbnails, tracking URLs, data URLs, or images whose reuse is unclear." : "Do not return web images."} For each image, set afterBlock to the zero-based answerMarkdown block index after which the image best supports the surrounding explanation. Markdown blocks are separated by blank lines; place each image immediately after the claim or section it illustrates rather than collecting images at the end.`}`;
 }
 
 async function resolveVikiGalaxyScope(dashboardRoot, vault, requested, { allowHidden = false } = {}) {
@@ -2832,7 +2836,7 @@ function lintIssueCount(lint = {}) {
 }
 
 async function normalizeAnswerResult(value) {
-  const rawAnswerMarkdown = stripDanglingSourceFootnotes(redactSecrets(String(value?.answerMarkdown || "")).trim().slice(0, 100000));
+  const rawAnswerMarkdown = stripDanglingSourceFootnotes(redactSecrets(String(value?.answerMarkdown || "")).trim().slice(0, ANSWER_STREAM_MAX_TEXT));
   const normalizedMarkdown = extractAnswerMarkdownImages(rawAnswerMarkdown);
   const answerMarkdown = normalizedMarkdown.answerMarkdown;
   const lastBlock = Math.max(0, answerMarkdown.split(/\r?\n\s*\r?\n/).filter(Boolean).length - 1);

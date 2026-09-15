@@ -28,13 +28,16 @@ async function contextKey(vault) {
   return keys.get(root);
 }
 
-export async function createVikiContext({ vault, conversationId, names, allowedPaths, webSearch }) {
+export async function createVikiContext({ vault, conversationId, names = [], allowedPaths = [], webSearch = false }) {
   const key = await contextKey(vault);
-  const scope = createHash("sha256").update(JSON.stringify({
+  const signature = (question, answer) => createHmac("sha256", key)
+    .update(JSON.stringify([2, conversationId, contextText(question), contextText(answer)]))
+    .digest("hex");
+  const legacyScope = createHash("sha256").update(JSON.stringify({
     names: [...names].sort(), paths: [...allowedPaths].sort(), webSearch: !!webSearch
   })).digest("hex");
-  const signature = (question, answer) => createHmac("sha256", key)
-    .update(JSON.stringify([1, conversationId, scope, contextText(question), contextText(answer)]))
+  const legacySignature = (question, answer) => createHmac("sha256", key)
+    .update(JSON.stringify([1, conversationId, legacyScope, contextText(question), contextText(answer)]))
     .digest("hex");
   return {
     receipt(question, answer) {
@@ -46,8 +49,10 @@ export async function createVikiContext({ vault, conversationId, names, allowedP
         const receipt = item?.contextReceipt;
         if (item?.role !== "assistant" || item.contextExcluded || !receipt
           || typeof receipt.question !== "string" || !/^[a-f0-9]{64}$/.test(receipt.signature || "")) return [];
-        const expected = signature(receipt.question, item.content);
-        if (!timingSafeEqual(Buffer.from(receipt.signature, "hex"), Buffer.from(expected, "hex"))) return [];
+        const supplied = Buffer.from(receipt.signature, "hex");
+        const current = Buffer.from(signature(receipt.question, item.content), "hex");
+        const legacy = Buffer.from(legacySignature(receipt.question, item.content), "hex");
+        if (!timingSafeEqual(supplied, current) && !timingSafeEqual(supplied, legacy)) return [];
         return [{ role: "user", content: contextText(receipt.question) },
           { role: "assistant", content: contextText(item.content) }];
       }).slice(-8);
